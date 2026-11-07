@@ -21,6 +21,7 @@ pub(crate) struct WatchdogParts {
     volume_registry: Arc<Mutex<VolumeRegistry>>,
     render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
     last_drawn: Arc<Mutex<HashMap<String, Instant>>>,
+    residency: Arc<Residency>,
 }
 
 /// One watchdog pass: release leases that are stale and return their layer ids.
@@ -32,7 +33,9 @@ pub(crate) struct WatchdogParts {
 /// claim, N34), and a layer of a volume an open document references (a
 /// segmentation session's reference, secondary or frozen frame: its native
 /// view draws it on demand, so a tab left behind for longer than the stale
-/// age must not come back to a re-upload, QA r0 2026-11-02).
+/// age must not come back to a re-upload, QA r0 2026-11-02). Under a backend
+/// owner (R5c) a layer any frame lists, drawn, held or pinned, is never
+/// released either: the sweep only takes what no frame demands.
 pub(crate) async fn layer_watchdog_sweep(
     parts: &WatchdogParts,
     stale_age: Duration,
@@ -76,6 +79,19 @@ pub(crate) async fn layer_watchdog_sweep(
             .collect()
     };
     let last_drawn_snapshot: HashMap<String, Instant> = parts.last_drawn.lock().await.clone();
+    // Layer and volume ids some frame lists (R5c).
+    let demanded: HashSet<String> = if parts.residency.backend_owner() {
+        let residency = parts.residency.state.lock().await;
+        residency
+            .ledger
+            .frames()
+            .into_iter()
+            .flat_map(|(_, demand)| demand.layers.iter().chain(&demand.held))
+            .flat_map(|layer| [layer.layer_id.clone(), layer.volume_id.clone()])
+            .collect()
+    } else {
+        HashSet::new()
+    };
     let leases_snapshot: Vec<(String, Arc<LayerLease>)> = {
         let guard = parts.leases.lock().await;
         guard
@@ -98,6 +114,13 @@ pub(crate) async fn layer_watchdog_sweep(
         if layer_volumes_snapshot
             .get(&layer_id)
             .is_some_and(|volume_id| document_volumes.contains(volume_id))
+        {
+            continue;
+        }
+        if demanded.contains(&layer_id)
+            || layer_volumes_snapshot
+                .get(&layer_id)
+                .is_some_and(|volume_id| demanded.contains(volume_id))
         {
             continue;
         }
@@ -169,6 +192,7 @@ impl BridgeState {
             volume_registry: Arc::clone(&self.volume_registry),
             render_loop_service: Arc::clone(&self.render_loop_service),
             last_drawn: Arc::clone(&self.layer_last_drawn),
+            residency: Arc::clone(&self.residency),
         }
     }
 

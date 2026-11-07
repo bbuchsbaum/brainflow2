@@ -14,6 +14,7 @@ import { getLayerService } from './LayerService';
 import { layerEvictionService } from './LayerEvictionService';
 import { gpuTextureSlotsFullLimit, gpuTextureSlotsFullMessage } from '@/utils/formatTauriError';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
+import { backendOwnsResidency } from '@/stores/residencyStore';
 
 /**
  * The backend's stale-lease watchdog released a layer's GPU resources: mark
@@ -57,6 +58,9 @@ async function restoreLayer(id: string, isCurrent: () => boolean): Promise<boole
 
 /** Re-upload the front workspace's evicted visible layers, one at a time. */
 export async function ensureFrontWorkspaceResident(isCurrent: () => boolean): Promise<void> {
+  // A backend owner (R5c) uploads the front tab's layers when its demand
+  // arrives.
+  if (backendOwnsResidency()) return;
   for (const id of layerEvictionService.evictedFrontLayers()) {
     if (!isCurrent()) return;
     // Every later layer would meet the same full GPU.
@@ -70,6 +74,7 @@ export async function ensureFrontWorkspaceResident(isCurrent: () => boolean): Pr
  * again; otherwise it waits for its tab.
  */
 export async function restoreIfFrontVisible(layerId: string): Promise<void> {
+  if (backendOwnsResidency()) return;
   if (!layerEvictionService.evictedFrontLayers().includes(layerId)) return;
   const key = useViewStateStore.getState().activeWorkspaceKey;
   await restoreLayer(layerId, () => useViewStateStore.getState().activeWorkspaceKey === key);

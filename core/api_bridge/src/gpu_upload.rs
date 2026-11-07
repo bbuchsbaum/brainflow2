@@ -13,12 +13,58 @@ pub(crate) async fn request_layer_gpu_resources_with_upload_hook(
     let uploads = !metadata_only.unwrap_or(false);
     let LayerSpec::Volume(spec) = &layer_spec;
     let ids = (spec.id.clone(), spec.source_resource_id.clone());
-    let result =
+    let backend_owner = uploads && bridge_state.residency.backend_owner();
+    // A backend owner (R5c) resolves a budget refusal itself, so the request
+    // may run again (its hook only with the first).
+    let retry_spec = backend_owner.then(|| layer_spec.clone());
+    let mut result =
         request_layer_gpu_resources_locked(layer_spec, metadata_only, bridge_state, after_upload)
             .await;
+    if let Some(spec) = retry_spec {
+        // Evict the policy's next victim and ask again, one at a time, until
+        // the upload fits or nothing more may go. The skip marks stay until
+        // the upload ends, so no frame takes the room first.
+        while let Err(BridgeError::GpuBudgetExceeded {
+            requested_bytes,
+            used_bytes,
+            budget_bytes,
+            ..
+        }) = result
+        {
+            let room = admit(
+                bridge_state,
+                AdmitTarget::RoomFor {
+                    layer_id: ids.0.clone(),
+                    volume_id: ids.1.clone(),
+                    needed_bytes: requested_bytes
+                        .saturating_sub(budget_bytes.saturating_sub(used_bytes)),
+                },
+            )
+            .await;
+            if room.evicted == 0 {
+                break;
+            }
+            result = request_layer_gpu_resources_locked(
+                spec.clone(),
+                metadata_only,
+                bridge_state,
+                || Ok(()),
+            )
+            .await;
+        }
+    }
+    // Under a backend owner a request that succeeds clears the layer's
+    // recorded refusal (`note_request` does that otherwise).
+    if backend_owner && result.is_ok() {
+        let mut residency = bridge_state.residency.state.lock().await;
+        if residency.shadow.refusals.remove(&ids.0).is_some() {
+            residency.changed();
+        }
+    }
     // Shadow comparison (R5b): a typed refusal opens an episode, the outcome
-    // of the layer's later request closes it.
-    if uploads {
+    // of the layer's later request closes it. A backend owner has no UI
+    // evictions to compare.
+    if uploads && !backend_owner {
         note_request(bridge_state, &ids.0, &ids.1, &result).await;
     }
     // The UI made room for this upload without letting frames retry starved
@@ -37,6 +83,18 @@ pub(crate) async fn request_layer_gpu_resources_locked(
     after_upload: impl FnOnce() -> BridgeResult<()> + Send + 'static,
 ) -> BridgeResult<VolumeLayerGpuInfo> {
     let _operation = bridge_state.volume_operations.lock().await;
+    request_layer_gpu_resources_held(layer_spec, metadata_only, bridge_state, after_upload).await
+}
+
+/// [`request_layer_gpu_resources_locked`] for a caller that already holds
+/// `volume_operations`: the residency executor (R5c), which evicts and
+/// uploads in one pass under that lock.
+pub(crate) async fn request_layer_gpu_resources_held(
+    layer_spec: LayerSpec,
+    metadata_only: Option<bool>,
+    bridge_state: &BridgeState,
+    after_upload: impl FnOnce() -> BridgeResult<()> + Send + 'static,
+) -> BridgeResult<VolumeLayerGpuInfo> {
     let state = bridge_state;
     // Update return type
     info!(
@@ -821,6 +879,17 @@ pub(crate) async fn try_resident_swap(
         return Ok(None);
     }
 
+    // Under the backend owner with a byte budget, the ring draws from the
+    // global pool (R5d): no fixed member cap, growth bounded by headroom and
+    // the ring's share of the slack. Demand is read before the ring lock.
+    let pool = if bridge_state.residency.backend_owner()
+        && service.residency_metrics().budget_bytes.is_some()
+    {
+        Some(pool_demand(bridge_state, service).await)
+    } else {
+        None
+    };
+
     let mut sets = bridge_state.resident_image_sets.lock().await;
 
     if !sets.contains_key(layer_id) {
@@ -851,23 +920,40 @@ pub(crate) async fn try_resident_swap(
             return Ok(None);
         }
         let seed_slot = current;
+        let (max_slots, budget_bytes) = if pool.is_some() {
+            (usize::MAX, u64::MAX)
+        } else {
+            (RESIDENT_RING_MAX_SLOTS, RESIDENT_RING_BUDGET_BYTES)
+        };
         let resident = image_set::ResidentImageSet::new(
             Box::new(set),
             seed_member,
             seed_slot,
-            RESIDENT_RING_MAX_SLOTS,
-            RESIDENT_RING_BUDGET_BYTES,
+            max_slots,
+            budget_bytes,
             preserve_labels,
         );
         sets.insert(layer_id.to_string(), resident);
     }
 
+    let growth = pool
+        .as_ref()
+        .and_then(|demand| ring_growth(layer_id, demand, &sets, service));
+    // The other front rings give back what is past the share (R5d).
+    if let (Some(demand), Some(growth)) = (pool.as_ref(), growth) {
+        trim_front_rings(layer_id, demand, growth.share, &mut sets, service);
+    }
+
     // Phase 1: make the requested member resident (may upload once on a miss).
+    // A miss uploads the new member into a fresh texture while the shown one
+    // stays resident, or, with no room to grow, overwrites the ring's least
+    // recently used member in place: never a release before the upload.
     let outcome = {
         let resident = sets.get_mut(layer_id).expect("resident set inserted above");
         if requested_member >= resident.member_count() {
             return Ok(None);
         }
+        resident.set_growth(growth);
         resident.ensure_member(requested_member, service)?
     };
     // The residency the layer will show; the ring recorded it with the upload
@@ -928,6 +1014,11 @@ pub(crate) async fn try_resident_swap(
     {
         let resident = sets.get_mut(layer_id).expect("resident set present");
         resident.current_member = requested_member;
+        // A ring past its share of the slack gives the rest back (R5d), so
+        // the first ring to prefetch does not keep the others' share.
+        if let Some(growth) = growth {
+            resident.trim_cached_to(growth.share, service);
+        }
         if let Err(e) =
             resident.prefetch_around(requested_member, RESIDENT_RING_PREFETCH_RADIUS, service)
         {

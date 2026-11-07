@@ -417,3 +417,119 @@ No 6001/6021 and no error lines in the log. `benign_lru` comes mostly from the 1
 - **QA note.** With Stage Manager on, background clicks cannot reach the app once it is a side tile; the run used full-screen control. Under Node 26, vitest needs `NODE_OPTIONS=--no-experimental-webstorage`.
 
 **Gates at `182af4bb`:** `cargo test -p api-bridge -p render_loop` 947 passed, 0 failed (Metal); vitest 544 files, 4,364 passed; clippy on `api-bridge` shows only the existing ts-rs serde-attribute warnings.
+
+## 11. R5c design notes — 2026-11-07
+
+Branch `feat/r5c-backend-residency`, stacked on R5b (#48). Everything here is behind `BRAINFLOW_BACKEND_RESIDENCY`. With the flag off, behaviour is R5b's.
+
+**Flag.** `config::backend_residency_enabled()` reads `BRAINFLOW_BACKEND_RESIDENCY` once (`1`, `true` or `on`, any case). The report's `owner` is `backend` under it.
+
+**One executor: `manager::admit`.**
+- It holds `volume_operations` for the whole pass. The upload and release it calls are `_held` variants: `request_layer_gpu_resources_locked` is split into the lock plus `request_layer_gpu_resources_held`, as release already is.
+- For each Front frame, and then for the requesting layer (`Request::Layer`), it plans from a fresh snapshot. The residency lock is held only while planning, never across an await on the service.
+- It runs the evictions in order:
+  - a layer through `release_layer_gpu_resources_held`;
+  - a cached 4D member through a new `ResidentImageSet::release_cached_member`.
+- Then it runs the uploads in order through `ensure`. A live residency counts as success, not 1006.
+- If an upload is still refused (6008), because the estimate was off, it re-plans and retries, bounded by the number of residents.
+- Refusals are recorded with their reason, so the report shows them; admission clears them. The executor then marks residency changed.
+
+**Triggers.**
+- `set_residency_demand` (or `clear`) applied under the flag runs `admit` before returning. The publisher sends within 16 ms of a tab switch, so the new front tab's layers upload without a UI front-restore pass.
+- `request_layer_gpu_resources` refused with 6008 under the flag runs `admit` for that layer, then retries once. The UI no longer retries.
+- The render path's `AllocationFailed` skip under the flag sets `admission_wanted`. The residency tick runs `admit` when that is set and no admission is running. The render path never evicts.
+
+**Watchdog.** Under the flag it releases only layers that are stale and also undemanded and unpinned in the ledger.
+
+**UI, when the report's `owner` is `backend`.**
+- `LayerGpuService` does not call `retryBudgetUpload`; a 6008 is final, since the backend has already tried.
+- `makeRoomForUpload` returns true, `startFrontWorkspaceResidency` is skipped, and `AtlasPressureMonitor` does not evict.
+- `residencyStore` syncs each layer's `gpuResident` from the report: resident is true, evicted or refused is false. This closes the untracked-residents gap from §10, because the UI no longer decides evictions from its own metadata.
+- A refusal raises one alert per frame epoch and puts a badge on the layer row.
+
+**Tests:** §3's list, plus `closed_tab_layers_go_first_and_free_room_for_a_new_upload`, covering the §10 finding.
+
+### R5c record — 2026-11-07
+
+Commits: `b73c2921` (these notes) through `b24739d2`, on `feat/r5c-backend-residency`, stacked on R5b (#48).
+
+**What changed from the design above.**
+- **Lazy eviction** (`residency/admit.rs`). The policy sizes a texture not yet uploaded by an upper bound: an f32 volume often fits R16Float, and the fixtures show 1 KiB and 2 KiB textures for the same payload. Following the plan's eviction list as written therefore evicted, and refused, too much. The executor instead:
+  - tries each upload, including layers the policy refused for size alone (FrontExceedsBudget, HeldByPinned);
+  - on a budget refusal, evicts the next victim (the plan's, then the other allowed candidates) and tries again;
+  - evicts nothing unless the victims left could free the refusal's own shortfall;
+  - re-checks each victim against the demand current when it evicts.
+  
+  A UI request refused for budget is handled the same way, one victim at a time.
+- **Remembered sizes.** Snapshots remember each uploaded volume's real texture size and use it after eviction. This applies under the owner only.
+- **Owner per bridge.** The switch lives on `Residency`, read from the flag and settable in tests. `get_residency_state` answers before the renderer starts, with the owner and no layers.
+- **Refusals.** They are dropped once no front tab lists the layer, and cleared when the layer's own request succeeds.
+- **UI** (when the owner is `backend`):
+  - no UI eviction, room-making, front restore or pressure eviction;
+  - a budget refusal is final;
+  - `gpuResident` follows the report;
+  - one alert per tab and reason, naming the layers;
+  - rows show "not drawn: <reason>".
+
+**Review (fresh context).** Fixed: mass eviction for an upload no room can fix, stale victims during a long admission, the startup window before the first report, stale refusal reasons, and flag-off drift from remembered sizes. Not fixed, all low:
+- a report snapshot taken before an upload's mapping lands can flip `gpuResident` false for one tick;
+- the watchdog skips any layer whose volume a frame demands;
+- a size-refused layer that does upload is tried after the plan's admissions, so it can push a later one past the draw cap.
+
+**Gates.**
+- `cargo test -p api-bridge -p render_loop`: 960 passed, 0 failed (Metal).
+- Workspace clippy `-D warnings` and fmt are clean.
+- vitest: 545 files, 4,369 passed.
+- eslint on the touched files shows only the existing errors.
+- GPU tests: front demand evicts background then uploads; a studio pin survives a front switch; closed-tab layers go first and free room for a new request; a front tab over budget is refused without evicting the front; an upload no room can fix evicts nothing (it fails without the guard); 15 layers draw 13 and report two draw-cap refusals; with the flag off nothing is released; render pressure defers to the next tick and clears the skip; the watchdog skips demanded layers; a refusal is dropped once no front tab lists the layer; the owner is reported before the renderer starts.
+
+**Native check, flag on** (`BRAINFLOW_BACKEND_RESIDENCY=1`, 24 KiB budget, at `8cd8d2ea`):
+- **Step 3:** 30 layers in three tabs, no error. 14 evictions, all by the backend.
+- **Step 4:** rapid switches with slice changes. Every tab renders its own layers. The log has 244 backend evictions by the end and no 6001, 6021 or error lines.
+- **Step 5:** 16 layers in one tab draw 13. Layers past the cap show "not drawn: too many layers". The alert then repeated per layer and per return to the tab; this was fixed in `b24739d2`, which has unit tests but has not been rechecked natively.
+- **Step 6:** closing a tab leaves the other tabs rendering.
+- **Step 7:** the 6-frame series loads (it failed with "GPU residency budget exceeded" in the R5b run), steps 1→6→1, and keeps frame 3 across a tab switch.
+- **Step 8:** segmentation on r4-1-01: paint, undo, redo and slice stepping work, and the label survives tab switches. ⌥-scroll was not tested (the tools could not send the modifier). The editable label sits past tab 1's cap in that tab's own views, so it is alerted as not drawn there; the segment views draw it.
+- **Step 9:** discard removes the label layer and releases the session's textures; the other tab renders.
+- **Open:** a segmentation started on the 4D series stayed at "Preparing the loaded reference…" with no bridge activity. This is not yet checked against R5b, so it may predate R5c.
+
+**Next.** R5d (rings from the global pool), then R6. Before R6 deletes the UI path, the flag-on native check should be repeated once at the merged state.
+
+### R5d record — 2026-11-07
+
+Commits `b711b2e2`, `5bbfa56a` and `7e294ca7`, on `feat/r5d-ring-pool`, stacked on R5c.
+
+**What it does.** Under the owner with a byte budget (`residency/ring_pool.rs`):
+- **No fixed cap.** A 4D ring has no six-member cap and no per-ring budget.
+- **Growth.** A ring takes one more texture, for the requested member or a prefetch, only while both of these hold:
+  - the free bytes after it stay at or above the headroom: the larger of the largest demanded primary and 5% of the budget;
+  - its cached members stay within its share.
+- **Share.** The share is the Front rings' slack (free bytes plus what their cached members hold, less the headroom), divided equally among them.
+- **Rebalancing.** Each swap trims the other Front rings back to the share. The swapping ring is trimmed too, once its new member is shown.
+- **Shrink.** Rings that only unpinned Background frames demand are shrunk to their displayed member whenever demand changes.
+
+**Design changes.**
+- **What counts as front.** A pinned layer (a studio pane, drawn though its frame is Background) and a layer no frame lists yet count as front. "Front" therefore means "not behind" rather than "listed by a Front frame".
+- **Trim order.** Trimming frees the cached member farthest from the displayed one. LRU would take the member just shown, because prefetched neighbours are touched after it.
+- **Allocate before release.** No release happens on a member change. A miss either uploads the new member into a fresh texture, with the old one still resident, or, with no room to grow, overwrites the ring's own least recently used texture in place.
+- **Unchanged paths.** The legacy release-then-re-upload path stays only for the fallback cases: the ring disabled, a 3-D volume, or a repoint failure.
+- **Closing a tab.** It asks for an admission on the next tick.
+
+**Review (fresh context).** It found no lock-order problem, no flag-off change and no path that frees a displayed member. Its findings:
+- Fixed: rings did not really share the slack (a ring gave back its excess only on its own swap); pinned and unlisted layers were treated as behind; the trim freed the member just shown; closing a tab did not admit.
+- Not fixed, test-only: a ring keeps the mode it was created in if the owner flips at runtime. The flag is read once.
+
+**Gates.**
+- `cargo test -p api-bridge -p render_loop`: 966 passed, 0 failed.
+- Clippy `-D warnings` and fmt are clean.
+- The UI is unchanged.
+- New tests: `prefetch_stops_at_headroom`, `front_rings_share_slack` (static: `a` never swaps again), `background_ring_shrinks_to_displayed_member` (with a pinned studio pane that keeps its ring), `displayed_member_never_reclaimed`, `member_swap_allocates_before_release` (both branches), and `growth_keeps_headroom_and_the_share`.
+- Each R5d test except `displayed_member_never_reclaimed` was mutation-checked: removing the growth gate, the shrink, the cross-ring trim or the pin rule makes it fail.
+
+**Native check, flag on** (24 KiB budget, at `7e294ca7`):
+- Step 7: the 6-frame series loads and steps 1→6→1, ten timepoint changes in all.
+- Frame 1 reads the same value at the crosshair as at load.
+- The log has no warnings or errors and no "Re-uploading 4D" line. Its only extraction is the initial load, so every step was a ring swap.
+- **Not checked:** the switch away and back (opening a second tab needs full-screen control, which timed out); the Diagnostics byte count (a pop-up the background tools cannot open). Both should be part of the repeat native check before R6.
+
+**Next.** R6. First repeat the flag-on native check (§8) at the merged state, including the tab switch with a 4D tab and the R5c alert fix.

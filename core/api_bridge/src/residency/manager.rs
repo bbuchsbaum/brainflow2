@@ -17,6 +17,8 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::admit::{admit, AdmitTarget};
+use super::config::backend_residency_enabled;
 use super::demand::{
     DemandLedger, DemandedLayer, Epoch, FrameDemand, FrameId, LedgerOutcome, Millis, PinReason,
     Priority,
@@ -25,6 +27,7 @@ use super::policy::{
     draw_set, residency_key, CachedMember, Capacity, Refusal, ResidencyFacts, ResidentFacts,
     TextureBackend,
 };
+use super::ring_pool::shrink_background_rings;
 use super::shadow::ShadowLedger;
 use crate::*;
 
@@ -174,6 +177,16 @@ pub struct ResidencyReport {
 pub(crate) struct Residency {
     origin: Instant,
     pub(crate) state: Mutex<ResidencyState>,
+    /// A frame failed to allocate a layer's texture: the backend owner (R5c)
+    /// runs an admission on its next tick.
+    admission_wanted: std::sync::atomic::AtomicBool,
+    /// Whether the backend owns admission and eviction (R5c): the
+    /// `BRAINFLOW_BACKEND_RESIDENCY` flag, per bridge so tests can set it.
+    backend_owner: std::sync::atomic::AtomicBool,
+    /// Texture bytes a volume's upload really took, kept after eviction. The
+    /// per-type estimate is an upper bound (an f32 volume often fits
+    /// R16Float); planning a re-upload with it refuses or evicts too much.
+    texture_bytes: std::sync::Mutex<HashMap<String, u64>>,
 }
 
 pub(crate) struct ResidencyState {
@@ -205,7 +218,53 @@ impl Residency {
                 last_body: None,
                 shadow: ShadowLedger::default(),
             }),
+            admission_wanted: std::sync::atomic::AtomicBool::new(false),
+            backend_owner: std::sync::atomic::AtomicBool::new(backend_residency_enabled()),
+            texture_bytes: std::sync::Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Whether the backend owns admission and eviction (R5c).
+    pub(crate) fn backend_owner(&self) -> bool {
+        self.backend_owner
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Make the backend the owner, or not: tests, which cannot set the flag
+    /// per bridge through the environment.
+    #[cfg(test)]
+    pub(crate) fn set_backend_owner(&self, owner: bool) {
+        self.backend_owner
+            .store(owner, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Texture bytes earlier uploads took, by volume id (R5d's headroom).
+    pub(crate) fn known_texture_bytes(&self) -> HashMap<String, u64> {
+        self.texture_bytes
+            .lock()
+            .map(|known| known.clone())
+            .unwrap_or_default()
+    }
+
+    /// Who owns eviction, for the report.
+    pub(crate) fn owner(&self) -> ResidencyOwner {
+        if self.backend_owner() {
+            ResidencyOwner::Backend
+        } else {
+            ResidencyOwner::Ui
+        }
+    }
+
+    /// Ask for an admission on the next residency tick (R5c).
+    pub(crate) fn want_admission(&self) {
+        self.admission_wanted
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Take the request made by [`Self::want_admission`], if any.
+    fn take_admission_request(&self) -> bool {
+        self.admission_wanted
+            .swap(false, std::sync::atomic::Ordering::AcqRel)
     }
 
     /// Milliseconds since the bridge started: the policy's clock.
@@ -393,6 +452,20 @@ pub(crate) async fn snapshot(
         );
     }
 
+    // Sizes seen on earlier uploads beat the per-type estimate (R5c only:
+    // with the flag off, planning is R5b's).
+    if let Some(known) = residency
+        .backend_owner()
+        .then(|| residency.texture_bytes.lock().ok())
+        .flatten()
+    {
+        for (volume_id, &bytes) in known.iter() {
+            if let Some(estimate) = volume_bytes.get_mut(volume_id) {
+                *estimate = bytes;
+            }
+        }
+    }
+
     let mut residents = Vec::new();
     for (key, handle) in layer_map.iter() {
         if !service.is_slot_current(handle) {
@@ -404,10 +477,14 @@ pub(crate) async fn snapshot(
                 .multi_texture_manager
                 .as_ref()
                 .map_or(0, |manager| manager.mask_bytes(handle.index()));
-        // The real size beats the estimate for a volume that is resident.
+        // The real size beats the estimate for a volume that is resident, and
+        // is remembered for when it is not.
         if let Some(volume_id) = layer_volumes.get(key) {
             if !time_series_volumes.contains(volume_id) {
                 volume_bytes.insert(volume_id.clone(), bytes);
+                if let Ok(mut known) = residency.texture_bytes.lock() {
+                    known.insert(volume_id.clone(), bytes);
+                }
             }
         }
         residents.push(ResidentFacts {
@@ -440,6 +517,7 @@ pub(crate) async fn snapshot(
 /// typed refusals per layer (cleared when the layer is admitted).
 pub(crate) fn build_report(
     seq: u64,
+    owner: ResidencyOwner,
     snapshot: &Snapshot,
     ledger: &DemandLedger,
     refusals: &HashMap<String, Refusal>,
@@ -532,7 +610,7 @@ pub(crate) fn build_report(
 
     ResidencyReport {
         seq,
-        owner: ResidencyOwner::Ui,
+        owner,
         budget_bytes: snapshot.budget_bytes,
         used_bytes: snapshot.used_bytes,
         binding_capacity: facts.binding_capacity as u32,
@@ -555,9 +633,15 @@ pub(crate) async fn set_residency_demand_with(
             .lock()
             .await
             .set_demand(FrameId::new(frame_id), demand, now);
-    ResidencyDemandResult {
-        applied: outcome == LedgerOutcome::Applied,
+    let applied = outcome == LedgerOutcome::Applied;
+    // The backend owner (R5c) admits for the new demand before answering, so
+    // a tab switch uploads the new front tab's layers without a UI pass. A
+    // ring the switch moved behind gives back its cached members first (R5d).
+    if applied && state.residency.backend_owner() {
+        shrink_background_rings(state).await;
+        admit(state, AdmitTarget::Fronts).await;
     }
+    ResidencyDemandResult { applied }
 }
 
 /// `clear_residency_demand`: the frame is gone (its tab closed). Its layers
@@ -573,9 +657,15 @@ pub(crate) async fn clear_residency_demand_with(
         .lock()
         .await
         .clear_demand(&FrameId::new(frame_id), epoch);
-    ResidencyDemandResult {
-        applied: outcome == LedgerOutcome::Applied,
+    let applied = outcome == LedgerOutcome::Applied;
+    // Under the owner, rings only behind tabs now keep just their displayed
+    // members (R5d), and the next tick admits for the fronts: a layer skipped
+    // for want of room is drawn once the room is there.
+    if applied && state.residency.backend_owner() {
+        shrink_background_rings(state).await;
+        state.residency.want_admission();
     }
+    ResidencyDemandResult { applied }
 }
 
 /// The current service, cloned out of its slot.
@@ -622,7 +712,13 @@ async fn report(state: &BridgeState, wait: bool, only_if_changed: bool) -> Optio
     // gets the higher `seq`.
     let mut residency = state.residency.state.lock().await;
     residency.reported = Some(key);
-    let mut report = build_report(0, &snap, &residency.ledger, &residency.shadow.refusals);
+    let mut report = build_report(
+        0,
+        state.residency.owner(),
+        &snap,
+        &residency.ledger,
+        &residency.shadow.refusals,
+    );
     if only_if_changed && residency.last_body.as_ref() == Some(&report) {
         return None;
     }
@@ -635,14 +731,23 @@ async fn report(state: &BridgeState, wait: bool, only_if_changed: bool) -> Optio
 }
 
 /// The report for `get_residency_state`.
+/// Before the renderer starts there is nothing resident, but the owner is
+/// known: the UI must learn it before it would evict (R5c), so it gets an
+/// empty report numbered with the last `seq` (any real report supersedes it).
 pub(crate) async fn residency_state_report(state: &BridgeState) -> BridgeResult<ResidencyReport> {
-    report(state, true, false)
-        .await
-        .ok_or_else(|| BridgeError::ServiceNotInitialized {
-            code: 5008,
-            details: "GPU rendering service is not initialized. Cannot report residency."
-                .to_string(),
-        })
+    if let Some(report) = report(state, true, false).await {
+        return Ok(report);
+    }
+    let seq = state.residency.state.lock().await.seq;
+    Ok(ResidencyReport {
+        seq,
+        owner: state.residency.owner(),
+        budget_bytes: None,
+        used_bytes: 0,
+        binding_capacity: 0,
+        undemanded_bytes: 0,
+        layers: Vec::new(),
+    })
 }
 
 /// One tick of the `residency-changed` emitter: a report when residency or
@@ -654,6 +759,11 @@ pub(crate) async fn residency_tick(state: &BridgeState) -> Option<ResidencyRepor
         let mut residency = state.residency.state.lock().await;
         let residency = &mut *residency;
         residency.shadow.expire(&residency.ledger, now);
+    }
+    // A frame could not allocate a layer's texture: make room for the front
+    // tabs (R5c). The render path never evicts; this is where it is decided.
+    if state.residency.backend_owner() && state.residency.take_admission_request() {
+        admit(state, AdmitTarget::Fronts).await;
     }
     report(state, false, true).await
 }
@@ -806,7 +916,7 @@ mod tests {
         let snap = snapshot_of(&[("a", 10), ("stray", 7)], 13);
         let mut refusals = HashMap::new();
         refusals.insert("gone".to_string(), Refusal::FrontExceedsBudget);
-        let report = build_report(4, &snap, &ledger, &refusals);
+        let report = build_report(4, ResidencyOwner::Ui, &snap, &ledger, &refusals);
         let json = serde_json::to_value(&report).unwrap();
 
         fn keys(value: &serde_json::Value, out: &mut Vec<String>) {
@@ -857,7 +967,7 @@ mod tests {
         );
         // Two bindings: `c` is resident but over the cap.
         let snap = snapshot_of(&[("a", 1), ("b", 1), ("c", 1)], 2);
-        let report = build_report(1, &snap, &ledger, &HashMap::new());
+        let report = build_report(1, ResidencyOwner::Ui, &snap, &ledger, &HashMap::new());
         assert_eq!(state_of(&report, "a"), ResidencyLayerState::Resident);
         let c = report.layers.iter().find(|l| l.layer_id == "c").unwrap();
         assert_eq!(c.state, ResidencyLayerState::Refused);
