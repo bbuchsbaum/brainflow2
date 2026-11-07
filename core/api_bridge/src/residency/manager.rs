@@ -17,6 +17,8 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::admit::{admit, AdmitTarget};
+use super::config::backend_residency_enabled;
 use super::demand::{
     DemandLedger, DemandedLayer, Epoch, FrameDemand, FrameId, LedgerOutcome, Millis, PinReason,
     Priority,
@@ -25,8 +27,6 @@ use super::policy::{
     draw_set, residency_key, CachedMember, Capacity, Refusal, ResidencyFacts, ResidentFacts,
     TextureBackend,
 };
-use super::admit::{admit, AdmitTarget};
-use super::config::backend_residency_enabled;
 use super::shadow::ShadowLedger;
 use crate::*;
 
