@@ -1,6 +1,6 @@
 # R5 implementation plan: backend residency owner
 
-**Status:** approved by the user with the §9 defaults (2026-11-06). R5a merged. R4 qualified 2026-11-06 (§0 closed). R5b implemented on `feat/r5b-residency-demand` (§10); its native shadow run is still open.
+**Status:** approved by the user with the §9 defaults (2026-11-06). R5a merged. R4 qualified 2026-11-06 (§0 closed). R5b implemented on `feat/r5b-residency-demand` (§10); its §4 native shadow run met the pass bar on 2026-11-07.
 
 **Parent plan:** `docs/plans/gpu-residency-implementation-2026-11.md`, R5 (§2) and gates (§3).
 **Design:** `docs/plans/gpu-residency-phase3-design-2026-11.md`, increments 1, 3, 4 and 5, applied to bytes.
@@ -384,8 +384,36 @@ Branch `feat/r5b-residency-demand`, from `main` at `a772fa8f`.
 Not fixed, for the shadow run to show or R5c to handle:
 - a 4D ring swap refused under pressure is still counted as bound by `draw_set` (rare: more than 13 layers under pressure);
 - only the UI side of `unsafe` is checked (a policy pick the UI protects is not flagged);
-- the §4 `expected:<rule>` classes are not implemented, so such cases read as `unexplained`;
 - UI releases not made for an upload (pressure monitor, front restore) are not recorded;
 - `refusals` are not pruned when a layer is removed.
 
-**Still open (exit):** the §4 shadow run: 30 native minutes with the flag off and a forced budget, at least 50 episodes, 0 `unsafe`, `drawcap_mismatch` or unexplained differences. R5c waits for it.
+### §4 shadow run — 2026-11-07 (exit met)
+
+**Setup.** Debug `.app` (`Brainflow R5 QA`) at `182af4bb`, flag off, `BRAINFLOW_GPU_RESIDENCY_BUDGET_BYTES=24576`, fixtures `fixtures-v2` (8×8×8; textures are 1 KiB or 2 KiB). One uninterrupted run, 15:47:13–16:17:13 UTC (30 min), §8 steps 3–7: 31 layers in three tabs (one file was added twice), rapid switches with slice changes, 16 visible in tab 1 (3 past the draw cap), tab 3 closed and a new view opened, the 4D load, then switching to the end.
+
+**Result: pass bar met.** 648 episodes:
+
+| verdict | n | share |
+|---|---|---|
+| `expected:undemanded` | 256 | 40% |
+| `expected:tie` | 145 | 22% |
+| `expected:draw_cap` | 91 | 14% |
+| `benign_lru` | 88 | 13.6% |
+| `agree` | 57 | 9% |
+| `expected:demand_lag` | 11 | 2% |
+| `unsafe`, `capacity_mismatch`, `unexplained`, `drawcap_mismatch` | 0 | |
+
+No 6001/6021 and no error lines in the log. `benign_lru` comes mostly from the 16-layer phase: layers past tab 1's cap are never drawn while it is in front, so the policy's real `last_drawn` puts them first, while the UI's `lastRenderTime` is touched for every visible layer (the clock difference §4 names).
+
+**Fixes the earlier runs forced** (`281080e5`, `0f06fc1d`, `182af4bb`):
+- Policy: one Background frame's layers go least recently drawn first.
+- Publisher: demand is sent at most 16 ms after the first change. The debounce restarted on every store change, so during an upload storm the UI evicted for the new front tab while the backend still held the old demand (7 `unsafe` in one run).
+- Verdicts: `expected:demand_lag` (a UI pick allowed by the demand current at close), `expected:draw_cap` (any frame's cap; a UI upload the policy refuses with DrawCap), `expected:undemanded` (residents no frame lists, §6). `benign_lru` compares the deepest tier reached and `expected:tie` the set of ordering classes: textures differ in size, so equal decisions can differ in count.
+- Unit tests for each rule, including the lag recheck and Background-frame caps.
+
+**Findings for R5c.**
+- **Untracked residents (UI, predates R5b).** The render path allocates textures on demand for drawable layers (`lib.rs` ~6892); the UI marks a layer resident only after its own upload (`LayerApiImpl.ts:147`). A texture the render path re-uploads after the UI evicted it stays resident unknown to the UI. Once its tab closes, nothing evicts it: in the run the closed tab's layers stayed resident (256 `expected:undemanded`), and opening `r4-time-series-6-frames.nii` failed with "GPU residency budget exceeded" while the UI found no victim (§8 step 7 could not be completed under this budget). Confirmed from the code and the logs, not reproduced on a `main` build. R5c's backend owner fixes this by construction; `cancelled_ticket_installs_as_undemanded` and an undemanded-first test should cover it.
+- **Size-aware tie-break.** Within one ordering class the policy breaks ties by key; preferring the larger texture would often need one eviction where it now needs two.
+- **QA note.** With Stage Manager on, background clicks cannot reach the app once it is a side tile; the run used full-screen control. Under Node 26, vitest needs `NODE_OPTIONS=--no-experimental-webstorage`.
+
+**Gates at `182af4bb`:** `cargo test -p api-bridge -p render_loop` 947 passed, 0 failed (Metal); vitest 544 files, 4,364 passed; clippy on `api-bridge` shows only the existing ts-rs serde-attribute warnings.
