@@ -16658,12 +16658,10 @@ async fn get_volume_native_plane(
     flips: [bool; 2],
     state: State<'_, BridgeState>,
 ) -> BridgeResult<neuro_types::ViewRectMm> {
-    let waiting = std::time::Instant::now();
-    let registry = state.volume_registry.lock().await;
-    let waited = waiting.elapsed();
-    if waited >= gpu_upload::SLOW_LOCK_WAIT {
-        warn!("Bridge: get_volume_native_plane for '{volume_id}' waited {waited:?} for the volume registry");
-    }
+    let registry = gpu_upload::lock_logging_slow_wait(&state.volume_registry, || {
+        format!("get_volume_native_plane for '{volume_id}' on the volume registry")
+    })
+    .await;
     let volume = registry.get(&volume_id).ok_or_else(|| BridgeError::Input {
         code: 12100,
         details: "Reference image is no longer loaded".into(),

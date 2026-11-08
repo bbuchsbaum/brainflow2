@@ -80,22 +80,41 @@ pub(crate) async fn request_layer_gpu_resources_with_upload_hook(
 /// no trace until it gets the lock.
 pub(crate) const SLOW_LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
 
+/// Locks `mutex`, logging a wait of [`SLOW_LOCK_WAIT`] or more. `describe`
+/// names the waiter and the lock; it runs only when the wait is logged.
+pub(crate) async fn lock_logging_slow_wait<'a, T>(
+    mutex: &'a Mutex<T>,
+    describe: impl FnOnce() -> String,
+) -> tokio::sync::MutexGuard<'a, T> {
+    let waiting = std::time::Instant::now();
+    let guard = mutex.lock().await;
+    log_slow_lock_wait(waiting.elapsed(), describe);
+    guard
+}
+
+/// Logs `waited` if it reaches [`SLOW_LOCK_WAIT`]; returns whether it did.
+fn log_slow_lock_wait(waited: std::time::Duration, describe: impl FnOnce() -> String) -> bool {
+    if waited < SLOW_LOCK_WAIT {
+        return false;
+    }
+    // Described outside warn!, whose arguments go unevaluated without a logger.
+    let waiter = describe();
+    warn!("Bridge: {waiter} waited {waited:?}");
+    true
+}
+
 pub(crate) async fn request_layer_gpu_resources_locked(
     layer_spec: LayerSpec,
     metadata_only: Option<bool>,
     bridge_state: &BridgeState,
     after_upload: impl FnOnce() -> BridgeResult<()> + Send + 'static,
 ) -> BridgeResult<VolumeLayerGpuInfo> {
-    let waiting = std::time::Instant::now();
-    let _operation = bridge_state.volume_operations.lock().await;
     // A request queued behind a long admission or upload leaves no other
     // trace: its "called" line comes only once it holds the lock.
-    let waited = waiting.elapsed();
-    if waited >= SLOW_LOCK_WAIT {
-        warn!(
-            "Bridge: request_layer_gpu_resources waited {waited:?} for volume operations: {layer_spec:?}"
-        );
-    }
+    let _operation = lock_logging_slow_wait(&bridge_state.volume_operations, || {
+        format!("request_layer_gpu_resources for volume operations: {layer_spec:?}")
+    })
+    .await;
     request_layer_gpu_resources_held(layer_spec, metadata_only, bridge_state, after_upload).await
 }
 
@@ -1428,6 +1447,57 @@ pub(crate) fn uploaded_gpu_format(
                 "Unsupported or missing uploaded texture format at slot {slot}: {format:?}"
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod slow_lock_wait_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn a_short_wait_is_not_logged_or_described() {
+        let logged = log_slow_lock_wait(Duration::from_millis(10), || {
+            panic!("describe must not run for a short wait")
+        });
+        assert!(!logged);
+    }
+
+    #[test]
+    fn a_wait_at_the_threshold_is_logged() {
+        let mut described = false;
+        let logged = log_slow_lock_wait(SLOW_LOCK_WAIT, || {
+            described = true;
+            "waiter".into()
+        });
+        assert!(logged);
+        assert!(described);
+    }
+
+    #[tokio::test]
+    async fn an_uncontended_lock_is_returned_without_describing() {
+        let mutex = Mutex::new(7);
+        let guard =
+            lock_logging_slow_wait(&mutex, || panic!("an uncontended lock is not slow")).await;
+        assert_eq!(*guard, 7);
+    }
+
+    #[tokio::test]
+    async fn a_lock_held_past_the_threshold_is_described() {
+        let mutex = std::sync::Arc::new(Mutex::new(()));
+        let held = mutex.clone().lock_owned().await;
+        let release = tokio::spawn(async move {
+            tokio::time::sleep(SLOW_LOCK_WAIT + Duration::from_millis(50)).await;
+            drop(held);
+        });
+        let described = std::sync::atomic::AtomicBool::new(false);
+        let _guard = lock_logging_slow_wait(&mutex, || {
+            described.store(true, std::sync::atomic::Ordering::SeqCst);
+            "waiter".into()
+        })
+        .await;
+        release.await.unwrap();
+        assert!(described.load(std::sync::atomic::Ordering::SeqCst));
     }
 }
 
