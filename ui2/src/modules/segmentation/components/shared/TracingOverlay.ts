@@ -30,8 +30,8 @@ export function nativeGridTransform(snapshot: SegmentationSnapshot, sliceIndex: 
 
 /** Every label fill: one constant alpha, so tissue still reads through. */
 export const LABEL_FILL_ALPHA = 0.3;
-/** The active label's outline on the slices before and after. */
-export const NEIGHBOUR_ALPHA = 0.22;
+/** The active label's outline on the slices before and after (label colour, no fill). */
+export const NEIGHBOUR_ALPHA = 0.6;
 
 /** The pointer in canvas px and the brush radius in canvas px. */
 export interface BrushHover { x: number; y: number; radiusPx: number }
@@ -76,8 +76,10 @@ export function drawTracingOverlay(ctx: CanvasRenderingContext2D, placement: Sli
   const groups = new Map<number, Voxel[]>();
   for (const [x, y, id] of voxels) { const cells = groups.get(id); if (cells) cells.push([x, y]); else groups.set(id, [[x, y]]); }
   // Neighbour slices first, under the labels: the active label's whole
-  // outline on the slice before and after, one faint neutral line, never dashed.
-  ctx.save(); ctx.strokeStyle = neutral; ctx.globalAlpha = NEIGHBOUR_ALPHA; ctx.lineWidth = 1; ctx.lineJoin = 'round';
+  // outline on the slice before and after, a thin translucent line in its own
+  // colour with no fill, never dashed. (A neutral line vanished on white matter.)
+  const activeRow = snapshot.labels.find((row) => row.definition.id === activeLabelId);
+  ctx.save(); ctx.strokeStyle = activeRow ? `rgb(${activeRow.definition.color.join(' ')})` : neutral; ctx.globalAlpha = NEIGHBOUR_ALPHA; ctx.lineWidth = 1; ctx.lineJoin = 'round';
   for (const neighbour of [slice.previousLabels, slice.nextLabels]) {
     const cells = voxelsOf(labelSliceVoxels(neighbour, snapshot.normalAxis), activeLabelId);
     if (cells.length) ctx.stroke(path(voxelOutlinePath(cells)));

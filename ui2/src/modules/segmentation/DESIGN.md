@@ -64,8 +64,9 @@ and neighbour departures came out as fragments. It now draws:
   outline on the voxel edges (active 1.5 px full colour, others 1 px tint).
   No halo, no clipping. "Outline only" drops the fill.
 - **Neighbour slices**: the active label's whole outline on the slice before
-  and after, 1 px neutral at 0.22 (`NEIGHBOUR_ALPHA`), under the labels.
-  Still never dashed.
+  and after, 1 px in the label's colour at 0.6 (`NEIGHBOUR_ALPHA`), no fill,
+  under the labels. A neutral line was invisible on white matter. Still
+  never dashed.
 - **Islands**: no ring. The strip counts them ("· 3 pieces").
 - **Brush footprint**: shown on hover as well as while drawing (brush and
   eraser): the voxels whose centres fall inside the disc, as the preview.
