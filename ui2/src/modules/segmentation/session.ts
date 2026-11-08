@@ -137,7 +137,7 @@ export function ensureSegmentationSession(_lease: ActiveWorkspaceLease, document
   const existing = records.get(document.workspaceId);
   if (existing?.document.workspaceInstance === document.workspaceInstance) return existing;
   const record: SegmentationRecord = { document, controller: new SegmentationSessionController(document), snapshot: {
-    info: null, document, activeLabelId: 1, hiddenLabelIds: [], sliceIndex: 0, tool: 'navigate', radiusMm: 2, paintOver: 'unlocked', fill: false, busy: false, error: null, lastSave: null,
+    info: null, document, activeLabelId: 1, hiddenLabelIds: [], sliceIndex: 0, tool: 'navigate', radiusMm: 2, paintOver: 'unlocked', fill: true, busy: false, error: null, lastSave: null,
   }};
   records.set(document.workspaceId, record); update(record, {}); return record;
 }

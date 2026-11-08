@@ -51,6 +51,33 @@ bar), from left to right:
 
 ## Visual encoding rules
 
+### Live tracing view (revised 2026-11-08)
+
+The live view (`components/shared/TracingOverlay.ts`, `SegmentViewport.tsx`)
+departs from the mock rules below after hands-on QA on a 2 mm reference:
+inner-edge strokes clipped to each label, an inset fill and the dark halo
+made painted areas read as empty holes, small pieces became stray glyphs,
+and neighbour departures came out as fragments. It now draws:
+
+- **Labels**: one even fill on every voxel (alpha 0.30, `LABEL_FILL_ALPHA`;
+  muted tint for inactive and quiet labels), on by default, plus a crisp
+  outline on the voxel edges (active 1.5 px full colour, others 1 px tint).
+  No halo, no clipping. "Outline only" drops the fill.
+- **Neighbour slices**: the active label's whole outline on the slice before
+  and after, 1 px in the label's colour at 0.6 (`NEIGHBOUR_ALPHA`), no fill,
+  under the labels. A neutral line was invisible on white matter. Still
+  never dashed.
+- **Islands**: no ring. The strip counts them ("· 3 pieces").
+- **Brush footprint**: shown on hover as well as while drawing (brush and
+  eraser): the voxels whose centres fall inside the disc, as the preview.
+- **Crosshair**: a solid 1 px hairline (the global dash setting does not
+  apply here). It clears three brush radii around the brush only while the
+  pointer is over the image with a paint tool; it no longer stays out of
+  the labelled structure's extent.
+- **Contour**: a click or a drag of fewer than three points is not sent; a
+  brief note at the pointer says "Drag to draw a closed outline." Stroke
+  notes like this never become session errors (no Retry session).
+
 ### Labels
 
 - A label layer is an exclusive partition. Fills, when on, use one constant

@@ -1,7 +1,7 @@
 /** The H partition/preview rules on a live affine grid and shared viewport projection. */
 import type { SegmentationSnapshot, SegmentationPreview, SegmentationSlice } from '@brainflow/api';
 import { projectWorldToCanvas, type SliceViewerPlane, type SliceViewerPlacement } from '@brainflow/visualization/slice';
-import { enclosedGaps, insetVoxels, labelIslands, neighbourDeparturePath, voxelFillPath, voxelOutlinePath, voxelsOf } from './geometry';
+import { enclosedGaps, voxelFillPath, voxelOutlinePath, voxelsOf } from './geometry';
 import { mutedColor } from './colour';
 import type { LabelVoxel, Voxel } from './types';
 
@@ -28,9 +28,36 @@ export function nativeGridTransform(snapshot: SegmentationSnapshot, sliceIndex: 
   return o && x && y ? [x.canvasX - o.canvasX, x.canvasY - o.canvasY, y.canvasX - o.canvasX, y.canvasY - o.canvasY, o.canvasX, o.canvasY] : null;
 }
 
+/** Every label fill: one constant alpha, so tissue still reads through. */
+export const LABEL_FILL_ALPHA = 0.3;
+/** The active label's outline on the slices before and after (label colour, no fill). */
+export const NEIGHBOUR_ALPHA = 0.6;
+
+/** The pointer in canvas px and the brush radius in canvas px. */
+export interface BrushHover { x: number; y: number; radiusPx: number }
+
+/** Voxels whose centres fall inside the brush disc, from the native grid's screen transform. */
+export function footprintVoxels(transform: readonly number[], hover: BrushHover): Voxel[] {
+  const [a, b, c, d, e, f] = transform;
+  const det = a * d - b * c;
+  if (!det || hover.radiusPx <= 0) return [];
+  // Native (column, row) of the pointer, as a voxel-corner coordinate.
+  const col = (d * (hover.x - e) - c * (hover.y - f)) / det, row = (a * (hover.y - f) - b * (hover.x - e)) / det;
+  // Enough for any shear: the inverse map stretches a radius by at most (|a|+|b|+|c|+|d|)/|det|.
+  const reach = Math.ceil(hover.radiusPx * (Math.abs(a) + Math.abs(b) + Math.abs(c) + Math.abs(d)) / Math.abs(det)) + 1;
+  const result: Voxel[] = [];
+  for (let x = Math.floor(col) - reach; x <= Math.floor(col) + reach; x++) for (let y = Math.floor(row) - reach; y <= Math.floor(row) + reach; y++) {
+    const px = a * (x + 0.5) + c * (y + 0.5) + e, py = b * (x + 0.5) + d * (y + 0.5) + f;
+    if (Math.hypot(px - hover.x, py - hover.y) <= hover.radiusPx) result.push([x, y]);
+  }
+  return result;
+}
+
 export function drawTracingOverlay(ctx: CanvasRenderingContext2D, placement: SliceViewerPlacement, options: {
   snapshot: SegmentationSnapshot; sliceIndex: number; plane: SliceViewerPlane; slice: SegmentationSlice;
   activeLabelId: number; hiddenLabelIds: readonly number[]; preview: SegmentationPreview | null; fill: boolean;
+  /** The brush under the pointer while not drawing; null hides it. */
+  hover?: BrushHover | null;
 }): void {
   const { snapshot, sliceIndex, plane, slice, activeLabelId, preview } = options;
   const transform = nativeGridTransform(snapshot, sliceIndex, plane, placement);
@@ -48,6 +75,18 @@ export function drawTracingOverlay(ctx: CanvasRenderingContext2D, placement: Sli
   ctx.beginPath(); ctx.rect(placement.x, placement.y, placement.width, placement.height); ctx.clip();
   const groups = new Map<number, Voxel[]>();
   for (const [x, y, id] of voxels) { const cells = groups.get(id); if (cells) cells.push([x, y]); else groups.set(id, [[x, y]]); }
+  // Neighbour slices first, under the labels: the active label's whole
+  // outline on the slice before and after, a thin translucent line in its own
+  // colour with no fill, never dashed. (A neutral line vanished on white matter.)
+  const activeRow = snapshot.labels.find((row) => row.definition.id === activeLabelId);
+  ctx.save(); ctx.strokeStyle = activeRow ? `rgb(${activeRow.definition.color.join(' ')})` : neutral; ctx.globalAlpha = NEIGHBOUR_ALPHA; ctx.lineWidth = 1; ctx.lineJoin = 'round';
+  for (const neighbour of [slice.previousLabels, slice.nextLabels]) {
+    const cells = voxelsOf(labelSliceVoxels(neighbour, snapshot.normalAxis), activeLabelId);
+    if (cells.length) ctx.stroke(path(voxelOutlinePath(cells)));
+  }
+  ctx.restore();
+  // Each label: one even fill (unless "Outline only") and a crisp outline on
+  // its voxel edges. No halo and no clipping, so small pieces stay whole.
   for (const label of snapshot.labels) {
     const id = label.definition.id;
     const cells = groups.get(id) ?? [];
@@ -55,38 +94,25 @@ export function drawTracingOverlay(ctx: CanvasRenderingContext2D, placement: Sli
     const color = `rgb(${label.definition.color.join(' ')})`;
     const active = id === activeLabelId;
     const stroke = active ? color : mutedColor(color, label.locked || label.complete ? 'quiet' : 'inactive');
-    if (options.fill) fill(cells, color, 0.25);
-    else if (active) fill(insetVoxels(voxels, id), color, 0.1);
-    // Clipping each doubled stroke to its own partition draws both inner edges
-    // at a shared boundary, each in the label's own colour with a dark halo.
-    ctx.save(); ctx.clip(path(voxelFillPath(cells)));
-    const edge = path(voxelOutlinePath(cells));
-    ctx.lineJoin = 'miter'; ctx.strokeStyle = halo; ctx.lineWidth = (active ? 1.5 : 1) * 2 + 1.5; ctx.stroke(edge);
-    ctx.strokeStyle = stroke; ctx.lineWidth = (active ? 1.5 : 1) * 2; ctx.stroke(edge); ctx.restore();
+    if (options.fill) fill(cells, stroke, LABEL_FILL_ALPHA);
+    ctx.save(); ctx.lineJoin = 'round'; ctx.strokeStyle = stroke; ctx.lineWidth = active ? 1.5 : 1;
+    ctx.stroke(path(voxelOutlinePath(cells))); ctx.restore();
   }
-  // Native neighbours have one neutral solid line only where their boundary departs.
-  const current = voxelsOf(all, activeLabelId);
-  ctx.strokeStyle = neutral; ctx.globalAlpha = 0.25; ctx.lineWidth = 1;
-  for (const neighbour of [slice.previousLabels, slice.nextLabels]) {
-    const previous = voxelsOf(labelSliceVoxels(neighbour, snapshot.normalAxis), activeLabelId);
-    ctx.stroke(path(neighbourDeparturePath(previous, current)));
-  }
-  ctx.globalAlpha = 1;
   const centre = ([x, y]: Voxel) => ({ x: transform[0] * (x + 0.5) + transform[2] * (y + 0.5) + transform[4], y: transform[1] * (x + 0.5) + transform[3] * (y + 0.5) + transform[5] });
   ctx.fillStyle = neutral; ctx.strokeStyle = neutral; ctx.lineWidth = 1;
   const voxelPx = Math.min(Math.hypot(transform[0], transform[1]), Math.hypot(transform[2], transform[3]));
   if (voxelPx >= 6) for (const gap of enclosedGaps(voxels)) { const p = centre(gap); ctx.beginPath(); ctx.arc(p.x, p.y, 1, 0, Math.PI * 2); ctx.fill(); }
-  for (const island of labelIslands(voxels, activeLabelId)) {
-    const x = island.reduce((sum, v) => sum + v[0], 0) / island.length;
-    const y = island.reduce((sum, v) => sum + v[1], 0) / island.length;
-    const p = centre([x, y]); ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(4, voxelPx * Math.sqrt(island.length) * 0.65), 0, Math.PI * 2); ctx.stroke();
+  // The brush footprint: the stroke's own voxels while drawing, otherwise the
+  // voxels whose centres fall in the disc under the pointer.
+  const axes = planeAxes(snapshot.normalAxis);
+  const inGrid = ([x, y]: Voxel) => x >= 0 && y >= 0 && x < snapshot.dimensions[axes[0]] && y < snapshot.dimensions[axes[1]];
+  const footprint = preview ? preview.written.map((v) => [v[axes[0]], v[axes[1]]] as Voxel) : options.hover ? footprintVoxels(transform, options.hover).filter(inGrid) : [];
+  if (footprint.length) {
+    fill(footprint, neutral, 0.18);
+    ctx.strokeStyle = halo; ctx.lineWidth = 2.5; ctx.stroke(path(voxelOutlinePath(footprint)));
+    ctx.strokeStyle = neutral; ctx.lineWidth = 1; ctx.stroke(path(voxelOutlinePath(footprint)));
   }
   if (preview) {
-    const axes = planeAxes(snapshot.normalAxis);
-    const cells = preview.written.map((v) => [v[axes[0]], v[axes[1]]] as Voxel);
-    fill(cells, neutral, 0.18);
-    ctx.strokeStyle = halo; ctx.lineWidth = 2.5; ctx.stroke(path(voxelOutlinePath(cells)));
-    ctx.strokeStyle = neutral; ctx.lineWidth = 1; ctx.stroke(path(voxelOutlinePath(cells)));
     if (preview.blocked.length) {
       const cells = preview.blocked.map((v) => [v[axes[0]], v[axes[1]]] as Voxel);
       ctx.strokeStyle = getComputedStyle(ctx.canvas).getPropertyValue('--bf-warning').trim();
@@ -106,22 +132,14 @@ export function nativeSliceAtWorld(snapshot: SegmentationSnapshot, world: readon
   return n.reduce((sum, v, r) => sum + v * (world[r] - m[12 + r]), 0) / denominator;
 }
 
-/** The crosshair avoids the visible structure and at least three brush radii. */
-export function tracingClearance(snapshot: SegmentationSnapshot, slice: SegmentationSlice, index: number, plane: SliceViewerPlane, placement: SliceViewerPlacement, cursor: [number, number, number] | null, radiusMm: number) {
-  const result: Array<{ x: number; y: number; width: number; height: number }> = [];
-  const transform = nativeGridTransform(snapshot, index, plane, placement);
-  const cells = labelSliceVoxels(slice.labels, snapshot.normalAxis);
-  if (transform && cells.length) {
-    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-    for (const [x, y] of cells) { x0 = Math.min(x0, x); x1 = Math.max(x1, x + 1); y0 = Math.min(y0, y); y1 = Math.max(y1, y + 1); }
-    const corners = [[x0, y0], [x0, y1], [x1, y0], [x1, y1]].map(([x, y]) => [transform[0] * x + transform[2] * y + transform[4], transform[1] * x + transform[3] * y + transform[5]]);
-    const left = Math.min(...corners.map((v) => v[0])) - 4, top = Math.min(...corners.map((v) => v[1])) - 4;
-    result.push({ x: left, y: top, width: Math.max(...corners.map((v) => v[0])) + 4 - left, height: Math.max(...corners.map((v) => v[1])) + 4 - top });
-  }
-  const point = cursor ? projectWorldToCanvas(cursor, plane, placement) : null;
-  if (point && radiusMm > 0) {
-    const gap = 3 * radiusMm / Math.hypot(...plane.u_mm) * placement.width / placement.imageWidth;
-    result.push({ x: point.canvasX - gap, y: point.canvasY - gap, width: 2 * gap, height: 2 * gap });
-  }
-  return result;
+/** Brush radius in canvas px for a radius in mm. */
+export function brushRadiusPx(radiusMm: number, plane: SliceViewerPlane, placement: SliceViewerPlacement): number {
+  return radiusMm / Math.hypot(...plane.u_mm) * placement.width / placement.imageWidth;
+}
+
+/** The crosshair clears three brush radii around the brush, and only while the brush is over the image. */
+export function tracingClearance(brush: { x: number; y: number } | null, radiusPx: number) {
+  if (!brush || radiusPx <= 0) return [];
+  const gap = 3 * radiusPx;
+  return [{ x: brush.x - gap, y: brush.y - gap, width: 2 * gap, height: 2 * gap }];
 }

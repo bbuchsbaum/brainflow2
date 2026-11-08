@@ -41,7 +41,7 @@ const plane = { origin_mm: [10, -18, 5], u_mm: [.4, 0, 0], v_mm: [0, 0, .4], wid
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   state.session = { document, info: info(), activeLabelId: 1, hiddenLabelIds: [], sliceIndex: 1, tool: 'brush', radiusMm: .4, paintOver: 'unlocked', fill: false, busy: false, error: null };
-  state.slice.mockReset().mockResolvedValue({ revision: 0, plane, current: [], previous: [], next: [] });
+  state.slice.mockReset().mockResolvedValue({ revision: 0, plane, labels: [], previousLabels: [], nextLabels: [] });
   state.live = true; state.ensureImage.mockReset().mockResolvedValue(undefined); state.removeLayers.mockReset().mockResolvedValue(undefined);
   state.preview.mockReset().mockResolvedValue(null); state.commit.mockReset(); state.render.mockReset().mockResolvedValue(undefined);
   state.unlock.mockReset().mockResolvedValue(null);
@@ -198,6 +198,25 @@ describe('tracing controls', () => {
     state.session = { ...(state.session as object), radiusMm: 3 };
     view.rerender(<SegmentViewport workspaceId={document.workspaceId} />);
     expect(radius.value).toBe('3');
+  });
+
+  it('explains a contour click at the pointer instead of sending a contour of fewer than three points', async () => {
+    const { setSegmentationPresentation } = await import('@/modules/segmentation/session');
+    const patch = vi.mocked(setSegmentationPresentation); patch.mockClear();
+    state.session = { ...(state.session as object), tool: 'contour' };
+    render(<SegmentViewport workspaceId={document.workspaceId} />);
+    await screen.findByTestId('tracing-image');
+    const pointer = state.pointer as ViewportTool;
+    const at = (x: number) => [{ world: [x, -18, 6.2], pressure: .5 }] as Parameters<ViewportTool['pointerDown']>[0];
+    act(() => { pointer.pointerDown(at(10.8)); pointer.pointerUp(at(10.8)); });
+    expect(state.commit).not.toHaveBeenCalled();
+    expect(await screen.findByText('Drag to draw a closed outline.')).toBeInTheDocument();
+    // Not a session error: no banner, no Retry session.
+    expect(patch).not.toHaveBeenCalledWith(document.workspaceId, expect.objectContaining({ error: expect.anything() }));
+    expect(screen.queryByRole('button', { name: 'Retry session' })).not.toBeInTheDocument();
+    // A real drag still commits.
+    act(() => { pointer.pointerDown(at(10.8)); pointer.pointerMove(at(11.2)); pointer.pointerUp(at(11.6)); });
+    expect(state.commit).toHaveBeenCalledWith(document.workspaceId, expect.objectContaining({ tool: 'contour', pointsWorld: expect.arrayContaining([[11.6, -18, 6.2]]) }));
   });
 
   it('still offers Retry session for other failures', async () => {
