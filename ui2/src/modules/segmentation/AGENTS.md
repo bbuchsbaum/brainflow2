@@ -22,7 +22,10 @@ Label tracing on a fixed reference grid. The native domain is
 - **Manual tracing:** `SegmentationMode`, `SegmentViewport`, `ContextViews` and
   `SegmentationInspector` use actual loaded grids and native commands. Production
   overlays reuse the shared H geometry/colour rules through the shared viewport
-  projection. LabelList, the constraint strip and native-slice bars take data
+  projection, with the live-view departures in DESIGN.md ("Live tracing view":
+  even label fills on by default, whole neighbour outlines, no island rings,
+  hover brush footprint, solid crosshair that clears only around the brush,
+  contour clicks explained at the pointer). LabelList, the constraint strip and native-slice bars take data
   props. No shipping import may transitively load `mockData`, `scenes` or
   `__design__`. `ConstraintStrip` is a fixture adapter; production imports
   `ConstraintStripView`.
