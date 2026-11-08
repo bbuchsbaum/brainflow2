@@ -48,24 +48,123 @@ beforeEach(() => {
   state.front = document.workspaceId; state.residency = 'reference:1'; state.hasImage = true;
 });
 describe('tracing frame ownership', () => {
-  it('cancels a held stroke and hides the old surface until the zoomed frame completes', async () => {
+  it('cancels a held stroke and keeps the old frame up, inert, until the zoomed frame completes', async () => {
     let finish!: () => void;
     const pending = new Promise<void>((resolve) => { finish = resolve; });
     state.render.mockResolvedValueOnce(undefined).mockReturnValueOnce(pending);
     render(<SegmentViewport workspaceId={document.workspaceId} />);
     await screen.findByTestId('tracing-image');
+    const before = screen.getByTestId('tracing-image').getAttribute('data-plane');
     const pointer = state.pointer as ViewportTool;
     const samples = [{ world: [10.8, -18, 6.2], pressure: .5 }] as Parameters<ViewportTool['pointerDown']>[0];
     act(() => { pointer.pointerDown(samples); });
     fireEvent.wheel(screen.getByTestId('tracing-image'), { deltaY: -20, altKey: true });
     await waitFor(() => expect(state.render).toHaveBeenCalledTimes(2));
-    expect(screen.queryByTestId('tracing-image')).not.toBeInTheDocument();
+    // The last drawn frame stays on screen (no "Preparing" flash), still at its own plane ...
+    expect(screen.getByTestId('tracing-image')).toHaveAttribute('data-plane', before!);
+    // ... but nothing can be traced on it: the held stroke was cancelled and a new one is refused.
     act(() => { pointer.pointerMove(samples); pointer.pointerUp(samples); });
+    act(() => { pointer.pointerDown(samples); pointer.pointerUp(samples); });
     expect(state.commit).not.toHaveBeenCalled();
     await act(async () => { finish(); });
     expect(screen.getByTestId('tracing-image')).toHaveAttribute('data-plane', expect.stringContaining('11'));
     act(() => { pointer.pointerUp(samples); });
     expect(state.commit).not.toHaveBeenCalled();
+  });
+  it('steps one slice per wheel notch even when several notches land before a render', async () => {
+    const { setSegmentationPresentation } = await import('@/modules/segmentation/session');
+    const patch = vi.mocked(setSegmentationPresentation); patch.mockClear();
+    const base = info(); // 12 native slices, so the steps are not clamped
+    state.session = { ...(state.session as object), info: { ...base, snapshot: { ...base.snapshot, dimensions: [5, 12, 7] } } };
+    render(<SegmentViewport workspaceId={document.workspaceId} />);
+    const image = await screen.findByTestId('tracing-image');
+    for (let i = 0; i < 3; i++) fireEvent.wheel(image, { deltaY: 100 });
+    expect(patch.mock.calls.map(([, value]) => value)).toEqual([{ sliceIndex: 2 }, { sliceIndex: 3 }, { sliceIndex: 4 }]);
+  });
+  it('adds up small trackpad deltas into slices', async () => {
+    const { setSegmentationPresentation } = await import('@/modules/segmentation/session');
+    const patch = vi.mocked(setSegmentationPresentation); patch.mockClear();
+    const base = info(); // 12 native slices, so the steps are not clamped
+    state.session = { ...(state.session as object), info: { ...base, snapshot: { ...base.snapshot, dimensions: [5, 12, 7] } } };
+    render(<SegmentViewport workspaceId={document.workspaceId} />);
+    const image = await screen.findByTestId('tracing-image');
+    // 10 × 6 px = 60 px = two slices; the 4 px after them do nothing yet.
+    for (let i = 0; i < 10; i++) fireEvent.wheel(image, { deltaY: 6 });
+    fireEvent.wheel(image, { deltaY: 4 });
+    expect(patch.mock.calls.map(([, value]) => value)).toEqual([{ sliceIndex: 2 }, { sliceIndex: 3 }]);
+  });
+  it('ignores zoom while a step is pending, so one slice is never drawn under another one\'s labels', async () => {
+    const view = render(<SegmentViewport workspaceId={document.workspaceId} />);
+    await screen.findByTestId('tracing-image');
+    let finishSlice!: (value: unknown) => void;
+    state.slice.mockReturnValueOnce(new Promise((resolve) => { finishSlice = resolve; }));
+    state.session = { ...(state.session as object), sliceIndex: 2 };
+    view.rerender(<SegmentViewport workspaceId={document.workspaceId} />);
+    await waitFor(() => expect(state.slice).toHaveBeenLastCalledWith(2, expect.anything()));
+    fireEvent.wheel(screen.getByTestId('tracing-image'), { deltaY: -20, altKey: true });
+    await act(async () => { finishSlice({ revision: 0, plane: { ...plane, origin_mm: [10, -17.6, 5] }, labels: [], previousLabels: [], nextLabels: [] }); });
+    await waitFor(() => expect(screen.getByTestId('tracing-image')).toHaveAttribute('data-plane', expect.stringContaining('-17.6')));
+    // The zoom mock moves the origin to x = 11; it must not have been applied.
+    expect(state.render.mock.calls.some(([options]) => (options as { plane: { origin_mm: number[] } }).plane.origin_mm[0] === 11)).toBe(false);
+  });
+  it('fetches only the latest slice once the one in flight returns', async () => {
+    const base = info();
+    state.session = { ...(state.session as object), info: { ...base, snapshot: { ...base.snapshot, dimensions: [5, 12, 7] } } };
+    const view = render(<SegmentViewport workspaceId={document.workspaceId} />);
+    await screen.findByTestId('tracing-image');
+    let finishSlice!: (value: unknown) => void;
+    state.slice.mockReturnValueOnce(new Promise((resolve) => { finishSlice = resolve; }));
+    const before = state.slice.mock.calls.length;
+    for (const sliceIndex of [2, 3, 4, 5]) {
+      state.session = { ...(state.session as object), sliceIndex };
+      view.rerender(<SegmentViewport workspaceId={document.workspaceId} />);
+    }
+    await waitFor(() => expect(state.slice.mock.calls.length).toBe(before + 1));
+    await act(async () => { finishSlice({ revision: 0, plane, labels: [], previousLabels: [], nextLabels: [] }); });
+    await waitFor(() => expect(state.slice.mock.calls.length).toBe(before + 2));
+    expect(state.slice.mock.calls.slice(before).map(([index]) => index)).toEqual([2, 5]);
+  });
+  it('does not show an error from a render that a newer one has replaced', async () => {
+    const view = render(<SegmentViewport workspaceId={document.workspaceId} />);
+    await screen.findByTestId('tracing-image');
+    let fail!: (error: Error) => void;
+    state.render.mockReturnValueOnce(new Promise((_, reject) => { fail = reject; }));
+    state.slice.mockResolvedValueOnce({ revision: 0, plane: { ...plane, origin_mm: [10, -17.6, 5] }, labels: [], previousLabels: [], nextLabels: [] });
+    state.session = { ...(state.session as object), sliceIndex: 2 };
+    view.rerender(<SegmentViewport workspaceId={document.workspaceId} />);
+    const renders = state.render.mock.calls.length;
+    await waitFor(() => expect(state.render.mock.calls.length).toBeGreaterThanOrEqual(renders));
+    // A newer plane is requested while that render is still out ...
+    state.slice.mockResolvedValueOnce({ revision: 0, plane: { ...plane, origin_mm: [10, -17.2, 5] }, labels: [], previousLabels: [], nextLabels: [] });
+    state.session = { ...(state.session as object), sliceIndex: 0 };
+    view.rerender(<SegmentViewport workspaceId={document.workspaceId} />);
+    await waitFor(() => expect(state.slice).toHaveBeenLastCalledWith(0, expect.anything()));
+    // ... then the old one fails: no alert, and the newer frame is drawn.
+    await act(async () => { fail(new Error('The comparison image is not attached to this workspace')); });
+    await waitFor(() => expect(screen.getByTestId('tracing-image')).toHaveAttribute('data-plane', expect.stringContaining('-17.2')));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+  it('keeps the view up while stepping slices and traces only once the new slice is drawn', async () => {
+    const view = render(<SegmentViewport workspaceId={document.workspaceId} />);
+    await screen.findByTestId('tracing-image');
+    let finishSlice!: (value: unknown) => void;
+    state.slice.mockReturnValueOnce(new Promise((resolve) => { finishSlice = resolve; }));
+    state.session = { ...(state.session as object), sliceIndex: 2 };
+    view.rerender(<SegmentViewport workspaceId={document.workspaceId} />);
+    await waitFor(() => expect(state.slice).toHaveBeenLastCalledWith(2, expect.anything()));
+    // No placeholder while the next slice loads, and no tracing on the old one.
+    expect(screen.getByTestId('tracing-image')).toBeInTheDocument();
+    expect(screen.queryByText('Preparing the reference plane…')).not.toBeInTheDocument();
+    const pointer = state.pointer as ViewportTool;
+    const samples = [{ world: [10.8, -18, 6.2], pressure: .5 }] as Parameters<ViewportTool['pointerDown']>[0];
+    act(() => { pointer.pointerDown(samples); pointer.pointerMove(samples); pointer.pointerUp(samples); });
+    expect(state.commit).not.toHaveBeenCalled();
+    const renders = state.render.mock.calls.length;
+    await act(async () => { finishSlice({ revision: 0, plane: { ...plane, origin_mm: [10, -17.6, 5] }, labels: [], previousLabels: [], nextLabels: [] }); });
+    await waitFor(() => expect(state.render.mock.calls.length).toBeGreaterThan(renders));
+    await waitFor(() => expect(screen.getByTestId('tracing-image')).toHaveAttribute('data-plane', expect.stringContaining('-17.6')));
+    act(() => { pointer.pointerDown(samples); pointer.pointerMove(samples); pointer.pointerUp(samples); });
+    expect(state.commit).toHaveBeenCalledWith(document.workspaceId, expect.objectContaining({ sliceIndex: 2 }));
   });
   it('removes a frozen frame layer whose add finished after the document was discarded', async () => {
     const base = info();
