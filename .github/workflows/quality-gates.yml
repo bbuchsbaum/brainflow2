@@ -291,7 +291,10 @@ jobs:
           
       # Informational: outdated dependencies are reported, not gated. cargo audit
       # and cargo deny (in validate-dependencies.sh) remain the blocking checks.
+      # cargo outdated also exits non-zero when it can't resolve the newer
+      # versions it tries (atlases pins futures =0.3.31), so it must not gate.
       - name: Check for Outdated Dependencies
+        continue-on-error: true
         run: |
           cargo outdated
           
