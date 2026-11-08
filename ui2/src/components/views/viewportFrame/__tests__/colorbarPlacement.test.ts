@@ -60,6 +60,45 @@ describe('placeColorbar: margins (QA 2026-10-31 N16)', () => {
     expectClear(p, input);
   });
 
+  it('a centred image goes right, whatever a pixel of rounding says', () => {
+    // A centred image whose data rectangle is a pixel off the image's: the
+    // left margin is a pixel wider. On load these rectangles settle over a
+    // few frames, so the side must not hang on that pixel (the bar showed
+    // on the left, then moved right).
+    for (const dataLeft of [250, 251, 252, 253]) {
+      for (const dataRight of [650, 649, 648]) {
+        const p = placeColorbar(
+          base({
+            imageRect: { left: 250, top: 0, right: 650, bottom: 400 },
+            dataRect: { left: dataLeft, top: 0, right: dataRight, bottom: 400 },
+          }),
+        )!;
+        expect(p.slot).toBe('right');
+      }
+    }
+  });
+
+  it('a clearly wider left margin still takes the bar', () => {
+    // About 12% more room on the left: beyond MARGIN_TIE.
+    const p = placeColorbar(base({ imageRect: { left: 263, top: 0, right: 663, bottom: 400 } }))!;
+    expect(p.slot).toBe('left');
+  });
+
+  it('a bar already on the left stays there when the margins tie', () => {
+    // The tie prefers right only for a first placement; once placed, the
+    // previous slot holds (hysteresis), so a tie never moves the bar.
+    for (const dataRight of [650, 649, 648]) {
+      const p = placeColorbar(
+        base({
+          imageRect: { left: 250, top: 0, right: 650, bottom: 400 },
+          dataRect: { left: 250, top: 0, right: dataRight, bottom: 400 },
+          previousSlot: 'left',
+        }),
+      )!;
+      expect(p.slot).toBe('left');
+    }
+  });
+
   it('takes the largest margin: right, left, then above or below', () => {
     expect(
       placeColorbar(base({ imageRect: { left: 60, top: 0, right: 500, bottom: 400 } }))!.slot,
@@ -197,17 +236,24 @@ describe('placeColorbarBlock: very short panes (review W1)', () => {
   // A 16 px compact bar: 8 px padding.
   const tinyCompact = (barH: number) => barH + COMPACT.chromeH;
 
-  it.each([100, 110])('never vanishes in a %i px tall pane: a short compact bar in a corner', (h) => {
-    const pane: ColorbarPaneInput = { width: 200, height: h, imageRect: { left: 20, top: 0, right: 180, bottom: h } };
-    const p = placeColorbarBlock(pane, FORMS)!;
-    expect(p).not.toBeNull();
-    expect(p.compact).toBe(true);
-    expect(p.fit).toBe(ColorbarFit.Corner);
-    expect(p.barH).toBeGreaterThanOrEqual(16);
-    expect(p.top + tinyCompact(p.barH)).toBeLessThanOrEqual(h);
-    // The letters, header and badge stay clear even across the band.
-    expectClear(p, pane, COMPACT);
-  });
+  it.each([100, 110])(
+    'never vanishes in a %i px tall pane: a short compact bar in a corner',
+    (h) => {
+      const pane: ColorbarPaneInput = {
+        width: 200,
+        height: h,
+        imageRect: { left: 20, top: 0, right: 180, bottom: h },
+      };
+      const p = placeColorbarBlock(pane, FORMS)!;
+      expect(p).not.toBeNull();
+      expect(p.compact).toBe(true);
+      expect(p.fit).toBe(ColorbarFit.Corner);
+      expect(p.barH).toBeGreaterThanOrEqual(16);
+      expect(p.top + tinyCompact(p.barH)).toBeLessThanOrEqual(h);
+      // The letters, header and badge stay clear even across the band.
+      expectClear(p, pane, COMPACT);
+    },
+  );
 });
 
 describe('placeColorbarBlock: form hysteresis (review S6)', () => {
@@ -296,10 +342,15 @@ describe('placeColorbar: hysteresis', () => {
 describe('holdColorbarSlot (splitter drag flicker)', () => {
   it('keeps the slot it had, following the image, while the pane is resized', () => {
     // Settled: right margin.
-    const settled = placeColorbar(base({ imageRect: { left: 250, top: 0, right: 650, bottom: 400 } }))!;
+    const settled = placeColorbar(
+      base({ imageRect: { left: 250, top: 0, right: 650, bottom: 400 } }),
+    )!;
     expect(settled.slot).toBe('right');
     // Mid-drag the image reads off-centre to the right: the rule would pick the left margin...
-    const midDrag = base({ height: 300, imageRect: { left: 420, top: 0, right: 820, bottom: 300 } });
+    const midDrag = base({
+      height: 300,
+      imageRect: { left: 420, top: 0, right: 820, bottom: 300 },
+    });
     expect(placeColorbar(midDrag)!.slot).toBe('left');
     // ...the held bar stays right of the image, clamped into the pane.
     const held = holdColorbarSlot(midDrag, settled);
@@ -310,10 +361,13 @@ describe('holdColorbarSlot (splitter drag flicker)', () => {
   });
 
   it('shortens the bar to the pane when it gets shorter', () => {
-    const held = holdColorbarSlot(base({ height: 150, imageRect: { left: 250, top: 0, right: 650, bottom: 150 } }), {
-      slot: 'right',
-      barH: 160,
-    });
+    const held = holdColorbarSlot(
+      base({ height: 150, imageRect: { left: 250, top: 0, right: 650, bottom: 150 } }),
+      {
+        slot: 'right',
+        barH: 160,
+      },
+    );
     expect(held.barH).toBe(150 - 16 - 40);
     expect(held.left).toBe(662);
   });
