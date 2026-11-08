@@ -9,9 +9,10 @@
  * and the radiological mirror); it may run past the pane's edges.
  *
  * 1. A free margin outside the image: the largest one that holds the block
- *    (right, left, bottom, top on ties). Off the image the block needs no
- *    backing. The full block first; else the compact form (bar and window
- *    ends) in a margin, rather than the full block over the image.
+ *    (right, left, bottom, top on ties; margins within MARGIN_TIE of each
+ *    other tie). Off the image the block needs no backing. The full block
+ *    first; else the compact form (bar and window ends) in a margin, rather
+ *    than the full block over the image.
  * 2. No margin fits (zoomed in, small pane): the pane corner whose block
  *    overlaps the image least, never one the crosshair is under, on a faint
  *    backing.
@@ -117,6 +118,15 @@ export const BADGE_CLEAR = { width: 44, height: 20 };
 export const CROSSHAIR_CLEAR = 12;
 /** Another margin must be this much larger to take over from the previous one. */
 export const MARGIN_HYSTERESIS = 1.25;
+/**
+ * Margins within this fraction of the largest count as equal, so the slot
+ * order (right first) decides. A centred image's margins differ by a pixel
+ * or two of rounding (the data rectangle against the image's), which would
+ * otherwise pick the side: left on one frame, right on the next. Since the
+ * tie can hand the win to a slightly smaller margin, a previous slot holds
+ * against up to MARGIN_HYSTERESIS / (1 - MARGIN_TIE) of its room, not 1.25×.
+ */
+export const MARGIN_TIE = 0.05;
 /** Extra bar height the full block needs to replace a compact one (form hysteresis). */
 export const FORM_HYSTERESIS = 8;
 /** The last-resort compact bar's shortest height (a very short pane). */
@@ -284,7 +294,9 @@ function marginCandidates(
     if (width(region) <= 0 || height(region) <= 0) return;
     const side = slot === 'right' || slot === 'left';
     // Beside the image the bar is at most 60% of the image's height.
-    const cap = side ? Math.max(minBarH, Math.floor(Math.max(0, rows.bottom - rows.top) * 0.6)) : maxBarH;
+    const cap = side
+      ? Math.max(minBarH, Math.floor(Math.max(0, rows.bottom - rows.top) * 0.6))
+      : maxBarH;
     for (const barH of barHeights(
       Math.min(maxBarH, cap, Math.floor(height(region) - chromeH)),
       minBarH,
@@ -325,7 +337,10 @@ function pickMargin(
   previous: ColorbarSlot | null | undefined,
 ): Candidate | null {
   if (candidates.length === 0) return null;
-  const best = [...candidates].sort((a, b) => b.room - a.room || a.order - b.order)[0];
+  const largest = Math.max(...candidates.map((c) => c.room));
+  const best = candidates
+    .filter((c) => c.room >= largest * (1 - MARGIN_TIE))
+    .sort((a, b) => a.order - b.order)[0];
   const kept = previous ? candidates.find((c) => c.slot === previous) : undefined;
   return kept && best.room <= kept.room * MARGIN_HYSTERESIS ? kept : best;
 }
@@ -387,10 +402,14 @@ function cornerCandidate(
   // The share of the block over the image, in hundredths (a shorter block is
   // not "clearer" for being shorter).
   const covered = (c: Candidate) => Math.round((100 * c.room) / Math.max(1, area(c.box)));
-  candidates.sort((a, b) => crosshair(a) - crosshair(b) || covered(a) - covered(b) || a.order - b.order);
+  candidates.sort(
+    (a, b) => crosshair(a) - crosshair(b) || covered(a) - covered(b) || a.order - b.order,
+  );
   const best = candidates[0];
   // Keep the previous corner while it is about as clear (within a tenth of the block).
-  const kept = input.previousSlot ? candidates.find((c) => c.slot === input.previousSlot) : undefined;
+  const kept = input.previousSlot
+    ? candidates.find((c) => c.slot === input.previousSlot)
+    : undefined;
   if (kept && crosshair(kept) === crosshair(best) && covered(kept) <= covered(best) + 10) {
     return kept;
   }
@@ -460,7 +479,9 @@ export function placeColorbarBlock(
   if (compactCorner) return { ...compactCorner, compact: true, fit: ColorbarFit.Corner };
   // Last resort (a very short pane): a short compact bar across the band.
   const tiny = { ...compact, minBarH: Math.min(compact.minBarH, LAST_RESORT_MIN_BAR_H) };
-  const lastResort = strip(cornerCandidate(tiny, paneImageRect(tiny), colorbarKeepClear(tiny), true));
+  const lastResort = strip(
+    cornerCandidate(tiny, paneImageRect(tiny), colorbarKeepClear(tiny), true),
+  );
   return lastResort ? { ...lastResort, compact: true, fit: ColorbarFit.Corner } : null;
 }
 
