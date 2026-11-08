@@ -1,6 +1,7 @@
 [package]
 name = "bf_analysis"
 version = "0.1.0"
+publish = false
 edition = "2021"
 description = "Analysis module domain logic: manifests, registry, jobs and runners. No Tauri."
 
