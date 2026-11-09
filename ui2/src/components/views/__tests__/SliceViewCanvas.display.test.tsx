@@ -13,10 +13,13 @@ import { screen, fireEvent } from '@testing-library/react';
 import { useViewDisplaySettingsStore } from '@/stores/viewDisplaySettingsStore';
 import { useViewZoomStore } from '@/stores/viewZoomStore';
 import { SLIDER_HEIGHT } from '../constants';
+import { useRenderStateStore } from '@/stores/renderStateStore';
+import { tagBitmapPlane } from '@/utils/framePlane';
 
 // The last props each SliceViewport received (one component per test).
 interface ViewportProps {
   mirrorX?: boolean;
+  viewPlane?: ViewPlane;
   onWorldClick?: (world: [number, number, number], event?: unknown) => void;
   onCanvasReady?: (canvas: unknown) => void;
   customRender?: (ctx: unknown, placement: Record<string, number>) => void;
@@ -206,5 +209,43 @@ describe('toggling the convention changes nothing else (QA 2026-10-31 N14)', () 
     act(() => useViewDisplaySettingsStore.getState().toggleRadiological());
     expect(useViewStateStore.getState().viewState.crosshair.world_mm).toEqual([-40, -20, 53]);
     expect(useDisplayOptionsStore.getState().getOptions('layer-1').showOrientationMarkers).toBe(true);
+  });
+});
+
+describe('the crosshair follows the frame on screen (splitter drag)', () => {
+  // A resize refits the plane before its frame arrives; until it does, the
+  // crosshair and click mapping must use the plane of the frame shown, or
+  // the crosshair jumps on every step of a splitter drag.
+  const SHOWN: ViewPlane = { origin_mm: [-50, 50, 0], u_mm: [0.5, 0, 0], v_mm: [0, -0.5, 0], dim_px: [200, 200] };
+  const REFIT: ViewPlane = { origin_mm: [-50, 50, 0], u_mm: [0.4, 0, 0], v_mm: [0, -0.4, 0], dim_px: [250, 250] };
+
+  afterEach(() => {
+    act(() => useRenderStateStore.getState().setImage('axial', null));
+  });
+
+  it('keeps the plane of the shown frame until the refit frame lands', async () => {
+    const { SliceViewCanvas } = await import('../SliceViewCanvas');
+    const shownBitmap = tagBitmapPlane({} as ImageBitmap, SHOWN);
+    act(() => useRenderStateStore.getState().setImage('axial', shownBitmap));
+    modelMock.viewPlane = SHOWN;
+    const view = render(<SliceViewCanvas viewId="axial" width={300} height={300} />);
+    expect(viewport.props?.viewPlane).toEqual(SHOWN);
+
+    // The splitter moves: the store holds the refit plane, the canvas the old frame.
+    modelMock.viewPlane = REFIT;
+    view.rerender(<SliceViewCanvas viewId="axial" width={320} height={300} />);
+    expect(viewport.props?.viewPlane).toEqual(SHOWN);
+
+    // The refit frame lands.
+    act(() => useRenderStateStore.getState().setImage('axial', tagBitmapPlane({} as ImageBitmap, REFIT)));
+    expect(viewport.props?.viewPlane).toEqual(REFIT);
+  });
+
+  it('uses the requested plane when the frame carries none', async () => {
+    const { SliceViewCanvas } = await import('../SliceViewCanvas');
+    act(() => useRenderStateStore.getState().setImage('axial', {} as ImageBitmap));
+    modelMock.viewPlane = REFIT;
+    render(<SliceViewCanvas viewId="axial" width={300} height={300} />);
+    expect(viewport.props?.viewPlane).toBe(REFIT);
   });
 });

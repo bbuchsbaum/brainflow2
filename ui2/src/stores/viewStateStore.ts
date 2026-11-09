@@ -440,17 +440,23 @@ const createViewStateStore = () =>
 
               const currentState = get();
               const workspaceKey = currentState.activeWorkspaceKey;
+              paneSizes.set(`${workspaceKey}:${viewType}`, [newWidth, newHeight]);
               // A view the user zoomed or panned keeps its frame; its canvas
               // keeps the plane sized (ViewZoomService.syncZoomedViewSize).
               // Before the request bookkeeping, so it never cancels a fitted
               // view's pending resize in the locked layout (review L4).
-              paneSizes.set(`${workspaceKey}:${viewType}`, [newWidth, newHeight]);
               const zoomed = zoomedViews(workspaceKey);
               if (zoomed.has(viewType)) return;
               const resizeKey = `${workspaceKey}:${useViewLayoutStore.getState().isLocked() ? 'all' : viewType}`;
               const request = ++nextRequest;
               for (const [key, pending] of resizeRequests) {
                 if (!currentState.workspaceViewStates.has(pending.workspaceKey)) resizeRequests.delete(key);
+              }
+              for (const key of paneSizes.keys()) {
+                const paneWorkspace = key.slice(0, key.lastIndexOf(':'));
+                if (paneWorkspace !== workspaceKey && !currentState.workspaceViewStates.has(paneWorkspace)) {
+                  paneSizes.delete(key);
+                }
               }
               resizeRequests.set(resizeKey, { workspaceKey, request });
               const applyResizeUpdate = (recipe: (draft: ViewState) => void) => {

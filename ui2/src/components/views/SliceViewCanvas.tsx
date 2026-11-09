@@ -295,7 +295,7 @@ function SliceViewCanvasBody({
     canvasToWorld,
     onHoverStart: markActive,
     // A slice step or zoom under a still pointer re-reads the pointer (F5).
-    viewKey: `${viewPlane.origin_mm}|${viewPlane.u_mm}|${viewPlane.v_mm}|${viewPlane.dim_px}`,
+    viewKey: `${shownPlane.origin_mm}|${shownPlane.u_mm}|${shownPlane.v_mm}|${shownPlane.dim_px}`,
   });
 
   // Slider navigation using the same approach as original SliceView
