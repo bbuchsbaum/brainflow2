@@ -203,6 +203,12 @@ const createViewStateStore = () =>
           const crosshairRequests = new Map<string, number>();
           const resizeRequests = new Map<string, { workspaceKey: string; request: number }>();
           let nextRequest = 0;
+          // Each view's last requested pane size (CSS px), by workspace. The
+          // locked layout refits every view on one view's resize and needs
+          // the others' real pane sizes: a view's dim_px is its fitted box,
+          // not its pane, and in the orthogonal grid the panes on either side
+          // of a splitter change in opposite directions.
+          const paneSizes = new Map<string, [number, number]>();
           const getCurrentWorkspaceKey = () => get().activeWorkspaceKey;
 
           const applyViewStateUpdate = (
@@ -438,6 +444,7 @@ const createViewStateStore = () =>
               // keeps the plane sized (ViewZoomService.syncZoomedViewSize).
               // Before the request bookkeeping, so it never cancels a fitted
               // view's pending resize in the locked layout (review L4).
+              paneSizes.set(`${workspaceKey}:${viewType}`, [newWidth, newHeight]);
               const zoomed = zoomedViews(workspaceKey);
               if (zoomed.has(viewType)) return;
               const resizeKey = `${workspaceKey}:${useViewLayoutStore.getState().isLocked() ? 'all' : viewType}`;
@@ -539,6 +546,11 @@ const createViewStateStore = () =>
                   (["axial", "sagittal", "coronal"] as ViewType[]).forEach(
                     (vt) => {
                       if (vt === viewType) {
+                        return;
+                      }
+                      const pane = paneSizes.get(`${workspaceKey}:${vt}`);
+                      if (pane) {
+                        dimsByView[vt] = [...pane];
                         return;
                       }
                       const currentDims = currentViews[vt].dim_px;

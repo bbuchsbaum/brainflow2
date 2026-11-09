@@ -204,6 +204,26 @@ describe('OptimizedRenderService', () => {
     });
   });
 
+  it('tags each bitmap with the CSS plane it was rendered for', async () => {
+    const { bitmapPlane } = await import('@/utils/framePlane');
+    // Batch path: every view's bitmap carries its own plane.
+    const batch = { axial: {}, sagittal: {}, coronal: {} } as Record<string, ImageBitmap>;
+    requestMultiViewRenderMock.mockResolvedValueOnce(batch);
+    const state = createViewState();
+    await service.renderChangedViews(state);
+    for (const view of ['axial', 'sagittal', 'coronal'] as const) {
+      expect(bitmapPlane(batch[view])).toBe(state.views[view]);
+    }
+
+    // Single-view path (a resize of one pane).
+    const bitmap = {} as ImageBitmap;
+    requestRenderMock.mockResolvedValue(bitmap);
+    const resized = createViewState();
+    resized.views.axial = { ...resized.views.axial, dim_px: [300, 200] };
+    await service.renderChangedViews(resized);
+    expect(bitmapPlane(bitmap)).toBe(resized.views.axial);
+  });
+
   it('falls back to single-view rendering when only one view changes', async () => {
     const baseState = createViewState();
     await service.renderChangedViews(baseState);
