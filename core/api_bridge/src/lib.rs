@@ -114,9 +114,10 @@ mod editable_labels;
 mod gpu_upload;
 mod residency;
 use gpu_upload::{
-    allocate_gpu_resources_for_layer, is_layer_ready_internal, layer_residency_is_live,
-    request_layer_gpu_resources_held, request_layer_gpu_resources_with_upload_hook,
-    reupload_layer_locked, try_resident_swap, upload_layer_volume,
+    allocate_gpu_resources_for_layer, is_gpu_slots_full, is_layer_ready_internal,
+    layer_residency_is_live, request_layer_gpu_resources_held,
+    request_layer_gpu_resources_with_upload_hook, reupload_layer_locked, try_resident_swap,
+    upload_layer_volume,
 };
 use modules::{dispose_module_workspace, list_modules, set_enabled_modules};
 pub use modules::{
@@ -12335,6 +12336,14 @@ mod tests {
         let shown = request_layer_gpu_resources_for_testing(spec("displayed"), None, &state)
             .await
             .expect("displayed layer");
+        // On screen, so the backend may not evict it for the incoming layer
+        // (an undemanded one would make room, as for a budget refusal).
+        set_residency_demand_with(
+            &state,
+            "tab".into(),
+            demand_of(1, ResidencyPriority::Front, &[("displayed", "displayed")]),
+        )
+        .await;
         let service = state
             .render_loop_service
             .lock()
@@ -15243,6 +15252,174 @@ mod tests {
         assert_eq!(report.owner, ResidencyOwner::Backend);
         assert!(report.layers.is_empty());
         assert_eq!(report.seq, 0, "any real report supersedes it");
+    }
+
+    // --- R6a: the fixed-slot fallback (budget 0) evicts like the byte budget ---
+
+    /// A fixed-slot bridge (`BRAINFLOW_GPU_RESIDENCY_BUDGET_BYTES=0`) with
+    /// small volumes `ids` loaded, and its slot count.
+    async fn fixed_slot_state(
+        ids: &[String],
+    ) -> (
+        BridgeState,
+        Arc<Mutex<render_loop::RenderLoopService>>,
+        usize,
+    ) {
+        let (state, service) =
+            gpu_state_with_residency(render_loop::RendererResidencyConfig::FixedSlots).await;
+        for id in ids {
+            insert_small_volume(&state, id, [2, 2, 2]).await;
+        }
+        let slots = service
+            .lock()
+            .await
+            .residency_metrics()
+            .resident_limit
+            .expect("the fixed-slot fallback counts slots") as usize;
+        (state, service, slots)
+    }
+
+    fn pinned_demand_of(epoch: u64, layers: &[&str]) -> ResidencyFrameDemand {
+        let mut demand = demand_of(
+            epoch,
+            ResidencyPriority::Background,
+            &layers.iter().map(|id| (*id, *id)).collect::<Vec<_>>(),
+        );
+        for layer in &mut demand.layers {
+            layer.pin = Some(ResidencyPin::StudioPane);
+        }
+        demand
+    }
+
+    #[tokio::test]
+    async fn fixed_slots_full_front_upload_evicts_a_background_layer() {
+        let names = |prefix: &str, count: usize| -> Vec<String> {
+            (0..count).map(|n| format!("{prefix}{n:02}")).collect()
+        };
+        let (state, service, slots) = fixed_slot_state(&[]).await;
+        let behind = names("bg", slots);
+        for id in behind.iter().chain(["front".to_string()].iter()) {
+            insert_small_volume(&state, id, [2, 2, 2]).await;
+        }
+        // A tab behind holds every slot.
+        let pairs: Vec<(&str, &str)> = behind.iter().map(|id| (id.as_str(), id.as_str())).collect();
+        set_residency_demand_with(
+            &state,
+            "behind".into(),
+            demand_of(1, ResidencyPriority::Background, &pairs),
+        )
+        .await;
+        for id in &behind {
+            request_layer_gpu_resources_for_testing(label_spec(id, id), None, &state)
+                .await
+                .unwrap();
+        }
+        assert_eq!(service.lock().await.free_volume_slot_count(), 0);
+
+        // One more layer comes to the front: a background layer makes room.
+        set_residency_demand_with(
+            &state,
+            "tab".into(),
+            demand_of(1, ResidencyPriority::Front, &[("front", "front")]),
+        )
+        .await;
+        let report = residency_state_report(&state).await.unwrap();
+        assert_eq!(
+            state_of(&report, "front"),
+            Some(ResidencyLayerState::Resident),
+            "{report:?}"
+        );
+        let evicted: Vec<&String> = behind
+            .iter()
+            .filter(|id| state_of(&report, id) == Some(ResidencyLayerState::Evicted))
+            .collect();
+        assert_eq!(evicted.len(), 1, "exactly one slot was needed: {report:?}");
+        assert_eq!(service.lock().await.free_volume_slot_count(), 0);
+
+        // A UI request for an undemanded layer evicts the same way.
+        insert_small_volume(&state, "late", [2, 2, 2]).await;
+        request_layer_gpu_resources_for_testing(label_spec("late", "late"), None, &state)
+            .await
+            .expect("a background layer makes room for the request");
+        let report = residency_state_report(&state).await.unwrap();
+        assert_eq!(
+            state_of(&report, "front"),
+            Some(ResidencyLayerState::Resident)
+        );
+        let evicted = behind
+            .iter()
+            .filter(|id| state_of(&report, id) == Some(ResidencyLayerState::Evicted))
+            .count();
+        assert_eq!(evicted, 2);
+    }
+
+    #[tokio::test]
+    async fn fixed_slots_never_evict_front_or_pinned_layers() {
+        let (state, service, slots) = fixed_slot_state(&[]).await;
+        let front: Vec<String> = (0..4).map(|n| format!("f{n}")).collect();
+        let pinned: Vec<String> = (0..slots - front.len())
+            .map(|n| format!("p{n:02}"))
+            .collect();
+        for id in front
+            .iter()
+            .chain(&pinned)
+            .chain(["extra".to_string()].iter())
+        {
+            insert_small_volume(&state, id, [2, 2, 2]).await;
+        }
+        // A studio pane behind pins its layers; a front tab draws the rest.
+        let pinned_ids: Vec<&str> = pinned.iter().map(String::as_str).collect();
+        set_residency_demand_with(&state, "pane".into(), pinned_demand_of(1, &pinned_ids)).await;
+        for id in &pinned {
+            request_layer_gpu_resources_for_testing(label_spec(id, id), None, &state)
+                .await
+                .unwrap();
+        }
+        let mut pairs: Vec<(&str, &str)> =
+            front.iter().map(|id| (id.as_str(), id.as_str())).collect();
+        set_residency_demand_with(
+            &state,
+            "tab".into(),
+            demand_of(1, ResidencyPriority::Front, &pairs),
+        )
+        .await;
+        assert_eq!(service.lock().await.free_volume_slot_count(), 0);
+
+        // One more front layer: nothing may go for it, so it is refused.
+        pairs.push(("extra", "extra"));
+        set_residency_demand_with(
+            &state,
+            "tab".into(),
+            demand_of(2, ResidencyPriority::Front, &pairs),
+        )
+        .await;
+        let report = residency_state_report(&state).await.unwrap();
+        for id in front.iter().chain(&pinned) {
+            assert_eq!(
+                state_of(&report, id),
+                Some(ResidencyLayerState::Resident),
+                "{id}"
+            );
+        }
+        let extra = reported(&report, "extra").unwrap();
+        assert_eq!(extra.state, ResidencyLayerState::Refused);
+        assert_eq!(extra.refusal, Some(ResidencyRefusal::HeldByPinned));
+
+        // A UI request for it fails once with the typed slots-full error.
+        let refused =
+            request_layer_gpu_resources_for_testing(label_spec("extra", "extra"), None, &state)
+                .await
+                .expect_err("no slot can be freed");
+        assert!(is_gpu_slots_full(&refused), "{refused:?}");
+        assert!(format!("{refused:?}").contains("Maximum texture limit"));
+        let report = residency_state_report(&state).await.unwrap();
+        for id in front.iter().chain(&pinned) {
+            assert_eq!(
+                state_of(&report, id),
+                Some(ResidencyLayerState::Resident),
+                "{id}"
+            );
+        }
     }
 
     // --- R5d: rings from the global pool ---

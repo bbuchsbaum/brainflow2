@@ -21,8 +21,9 @@ pub(crate) async fn request_layer_gpu_resources_with_upload_hook(
             .await;
     if let Some(spec) = retry_spec {
         // Evict the policy's next victim and ask again, one at a time, until
-        // the upload fits or nothing more may go. The skip marks stay until
-        // the upload ends, so no frame takes the room first.
+        // the upload fits or nothing more may go: on a budget refusal, or on
+        // full texture slots in the fixed-slot fallback. The skip marks stay
+        // until the upload ends, so no frame takes the room first.
         while let Some(needed) = result.as_ref().err().and_then(capacity_shortfall) {
             let room = admit(
                 bridge_state,
@@ -1194,8 +1195,30 @@ pub(crate) fn upload_layer_volume(
     Ok((slot, world_to_voxel))
 }
 
-/// Preserve authoritative admission pressure across IPC; other renderer errors
-/// retain their existing user-facing conversion.
+/// The code of [`gpu_slots_full_error`]: every texture slot of the fixed-slot
+/// fallback is taken. Its own code, so the executor can tell it from other
+/// allocation failures (6001) and evict for it.
+pub(crate) const GPU_SLOTS_FULL_CODE: u16 = 6024;
+
+/// The fixed-slot fallback has no free texture slot. The text keeps the
+/// renderer's "Maximum texture limit N reached", which the UI recognises.
+pub(crate) fn gpu_slots_full_error(limit: u32) -> BridgeError {
+    BridgeError::GpuError {
+        code: GPU_SLOTS_FULL_CODE,
+        details: format!(
+            "Could not allocate GPU resources for volume: Maximum texture limit {limit} reached. Hide or remove a layer to free a texture slot."
+        ),
+    }
+}
+
+/// Whether `error` is [`gpu_slots_full_error`].
+pub(crate) fn is_gpu_slots_full(error: &BridgeError) -> bool {
+    matches!(error, BridgeError::GpuError { code, .. } if *code == GPU_SLOTS_FULL_CODE)
+}
+
+/// Preserve authoritative admission pressure across IPC (bytes, or the
+/// fixed-slot fallback's slots); other renderer errors retain their existing
+/// user-facing conversion.
 pub(crate) fn renderer_gpu_error(
     layer_id: &str,
     error: render_loop::RenderLoopError,
@@ -1211,6 +1234,7 @@ pub(crate) fn renderer_gpu_error(
             used_bytes,
             budget_bytes,
         },
+        render_loop::RenderLoopError::ResidentSlotsFull { limit } => gpu_slots_full_error(limit),
         error => gpu_allocation_error(layer_id, &error.to_string()),
     }
 }

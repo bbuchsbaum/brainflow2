@@ -5,9 +5,10 @@
 //! **Lazy eviction.** The plan sizes textures not yet uploaded by an upper
 //! bound (an f32 volume often fits R16Float), so its eviction list can be
 //! longer than needed. The executor follows the plan's order but evicts only
-//! when an upload is actually refused: it tries the upload, and on a budget
-//! refusal evicts the next victim (the plan's, then the other allowed
-//! candidates) and tries again. The renderer's budget check decides.
+//! when an upload is actually refused: it tries the upload, and on a capacity
+//! refusal (bytes, or a texture slot in the fixed-slot fallback) evicts the
+//! next victim (the plan's, then the other allowed candidates) and tries
+//! again. The renderer's capacity check decides.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -25,7 +26,8 @@ pub(crate) enum AdmitTarget {
     /// Every Front frame's drawable layers: evict for them and upload them.
     Fronts,
     /// Room for one layer the UI is requesting, refused short of `needed`
-    /// bytes: evict the policy's next victim for it, at most one, and
+    /// (in the capacity's units: bytes, or slots in the fixed-slot
+    /// fallback): evict the policy's next victim for it, at most one, and
     /// none unless the allowed victims together could free that much. The
     /// caller's request uploads the layer and asks again while it is still
     /// refused.
@@ -189,9 +191,10 @@ async fn evict(state: &BridgeState, victim: &VictimKind) -> bool {
     }
 }
 
-/// What an upload refused for capacity still needs freed: the bytes a
-/// `GpuBudgetExceeded` refusal lacks. None for any other failure, which no
-/// eviction can fix.
+/// What an upload refused for capacity still needs freed, in the units the
+/// policy plans in (see `snapshot`): the bytes a `GpuBudgetExceeded` refusal
+/// lacks, or one texture slot when the fixed-slot fallback is full. None for
+/// any other failure, which no eviction can fix.
 pub(crate) fn capacity_shortfall(error: &BridgeError) -> Option<u64> {
     match error {
         BridgeError::GpuBudgetExceeded {
@@ -200,6 +203,7 @@ pub(crate) fn capacity_shortfall(error: &BridgeError) -> Option<u64> {
             budget_bytes,
             ..
         } => Some(requested_bytes.saturating_sub(budget_bytes.saturating_sub(*used_bytes))),
+        error if is_gpu_slots_full(error) => Some(1),
         _ => None,
     }
 }
@@ -305,7 +309,8 @@ pub(crate) async fn admit_held(state: &BridgeState, target: &AdmitTarget) -> Adm
                         break;
                     }
                     Err(error) => match capacity_shortfall(&error) {
-                        // Out of room: evict the next victim and try again.
+                        // Out of room (bytes, or the fixed-slot fallback's
+                        // slots): evict the next victim and try again.
                         Some(needed) => {
                             if evict_next(state, &mut planned, needed).await {
                                 outcome.evicted += 1;
