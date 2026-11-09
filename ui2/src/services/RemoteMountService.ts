@@ -4,7 +4,11 @@ import type {
   RemoteMountInfo as ApiRemoteMountInfo,
   RemoteMountProfile as ApiRemoteMountProfile,
   SshConfigHost as ApiSshConfigHost,
+  RemoteFolderListing,
+  RemoteMountStatus,
+  RemoteCacheUsage,
 } from '@brainflow/api';
+import type { MountSource } from '@/types/filesystem';
 import { getTransport } from './transport';
 import { formatTauriError } from '@/utils/formatTauriError';
 
@@ -16,6 +20,23 @@ export type RemoteMountConnectResult = ApiRemoteMountConnectResult;
 export type SshConfigHost = ApiSshConfigHost;
 
 /** Where a remote folder lives; enough to find its saved profile again. */
+export type { RemoteFolderListing, RemoteMountStatus, RemoteCacheUsage };
+
+/** Progress of a "make available offline" job (`remote-prefetch-progress`). */
+export interface RemotePrefetchProgress {
+  job_id: string;
+  mount_id: string;
+  folder: string;
+  state: 'scanning' | 'downloading' | 'done' | 'cancelled' | 'failed';
+  files_done: number;
+  files_total: number;
+  bytes_done: number;
+  bytes_total: number;
+  current: string | null;
+  error: string | null;
+  truncated: boolean;
+}
+
 export interface RemoteMountTarget {
   host: string;
   port?: number;
@@ -43,6 +64,8 @@ interface RemoteMountConnectRequest {
   save_profile?: boolean;
   profile_name?: string;
   reconnect_on_launch?: boolean;
+  attempt_id?: string;
+  browse_only?: boolean;
 }
 
 export function buildRemoteMountMountOptions(mount: ConnectedRemoteMount) {
@@ -240,4 +263,105 @@ export async function reconnectRemoteProfilesOnLaunch(): Promise<LaunchReconnect
     })
   );
   return result;
+}
+
+/** A fresh id for one connect attempt, so it can be cancelled. */
+export function newRemoteAttemptId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `attempt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
+/** Stop a connect attempt and drop any prompt it is waiting on. */
+export async function cancelRemoteConnect(attemptId: string): Promise<void> {
+  try {
+    await getTransport().invoke<boolean>('remote_mount_cancel_connect', { attemptId });
+  } catch (error) {
+    console.warn('Cancelling remote connect failed:', error);
+  }
+}
+
+/** Subfolders on a host this app is signed in to (default: home). */
+export async function listRemoteFolders(
+  request: RemoteMountConnectRequest,
+  path?: string
+): Promise<RemoteFolderListing> {
+  return getTransport().invoke<RemoteFolderListing>('remote_list_folders', {
+    request,
+    path: path ?? null,
+  });
+}
+
+/** Release a session signed in to only for browsing folders. */
+export async function closeRemoteBrowse(request: RemoteMountConnectRequest): Promise<void> {
+  try {
+    await getTransport().invoke<boolean>('remote_browse_close', { request });
+  } catch {
+    // Nothing to release.
+  }
+}
+
+export async function getRemoteMountStatuses(): Promise<RemoteMountStatus[]> {
+  return getTransport().invoke<RemoteMountStatus[]>('remote_mount_statuses');
+}
+
+export async function updateRemoteMountProfile(
+  profileId: string,
+  changes: { name?: string; reconnectOnLaunch?: boolean }
+): Promise<RemoteMountProfile> {
+  return getTransport().invoke<RemoteMountProfile>('update_remote_mount_profile', {
+    profileId,
+    name: changes.name ?? null,
+    reconnectOnLaunch: changes.reconnectOnLaunch ?? null,
+  });
+}
+
+export async function getRemoteCacheUsage(): Promise<RemoteCacheUsage> {
+  return getTransport().invoke<RemoteCacheUsage>('remote_cache_usage');
+}
+
+export async function setRemoteCacheBudget(budgetBytes: number): Promise<RemoteCacheUsage> {
+  return getTransport().invoke<RemoteCacheUsage>('set_remote_cache_budget', { budgetBytes });
+}
+
+export async function clearInactiveRemoteCaches(): Promise<RemoteCacheUsage> {
+  return getTransport().invoke<RemoteCacheUsage>('clear_inactive_remote_caches');
+}
+
+/** Start downloading a remote folder's images for offline use; returns the job id. */
+export async function startRemotePrefetch(path: string): Promise<string> {
+  return getTransport().invoke<string>('remote_prefetch_folder', { path });
+}
+
+export async function cancelRemotePrefetch(jobId: string): Promise<void> {
+  await getTransport().invoke<boolean>('remote_prefetch_cancel', { jobId });
+}
+
+/** `user@host[:port]:/path`, the way people write remote locations. */
+export function formatRemoteLocation(source: Pick<MountSource, 'host' | 'port' | 'user' | 'remotePath' | 'label'>): string {
+  if (!source.host) return source.label ?? 'remote';
+  const user = source.user ? `${source.user}@` : '';
+  const port = source.port && source.port !== 22 ? `:${source.port}` : '';
+  const path = source.remotePath ? `:${source.remotePath}` : '';
+  return `${user}${source.host}${port}${path}`;
+}
+
+/** `user@host[:port]`. */
+export function formatRemoteHost(source: Pick<MountSource, 'host' | 'port' | 'user' | 'label'>): string {
+  return formatRemoteLocation({ ...source, remotePath: undefined });
+}
+
+/** Human-readable byte count. */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 1024) return `${Math.max(0, Math.round(bytes || 0))} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = -1;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
 }

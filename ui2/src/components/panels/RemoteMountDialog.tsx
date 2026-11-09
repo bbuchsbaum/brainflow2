@@ -13,9 +13,15 @@ import {
 import { Modal } from '@/components/ui/Modal';
 import { getTransport } from '@/services/transport';
 import {
+  cancelRemoteConnect,
+  closeRemoteBrowse,
   findProfileForTarget,
+  listRemoteFolders,
   listRemoteMountProfiles,
   listSshConfigHosts,
+  newRemoteAttemptId,
+  updateRemoteMountProfile,
+  type RemoteFolderListing,
   type ConnectedRemoteMount,
   type RemoteAuthMethod,
   type RemoteMountConnectResult,
@@ -25,7 +31,13 @@ import {
 } from '@/services/RemoteMountService';
 import { formatTauriError } from '@/utils/formatTauriError';
 
-type RemoteDialogStep = 'form' | 'host_key' | 'auth';
+type RemoteDialogStep = 'form' | 'host_key' | 'auth' | 'browse' | 'manage';
+type ConnectPurpose = 'mount' | 'browse';
+
+interface ProfileDraft {
+  name: string;
+  reconnectOnLaunch: boolean;
+}
 
 interface RemoteMountDialogProps {
   isOpen: boolean;
@@ -204,6 +216,28 @@ function formFromProfile(profile: RemoteMountProfile): RemoteMountFormState {
   };
 }
 
+/** Connection settings from the form, as the backend expects them. */
+function buildConnectRequest(values: RemoteMountFormState) {
+  const parsedPort = Number.parseInt(values.port, 10);
+  return {
+    host: values.host.trim(),
+    port: Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 22,
+    user: values.user.trim(),
+    remote_path: values.remotePath.trim(),
+    auth_method: values.authMethod,
+    password: values.authMethod === 'password' ? values.password : undefined,
+    key_path: values.authMethod === 'key_file' ? values.keyPath.trim() || undefined : undefined,
+    key_passphrase: values.authMethod === 'key_file' ? values.keyPassphrase || undefined : undefined,
+    remember_password:
+      values.authMethod === 'password' || values.authMethod === 'key_file'
+        ? values.rememberPassword
+        : false,
+    save_profile: values.saveProfile,
+    profile_name: values.saveProfile ? values.profileName.trim() || undefined : undefined,
+    reconnect_on_launch: values.saveProfile ? values.reconnectOnLaunch : undefined,
+  };
+}
+
 function sortProfilesByMostRecent(profiles: RemoteMountProfile[]): RemoteMountProfile[] {
   return [...profiles].sort((a, b) => {
     const aUpdated = Number(a.updated_at_ms ?? 0);
@@ -238,6 +272,17 @@ export function RemoteMountDialog({
   const [hostKeyChallenge, setHostKeyChallenge] = useState<RemoteHostKeyChallenge | null>(null);
   const [authChallenge, setAuthChallenge] = useState<RemoteAuthChallenge | null>(null);
   const [authResponses, setAuthResponses] = useState<string[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // The attempt in flight (for Cancel) and what it is for.
+  const attemptRef = useRef<string | null>(null);
+  const purposeRef = useRef<ConnectPurpose>('mount');
+  // Remote folder browser.
+  const [browseListing, setBrowseListing] = useState<RemoteFolderListing | null>(null);
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const browseRequestRef = useRef<ReturnType<typeof buildConnectRequest> | null>(null);
+  // Saved-connection editor.
+  const [drafts, setDrafts] = useState<Record<string, ProfileDraft>>({});
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId) ?? null,
@@ -263,7 +308,9 @@ export function RemoteMountDialog({
       return;
     }
 
-    profileSelectRef.current?.focus();
+    if (step === 'form') {
+      profileSelectRef.current?.focus();
+    }
   }, [isOpen, step]);
 
   useEffect(() => {
@@ -283,6 +330,9 @@ export function RemoteMountDialog({
       setAuthResponses([]);
       setSelectedProfileId('');
       setForm(DEFAULT_FORM);
+      setNotice(null);
+      setBrowseListing(null);
+      attemptRef.current = null;
 
       void listSshConfigHosts().then((hosts) => {
         if (active) setSshHosts(hosts);
@@ -359,8 +409,8 @@ export function RemoteMountDialog({
     }
   };
 
-  const handleRemoveProfile = async () => {
-    if (!selectedProfile) {
+  const handleRemoveProfile = async (profileId: string | undefined = selectedProfile?.id) => {
+    if (!profileId) {
       return;
     }
 
@@ -368,11 +418,16 @@ export function RemoteMountDialog({
     setError(null);
     try {
       await getTransport().invoke<void>('remove_remote_mount_profile', {
-        profileId: selectedProfile.id,
+        profileId,
       });
 
-      setProfiles((current) => current.filter((profile) => profile.id !== selectedProfile.id));
-      setSelectedProfileId('');
+      setProfiles((current) => current.filter((profile) => profile.id !== profileId));
+      setDrafts((current) => {
+        const next = { ...current };
+        delete next[profileId];
+        return next;
+      });
+      if (selectedProfileId === profileId) setSelectedProfileId('');
     } catch (removeError) {
       const message = formatTauriError(removeError) || 'Failed to remove profile.';
       setError(message);
@@ -383,8 +438,19 @@ export function RemoteMountDialog({
 
   const handleConnectOutcome = async (result: RemoteMountConnectResult) => {
     if (result.status === 'connected') {
+      attemptRef.current = null;
       await onMounted(result.mount);
-      onClose();
+      handleClose();
+      return;
+    }
+
+    if (result.status === 'session_ready') {
+      attemptRef.current = null;
+      setHostKeyChallenge(null);
+      setAuthChallenge(null);
+      setStep('browse');
+      const typed = form.remotePath.trim();
+      await loadBrowseFolder(typed && typed !== '/' ? typed : result.session.home, result.session.home);
       return;
     }
 
@@ -409,19 +475,16 @@ export function RemoteMountDialog({
   async function connectWith(
     values: RemoteMountFormState,
     profile: RemoteMountProfile | null,
-    isActive: () => boolean
+    isActive: () => boolean,
+    purpose: ConnectPurpose = 'mount'
   ) {
-    const host = values.host.trim();
-    const user = values.user.trim();
-    const remotePath = values.remotePath.trim();
-    const parsedPort = Number.parseInt(values.port, 10);
-    const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 22;
+    const request = buildConnectRequest(values);
     // A ~/.ssh/config alias may supply the user.
     const configUser = sshHosts.find(
-      (candidate) => candidate.alias === host.toLowerCase()
+      (candidate) => candidate.alias === request.host.toLowerCase()
     )?.user;
 
-    if (!host || (!user && !configUser) || !remotePath) {
+    if (!request.host || (!request.user && !configUser) || (purpose === 'mount' && !request.remote_path)) {
       setError('Host, user, and remote path are required.');
       return;
     }
@@ -430,39 +493,42 @@ export function RemoteMountDialog({
       return;
     }
 
+    const attemptId = newRemoteAttemptId();
+    attemptRef.current = attemptId;
+    purposeRef.current = purpose;
+    const current = () => isActive() && attemptRef.current === attemptId;
+
     setPending(true);
     setError(null);
+    setNotice(null);
     setStep('form');
     setHostKeyChallenge(null);
     setAuthChallenge(null);
     setAuthResponses([]);
 
+    if (purpose === 'browse') {
+      browseRequestRef.current = request;
+    }
+
     try {
       const result = await getTransport().invoke<RemoteMountConnectResult>('remote_mount_connect', {
         request: {
-          host,
-          port,
-          user,
-          remote_path: remotePath,
-          auth_method: values.authMethod,
-          password: values.authMethod === 'password' ? values.password : undefined,
-          key_path: values.authMethod === 'key_file' ? values.keyPath.trim() || undefined : undefined,
-          key_passphrase:
-            values.authMethod === 'key_file' ? values.keyPassphrase || undefined : undefined,
-          remember_password:
-            values.authMethod === 'password' || values.authMethod === 'key_file'
-              ? values.rememberPassword
-              : false,
-          save_profile: values.saveProfile,
-          profile_name: values.saveProfile ? values.profileName.trim() || undefined : undefined,
-          reconnect_on_launch: values.saveProfile ? values.reconnectOnLaunch : undefined,
+          ...request,
+          remote_path: request.remote_path || '/',
+          attempt_id: attemptId,
+          browse_only: purpose === 'browse' ? true : undefined,
+          // Browsing signs in only; profile and keychain choices apply on Connect.
+          ...(purpose === 'browse'
+            ? { save_profile: false, remember_password: undefined, reconnect_on_launch: undefined }
+            : {}),
         },
       });
 
-      if (!isActive()) return;
+      if (!current()) return;
       await handleConnectOutcome(result);
     } catch (connectError) {
-      if (!isActive()) return;
+      if (!current()) return;
+      attemptRef.current = null;
       const message = formatTauriError(connectError) || 'Failed to connect to remote host.';
       const messageWithHint = withAuthHint(message, values.authMethod);
       setError(messageWithHint);
@@ -472,18 +538,132 @@ export function RemoteMountDialog({
     }
   }
 
+  /** Stop the attempt in flight (or waiting on a prompt) and return to the form. */
+  const handleCancelAttempt = () => {
+    const attemptId = attemptRef.current;
+    attemptRef.current = null;
+    if (attemptId) void cancelRemoteConnect(attemptId);
+    setPending(false);
+    setHostKeyChallenge(null);
+    setAuthChallenge(null);
+    setAuthResponses([]);
+    setStep('form');
+    setError(null);
+    setNotice('Connection cancelled.');
+  };
+
+  /** Close, abandoning any attempt and releasing a browse-only session. */
+  function handleClose() {
+    const attemptId = attemptRef.current;
+    attemptRef.current = null;
+    if (attemptId) void cancelRemoteConnect(attemptId);
+    const browseRequest = browseRequestRef.current;
+    browseRequestRef.current = null;
+    if (browseRequest) void closeRemoteBrowse(browseRequest);
+    onClose();
+  }
+
+  async function loadBrowseFolder(path: string | undefined, fallback?: string) {
+    const request = browseRequestRef.current ?? buildConnectRequest(form);
+    setBrowseLoading(true);
+    setError(null);
+    try {
+      setBrowseListing(await listRemoteFolders({ ...request, remote_path: '/' }, path));
+    } catch (browseError) {
+      if (fallback && fallback !== path) {
+        await loadBrowseFolder(fallback);
+        return;
+      }
+      setError(formatTauriError(browseError) || 'Could not list the remote folder.');
+    } finally {
+      setBrowseLoading(false);
+    }
+  }
+
+  const handleBrowse = () => connectWith(form, selectedProfile, () => true, 'browse');
+
+  const handleChooseFolder = () => {
+    if (browseListing) {
+      setForm((prev) => ({ ...prev, remotePath: browseListing.path }));
+    }
+    setStep('form');
+  };
+
+  const openManage = () => {
+    const next: Record<string, ProfileDraft> = {};
+    for (const profile of profiles) {
+      next[profile.id] = {
+        name: profile.name,
+        reconnectOnLaunch: profile.reconnect_on_launch ?? false,
+      };
+    }
+    setDrafts(next);
+    setError(null);
+    setNotice(null);
+    setStep('manage');
+  };
+
+  const changedDrafts = profiles.filter((profile) => {
+    const draft = drafts[profile.id];
+    return (
+      draft !== undefined &&
+      (draft.name.trim() !== profile.name ||
+        draft.reconnectOnLaunch !== (profile.reconnect_on_launch ?? false))
+    );
+  });
+
+  const handleSaveProfiles = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      const updated = new Map<string, RemoteMountProfile>();
+      for (const profile of changedDrafts) {
+        const draft = drafts[profile.id];
+        if (!draft.name.trim()) {
+          throw new Error('Profile names cannot be empty.');
+        }
+        updated.set(
+          profile.id,
+          await updateRemoteMountProfile(profile.id, {
+            name: draft.name.trim(),
+            reconnectOnLaunch: draft.reconnectOnLaunch,
+          })
+        );
+      }
+      setProfiles((current) => current.map((profile) => updated.get(profile.id) ?? profile));
+      const selected = selectedProfileId ? updated.get(selectedProfileId) : undefined;
+      if (selected) {
+        setForm((prev) => ({
+          ...prev,
+          profileName: selected.name,
+          reconnectOnLaunch: selected.reconnect_on_launch,
+        }));
+      }
+      setStep('form');
+      if (updated.size > 0) setNotice('Saved connections updated.');
+    } catch (saveError) {
+      setError(formatTauriError(saveError) || 'Could not save the changes.');
+    } finally {
+      setPending(false);
+    }
+  };
+
   const handleHostKeyDecision = async (trust: boolean) => {
     if (!hostKeyChallenge) {
       return;
     }
 
     if (!trust) {
+      const attemptId = attemptRef.current;
+      attemptRef.current = null;
+      if (attemptId) void cancelRemoteConnect(attemptId);
       setError('Host key was rejected.');
       setHostKeyChallenge(null);
       setStep('form');
       return;
     }
 
+    const attemptId = attemptRef.current;
     setPending(true);
     setError(null);
 
@@ -495,8 +675,11 @@ export function RemoteMountDialog({
           trust: true,
         }
       );
+      if (attemptRef.current !== attemptId) return;
       await handleConnectOutcome(result);
     } catch (hostKeyError) {
+      if (attemptRef.current !== attemptId) return;
+      attemptRef.current = null;
       const message =
         formatTauriError(hostKeyError) || 'Failed to continue after host-key approval.';
       setError(message);
@@ -520,6 +703,7 @@ export function RemoteMountDialog({
       return;
     }
 
+    const attemptId = attemptRef.current;
     setPending(true);
     setError(null);
 
@@ -528,8 +712,11 @@ export function RemoteMountDialog({
         conversationId: authChallenge.conversation_id,
         responses: authResponses,
       });
+      if (attemptRef.current !== attemptId) return;
       await handleConnectOutcome(result);
     } catch (authError) {
+      if (attemptRef.current !== attemptId) return;
+      attemptRef.current = null;
       const message =
         formatTauriError(authError) || 'Failed to continue authentication challenge.';
       setError(message);
@@ -548,14 +735,13 @@ export function RemoteMountDialog({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={handleClose}
       title="Mount remote folder"
       ariaLabel="Remote mount"
       size="xl"
       initialFocusRef={profileSelectRef}
-      closeOnEscape={!pending}
+      closeOnEscape
       closeOnOverlayClick={!pending}
-      closeButtonDisabled={pending}
       bodyClassName="p-0"
       className="max-w-[560px]"
     >
@@ -590,6 +776,15 @@ export function RemoteMountDialog({
                     disabled={pending || !selectedProfile}
                   >
                     Remove
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={openManage}
+                    disabled={pending || profiles.length === 0}
+                    title="Rename saved connections or change which reconnect at launch"
+                  >
+                    Manage…
                   </Button>
                 </div>
               )}
@@ -656,14 +851,28 @@ export function RemoteMountDialog({
             </FieldRow>
 
             <FieldRow label="Remote folder" labelWidth="wide" disabled={pending}>
-              <TextField
-                value={form.remotePath}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, remotePath: event.target.value }))
-                }
-                placeholder="/data/project"
-                mono
-              />
+              {(field) => (
+                <div className="flex w-full min-w-0 items-center gap-1">
+                  <TextField
+                    {...field}
+                    value={form.remotePath}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, remotePath: event.target.value }))
+                    }
+                    placeholder="/data/project"
+                    mono
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void handleBrowse()}
+                    disabled={pending || !form.host.trim()}
+                    title="Sign in and pick a folder on the server"
+                  >
+                    Browse…
+                  </Button>
+                </div>
+              )}
             </FieldRow>
 
             <FieldRow label="Auth method" labelWidth="wide" disabled={pending}>
@@ -837,6 +1046,131 @@ export function RemoteMountDialog({
           </div>
         )}
 
+        {step === 'browse' && (
+          <div className="flex flex-col gap-1" aria-label="Remote folders">
+            <div className="flex min-w-0 items-center gap-1">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void loadBrowseFolder(browseListing?.parent ?? undefined)}
+                disabled={browseLoading || !browseListing?.parent}
+                title="Parent folder"
+              >
+                Up
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void loadBrowseFolder(undefined)}
+                disabled={browseLoading}
+                title="Home folder"
+              >
+                Home
+              </Button>
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-bf-xs text-bf-text-secondary"
+                title={browseListing?.path}
+              >
+                {browseListing?.path ?? '…'}
+              </span>
+            </div>
+            <ul
+              className="m-0 max-h-[280px] min-h-[120px] list-none overflow-auto border border-bf-border-subtle p-0"
+              aria-busy={browseLoading}
+            >
+              {browseLoading && (
+                <li className="px-2 py-1 text-bf-xs text-bf-text-secondary">Loading…</li>
+              )}
+              {!browseLoading && browseListing?.folders.length === 0 && (
+                <li className="px-2 py-1 text-bf-xs text-bf-text-secondary">No subfolders</li>
+              )}
+              {!browseLoading &&
+                browseListing?.folders.map((folder) => (
+                  <li key={folder}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start font-mono font-normal"
+                      onClick={() =>
+                        void loadBrowseFolder(
+                          `${browseListing.path === '/' ? '' : browseListing.path}/${folder}`
+                        )
+                      }
+                    >
+                      {folder}/
+                    </Button>
+                  </li>
+                ))}
+            </ul>
+          </div>
+        )}
+
+        {step === 'manage' && (
+          <div className="flex flex-col gap-1" aria-label="Saved connections">
+            {profiles.length === 0 && (
+              <p className="m-0 text-bf-sm text-bf-text-secondary">No saved connections.</p>
+            )}
+            {profiles.map((profile) => {
+              const draft = drafts[profile.id] ?? {
+                name: profile.name,
+                reconnectOnLaunch: profile.reconnect_on_launch ?? false,
+              };
+              return (
+                <div
+                  key={profile.id}
+                  className="flex flex-col gap-1 border-b border-bf-border-subtle py-1 last:border-b-0"
+                >
+                  <div className="flex min-w-0 items-center gap-1">
+                    <TextField
+                      aria-label={`Name for ${profile.id}`}
+                      value={draft.name}
+                      onChange={(event) =>
+                        setDrafts((current) => ({
+                          ...current,
+                          [profile.id]: { ...draft, name: event.target.value },
+                        }))
+                      }
+                      disabled={pending}
+                    />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void handleRemoveProfile(profile.id)}
+                      disabled={pending}
+                      aria-label={`Remove ${profile.name}`}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                  <span className="truncate font-mono text-bf-xs text-bf-text-secondary">
+                    {profile.user}@{profile.host}
+                    {profile.port !== 22 ? `:${profile.port}` : ''}:{profile.remote_path}
+                  </span>
+                  <Switch
+                    checked={draft.reconnectOnLaunch}
+                    onCheckedChange={(checked) =>
+                      setDrafts((current) => ({
+                        ...current,
+                        [profile.id]: { ...draft, reconnectOnLaunch: checked },
+                      }))
+                    }
+                    disabled={pending}
+                    aria-label={`Reconnect ${profile.name} when Brainflow starts`}
+                  >
+                    Reconnect when Brainflow starts
+                  </Switch>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {notice && !error && (
+          <Notice severity="info" role="status" className="mt-2">
+            {notice}
+          </Notice>
+        )}
+
         {error && (
           <Notice severity="danger" role="status" className="mt-2">
             {error}
@@ -847,7 +1181,11 @@ export function RemoteMountDialog({
       <div className="flex justify-end gap-2 border-t border-bf-border-subtle px-3 py-2">
         {step === 'form' && (
           <>
-            <Button variant="secondary" size="sm" onClick={onClose} disabled={pending}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={pending ? handleCancelAttempt : handleClose}
+            >
               Cancel
             </Button>
             <Button
@@ -856,7 +1194,43 @@ export function RemoteMountDialog({
               onClick={() => void handleConnect()}
               disabled={pending}
             >
-              {pending ? 'Connecting…' : 'Connect'}
+              {pending
+                ? purposeRef.current === 'browse'
+                  ? 'Signing in…'
+                  : 'Connecting…'
+                : 'Connect'}
+            </Button>
+          </>
+        )}
+
+        {step === 'browse' && (
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setStep('form')}>
+              Back
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleChooseFolder}
+              disabled={browseLoading || !browseListing}
+            >
+              Use this folder
+            </Button>
+          </>
+        )}
+
+        {step === 'manage' && (
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setStep('form')} disabled={pending}>
+              Back
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => void handleSaveProfiles()}
+              disabled={pending || changedDrafts.length === 0}
+            >
+              Save changes
             </Button>
           </>
         )}
@@ -866,10 +1240,11 @@ export function RemoteMountDialog({
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => void handleHostKeyDecision(false)}
-              disabled={pending}
+              onClick={() =>
+                pending ? handleCancelAttempt() : void handleHostKeyDecision(false)
+              }
             >
-              Reject
+              {pending ? 'Cancel' : 'Reject'}
             </Button>
             <Button
               variant="primary"
@@ -885,7 +1260,7 @@ export function RemoteMountDialog({
 
         {step === 'auth' && (
           <>
-            <Button variant="secondary" size="sm" onClick={onClose} disabled={pending}>
+            <Button variant="secondary" size="sm" onClick={handleCancelAttempt}>
               Cancel
             </Button>
             <Button

@@ -27,6 +27,23 @@ export class FilesystemService {
     );
     return result.nodes;
   }
+
+  /**
+   * The last listing seen for a folder inside a mounted remote folder, read
+   * from disk, so the tree can show it before the live listing arrives.
+   * `null` for local folders, folders never listed, or on any error.
+   */
+  async cachedRemoteDirectory(path: string): Promise<FileNode[] | null> {
+    try {
+      const result = await this.transport.invoke<{ nodes: FileNode[] } | null>(
+        'cached_remote_directory',
+        { path }
+      );
+      return result && Array.isArray(result.nodes) ? result.nodes : null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 let instance: FilesystemService | null = null;

@@ -1,6 +1,7 @@
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { useRemoteMountStore } from '@/stores/remoteMountStore';
 import { FileBrowserPanel } from '../FileBrowserPanel';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import type { FileTreeNode, MountSource } from '@/types/filesystem';
@@ -130,5 +131,47 @@ describe('FileBrowserPanel remote origin indicator', () => {
     expect(rootBadges[0]).toHaveAttribute('title', 'Remote root: /data/study');
     expect(screen.getByText('child-folder')).toBeInTheDocument();
     expect(screen.getByText('brain.nii.gz')).toBeInTheDocument();
+  });
+
+  it('shows the connection state on the remote root and reconnects from it', () => {
+    const remoteRoot = '/tmp/brainflow/mounts/mount-remote-2';
+    resetStore([
+      makeRootNode(remoteRoot, {
+        kind: 'remote',
+        label: 'alice@login.example.org:/data',
+        mountId: 'mount-remote-2',
+        host: 'login.example.org',
+        port: 22,
+        user: 'alice',
+        remotePath: '/data',
+      }),
+    ]);
+    useRemoteMountStore.setState({
+      statuses: {},
+      dialog: { open: false, target: null, autoConnect: false },
+    });
+
+    const { container } = render(<FileBrowserPanel />);
+    expect(container.querySelector('.remote-connection')).toBeNull();
+
+    act(() => {
+      useRemoteMountStore
+        .getState()
+        .setStatuses([{ mount_id: 'mount-remote-2', state: 'connected', shared_session_mounts: 1 }]);
+    });
+    expect(screen.getByRole('img', { name: 'Connected' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reconnect' })).not.toBeInTheDocument();
+
+    act(() => {
+      useRemoteMountStore
+        .getState()
+        .setStatuses([{ mount_id: 'mount-remote-2', state: 'disconnected', shared_session_mounts: 1 }]);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
+    expect(useRemoteMountStore.getState().dialog).toEqual({
+      open: true,
+      autoConnect: true,
+      target: { host: 'login.example.org', port: 22, user: 'alice', remotePath: '/data' },
+    });
   });
 });

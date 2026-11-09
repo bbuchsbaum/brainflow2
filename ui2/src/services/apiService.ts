@@ -473,6 +473,12 @@ export class ApiService {
     return this.filesystem.listDirectory(path, maxDepth);
   }
 
+  async cachedRemoteDirectory(
+    path: string,
+  ): Promise<import('./filesystem/FilesystemService').FileNode[] | null> {
+    return this.filesystem.cachedRemoteDirectory(path);
+  }
+
   // ── Volume delegation ──────────────────────────────────────────────────────
 
   async loadFile(path: string, signal?: AbortSignal): Promise<import('./volume/VolumeApiService').VolumeHandle> {

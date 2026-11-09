@@ -33,6 +33,15 @@ import type { DragFileData, MountSource } from "@/types/filesystem";
 import type { DisplayOpenIntent } from "@/types/loadIntent";
 import { inferFileType, type FileTypeInfo } from "./shared/inferFileType";
 import { FileTypeBadge } from "./shared/FileTypeBadge";
+import { IconButton } from "@/components/ui/bf";
+import { VscRefresh } from "react-icons/vsc";
+import { useRemoteMountStore } from "@/stores/remoteMountStore";
+import {
+  findRemoteRoot,
+  makeRemoteFolderAvailableOffline,
+  reconnectRemoteRoot,
+  unmountRemoteRoot,
+} from "@/services/remoteMountActions";
 
 export interface FileNodeData {
   id: string;
@@ -294,6 +303,32 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
           },
         },
       ];
+      const remoteRoot = findRemoteRoot(useFileBrowserStore.getState().entries, dirPath);
+      if (remoteRoot?.mountSource) {
+        const rootSource = remoteRoot.mountSource;
+        dirItems.push(
+          { id: "sep-remote", label: "", separator: true },
+          {
+            id: "remote-offline",
+            label: "Make available offline",
+            onClick: () => void makeRemoteFolderAvailableOffline(dirPath),
+          },
+        );
+        if (remoteRoot.path === dirPath) {
+          dirItems.push(
+            {
+              id: "remote-reconnect",
+              label: "Reconnect",
+              onClick: () => void reconnectRemoteRoot(dirPath, rootSource),
+            },
+            {
+              id: "remote-unmount-clear",
+              label: "Unmount and clear downloads",
+              onClick: () => void unmountRemoteRoot(dirPath, rootSource, true),
+            },
+          );
+        }
+      }
       contextMenu.open(clientX, clientY, dirItems);
       // Folder actions are immediate, including on remote mounts. Add the BIDS
       // action only if this menu is still open when discovery completes.
@@ -474,11 +509,65 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
         )}
       </div>
 
+      {remoteMountSource && (
+        <RemoteConnectionIndicator rootPath={data.path} source={remoteMountSource} />
+      )}
+
       <div className="file-meta">
         {data.type === "file" && data.size && (
           <span className="file-size">{formatFileSize(data.size)}</span>
         )}
       </div>
     </SelectableRow>
+  );
+};
+
+const CONNECTION_COPY = {
+  connected: { label: "Connected", dot: "bg-bf-success" },
+  reconnecting: {
+    label: "Connection dropped; reconnects on next use",
+    dot: "bg-bf-warning",
+  },
+  disconnected: {
+    label: "Disconnected; showing downloaded copies. Sign in again to refresh.",
+    dot: "bg-bf-danger",
+  },
+} as const;
+
+/** Connection dot for a mounted remote root, with Reconnect when it is down. */
+const RemoteConnectionIndicator: React.FC<{ rootPath: string; source: MountSource }> = ({
+  rootPath,
+  source,
+}) => {
+  const state = useRemoteMountStore((store) =>
+    source.mountId ? store.statuses[source.mountId]?.state : undefined,
+  );
+  if (state !== "connected" && state !== "reconnecting" && state !== "disconnected") {
+    return null;
+  }
+  const copy = CONNECTION_COPY[state];
+  return (
+    <span className="remote-connection" data-state={state}>
+      <span
+        className={cn("remote-connection-dot", copy.dot)}
+        role="img"
+        aria-label={copy.label}
+        title={copy.label}
+      />
+      {state !== "connected" && (
+        <IconButton
+          size="xs"
+          variant="ghost"
+          aria-label="Reconnect"
+          title="Reconnect"
+          icon={<VscRefresh />}
+          onClick={(event) => {
+            event.stopPropagation();
+            void reconnectRemoteRoot(rootPath, source);
+          }}
+          onDoubleClick={(event) => event.stopPropagation()}
+        />
+      )}
+    </span>
   );
 };

@@ -546,11 +546,19 @@ pub struct RemoteAuthChallenge {
 #[ts(export)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RemoteMountConnectResult {
-    Connected { mount: RemoteMountInfo },
-    NeedHostKey { challenge: RemoteHostKeyChallenge },
-    NeedAuth { challenge: RemoteAuthChallenge },
+    Connected {
+        mount: RemoteMountInfo,
+    },
+    NeedHostKey {
+        challenge: RemoteHostKeyChallenge,
+    },
+    NeedAuth {
+        challenge: RemoteAuthChallenge,
+    },
     /// `browse_only`: signed in; list folders with `remote_list_folders`.
-    SessionReady { session: RemoteSessionInfo },
+    SessionReady {
+        session: RemoteSessionInfo,
+    },
 }
 
 /// A signed-in SSH session available for browsing remote folders.

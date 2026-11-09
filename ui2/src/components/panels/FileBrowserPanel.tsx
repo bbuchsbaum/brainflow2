@@ -18,10 +18,21 @@ import { getTransport } from "@/services/transport";
 import { getSetStudioService } from "@/services/studio/SetStudioService";
 import { getImageSetService } from "@/services/ImageSetService";
 import {
+  formatRemoteHost,
   mountConnectedRemoteDirectory,
   type ConnectedRemoteMount,
-  type RemoteMountTarget,
 } from "@/services/RemoteMountService";
+import { useRemoteMountStore } from "@/stores/remoteMountStore";
+import {
+  refreshRemoteMountStatuses,
+  useRemoteMountStatusPolling,
+} from "@/hooks/useRemoteMountStatus";
+import { targetFromMountSource, unmountRemoteRoot } from "@/services/remoteMountActions";
+import { RemoteCacheDialog } from "./RemoteCacheDialog";
+import { DropdownMenu, type DropdownMenuItem } from "@/components/ui/DropdownMenu";
+import { IconButton } from "@/components/ui/IconButton";
+import { VscHistory } from "react-icons/vsc";
+import { getHostCapabilities } from "@/services/transport";
 import { PanelErrorBoundary } from "../common/PanelErrorBoundary";
 import { PanelHeader } from "@/components/ui/PanelHeader";
 import { RemoteMountDialog } from "./RemoteMountDialog";
@@ -49,11 +60,10 @@ const FileBrowserPanelContent: React.FC = () => {
   const [treeSize, setTreeSize] = useState({ width: 0, height: 0 });
   const [mountActionError, setMountActionError] = useState<string | null>(null);
   const [mountActionPending, setMountActionPending] = useState(false);
-  const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
-  // Set when the dialog opens for a known remote folder (Pinned/Recents):
-  // it reconnects that folder's saved profile without asking.
-  const [remoteDialogTarget, setRemoteDialogTarget] =
-    useState<RemoteMountTarget | null>(null);
+  // The remote dialog is shared state: the tree's Reconnect and the
+  // Recent menu open it on a known folder.
+  const remoteDialog = useRemoteMountStore((state) => state.dialog);
+  const [cacheDialogOpen, setCacheDialogOpen] = useState(false);
   const treeContainerRef = useRef<HTMLDivElement>(null);
   const treeResizeObserverRef = useRef<ResizeObserver | null>(null);
   // Folders the user opened (outside a search), so a remounted tree (a new
@@ -86,6 +96,8 @@ const FileBrowserPanelContent: React.FC = () => {
   const sortOrder = useFileBrowserStore((state) => state.sortOrder);
   const selectedPath = useFileBrowserStore((state) => state.selectedPath);
   const recentsCount = useFileBrowserStore((state) => state.recents.length);
+  const recents = useFileBrowserStore((state) => state.recents);
+  const pinned = useFileBrowserStore((state) => state.pinned);
   const pinnedCount = useFileBrowserStore((state) => state.pinned.length);
   const viewMode = useFileBrowserStore((state) => state.viewMode);
   const setViewMode = useFileBrowserStore((state) => state.setViewMode);
@@ -316,27 +328,38 @@ const FileBrowserPanelContent: React.FC = () => {
 
   function openRemoteMountDialog() {
     setMountActionError(null);
-    setRemoteDialogTarget(null);
-    setRemoteDialogOpen(true);
+    useRemoteMountStore.getState().openRemoteDialog(null, false);
   }
 
   function reconnectRemoteLocation(source: MountSource) {
-    if (!source.host) {
+    const target = targetFromMountSource(source);
+    if (!target) {
       openRemoteMountDialog();
       return;
     }
     setMountActionError(null);
-    setRemoteDialogTarget({
-      host: source.host,
-      port: source.port,
-      user: source.user,
-      remotePath: source.remotePath,
-    });
-    setRemoteDialogOpen(true);
+    useRemoteMountStore.getState().openRemoteDialog(target, true);
   }
 
   async function handleRemoteMounted(mount: ConnectedRemoteMount) {
+    // An already-mounted folder that was signed in to again reloads here too.
     await mountConnectedRemoteDirectory(mount);
+    await refreshRemoteMountStatuses();
+  }
+
+  async function unmountSelectedRemoteAndClear() {
+    if (!selectedRootMount?.mountSource || mountActionPending) return;
+    setMountActionPending(true);
+    setMountActionError(null);
+    try {
+      await unmountRemoteRoot(selectedRootMount.path, selectedRootMount.mountSource, true);
+    } catch (unmountError) {
+      setMountActionError(
+        unmountError instanceof Error ? unmountError.message : "Failed to unmount.",
+      );
+    } finally {
+      setMountActionPending(false);
+    }
   }
 
   async function unmountSelectedRoot() {
@@ -457,6 +480,62 @@ const FileBrowserPanelContent: React.FC = () => {
       navigator.platform.toLowerCase().includes("mac") ? "Cmd+O" : "Ctrl+O",
     [],
   );
+  const remoteMountIds = useMemo(
+    () =>
+      entries
+        .map((root) => (root.mountSource?.kind === "remote" ? root.mountSource.mountId : undefined))
+        .filter((id): id is string => Boolean(id)),
+    [entries],
+  );
+  useRemoteMountStatusPolling(remoteMountIds);
+  const selectedRootIsRemote = selectedRootMount?.mountSource?.kind === "remote";
+  const remoteMountsAvailable = Boolean(getHostCapabilities().remoteMounts);
+
+  // Pinned and recent locations that are not mounted right now, so another
+  // machine or folder is one click away while something is open.
+  const recentMenuItems = useMemo<DropdownMenuItem[]>(() => {
+    const mountedPaths = new Set(entries.map((root) => root.path));
+    const item = (
+      id: string,
+      label: string,
+      path: string,
+      source: MountSource,
+    ): DropdownMenuItem => ({
+      id,
+      label: (
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate">{label}</span>
+          <span className="truncate font-mono text-bf-xs text-bf-text-secondary">
+            {source.kind === "remote" ? formatRemoteHost(source) : path}
+          </span>
+        </span>
+      ),
+      onClick: () => {
+        if (source.kind === "remote") reconnectRemoteLocation(source);
+        else void mountKnownLocation(path);
+      },
+    });
+    const pinnedItems = pinned
+      .filter((location) => !mountedPaths.has(location.path))
+      .map((location) => item(`pinned-${location.id}`, location.label, location.path, location.mountSource));
+    const pinnedPaths = new Set(pinned.map((location) => location.path));
+    const recentItems = recents
+      .filter((recent) => !mountedPaths.has(recent.path) && !pinnedPaths.has(recent.path))
+      .slice(0, 8)
+      .map((recent) => item(`recent-${recent.path}`, recent.displayName, recent.path, recent.mountSource));
+    const items: DropdownMenuItem[] = [];
+    if (pinnedItems.length > 0) {
+      items.push({ id: "pinned-header", label: "Pinned", header: true }, ...pinnedItems);
+    }
+    if (recentItems.length > 0) {
+      if (items.length > 0) items.push({ id: "recent-sep", separator: true });
+      items.push({ id: "recent-header", label: "Recent", header: true }, ...recentItems);
+    }
+    return items;
+    // reconnect/mount helpers read current state when clicked
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries, pinned, recents]);
+
   const selectedRootIsPinned = selectedRootMount
     ? isPinned(selectedRootMount.path)
     : false;
@@ -484,6 +563,23 @@ const FileBrowserPanelContent: React.FC = () => {
             disabled: mountActionPending,
             title: "Mount directory",
           }}
+          extraActions={
+            recentMenuItems.length > 0 ? (
+              <DropdownMenu
+                position="bottom-right"
+                trigger={
+                  <IconButton
+                    size="xs"
+                    variant="ghost"
+                    aria-label="Open a recent location"
+                    title="Open a recent location"
+                    icon={<VscHistory />}
+                  />
+                }
+                items={recentMenuItems}
+              />
+            ) : undefined
+          }
           overflowActions={[
             {
               id: "mount-local",
@@ -508,6 +604,28 @@ const FileBrowserPanelContent: React.FC = () => {
               disabled: mountActionPending || !selectedRootMount,
               danger: true,
             },
+            ...(selectedRootIsRemote
+              ? [
+                  {
+                    id: "unmount-selected-clear",
+                    label: "Unmount and clear downloads",
+                    onClick: () => {
+                      void unmountSelectedRemoteAndClear();
+                    },
+                    disabled: mountActionPending,
+                    danger: true,
+                  },
+                ]
+              : []),
+            ...(remoteMountsAvailable
+              ? [
+                  {
+                    id: "remote-downloads",
+                    label: "Remote downloads…",
+                    onClick: () => setCacheDialogOpen(true),
+                  },
+                ]
+              : []),
             {
               id: "pin-selected",
               label: selectedRootIsPinned ? "Unpin Selected" : "Pin Selected",
@@ -780,15 +898,14 @@ const FileBrowserPanelContent: React.FC = () => {
       )}
 
       <RemoteMountDialog
-        isOpen={remoteDialogOpen}
-        onClose={() => {
-          setRemoteDialogOpen(false);
-          setRemoteDialogTarget(null);
-        }}
+        isOpen={remoteDialog.open}
+        onClose={() => useRemoteMountStore.getState().closeRemoteDialog()}
         onMounted={handleRemoteMounted}
-        initialTarget={remoteDialogTarget}
-        autoConnect={remoteDialogTarget !== null}
+        initialTarget={remoteDialog.target}
+        autoConnect={remoteDialog.autoConnect}
       />
+
+      <RemoteCacheDialog isOpen={cacheDialogOpen} onClose={() => setCacheDialogOpen(false)} />
     </div>
   );
 };

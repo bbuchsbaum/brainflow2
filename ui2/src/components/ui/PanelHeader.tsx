@@ -27,6 +27,8 @@ interface PanelHeaderProps {
   className?: string;
   primaryAction?: PanelHeaderPrimaryAction;
   overflowActions?: PanelHeaderOverflowAction[];
+  /** Extra controls shown before the overflow menu. */
+  extraActions?: React.ReactNode;
   hideTitle?: boolean;
   actionsAriaLabel?: string;
 }
@@ -37,6 +39,7 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
   className = '',
   primaryAction,
   overflowActions = [],
+  extraActions,
   hideTitle = false,
   actionsAriaLabel,
 }) => {
@@ -65,6 +68,8 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
             {primaryAction.label}
           </Button>
         )}
+
+        {extraActions}
 
         {hasOverflow && (
           <DropdownMenu

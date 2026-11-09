@@ -142,57 +142,67 @@ describe('RemoteMountDialog', () => {
     });
   });
 
-  it('does not close on Escape while a connection is pending', async () => {
-    let resolveConnect: ((value: unknown) => void) | null = null;
-    const connectPromise = new Promise((resolve) => {
-      resolveConnect = resolve;
-    });
-
+  it('Cancel stops a pending connection and keeps the dialog open', async () => {
     invokeMock.mockImplementation((cmd: string, _args?: InvokeArgs) => {
-      if (cmd === 'list_remote_mount_profiles') {
-        return Promise.resolve([]);
-      }
-      if (cmd === 'remote_mount_connect') {
-        return connectPromise;
-      }
+      if (cmd === 'list_remote_mount_profiles') return Promise.resolve([]);
+      if (cmd === 'remote_mount_connect') return new Promise(() => {});
+      if (cmd === 'remote_mount_cancel_connect') return Promise.resolve(true);
       return Promise.reject(new Error(`Unhandled command: ${cmd}`));
     });
 
-    const { onClose } = setupDialog();
-
+    const { onClose, onMounted } = setupDialog();
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('list_remote_mount_profiles');
     });
-
     fillPasswordForm();
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Connecting…' })).toBeDisabled();
-      expect(screen.getByRole('button', { name: 'Close modal' })).toBeDisabled();
+    });
+    const connectArgs = invokeMock.mock.calls.find(([cmd]) => cmd === 'remote_mount_connect')?.[1] as {
+      request: { attempt_id: string };
+    };
+    expect(connectArgs.request.attempt_id).toEqual(expect.any(String));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('remote_mount_cancel_connect', {
+        attemptId: connectArgs.request.attempt_id,
+      });
+      expect(screen.getByText('Connection cancelled.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Connect' })).not.toBeDisabled();
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onMounted).not.toHaveBeenCalled();
+  });
+
+  it('Escape while connecting cancels the attempt and closes', async () => {
+    invokeMock.mockImplementation((cmd: string, _args?: InvokeArgs) => {
+      if (cmd === 'list_remote_mount_profiles') return Promise.resolve([]);
+      if (cmd === 'remote_mount_connect') return new Promise(() => {});
+      if (cmd === 'remote_mount_cancel_connect') return Promise.resolve(true);
+      return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+    });
+
+    const { onClose } = setupDialog();
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('list_remote_mount_profiles');
+    });
+    fillPasswordForm();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Connecting…' })).toBeDisabled();
     });
 
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(onClose).not.toHaveBeenCalled();
-
-    resolveConnect?.({
-      status: 'connected',
-      mount: {
-        mount_id: 'mount-pending',
-        local_path: '/tmp/brainflow/mounts/mount-pending',
-        display_name: 'alice@login.example.org:/data',
-        origin: {
-          label: 'alice@login.example.org:/data',
-          host: 'login.example.org',
-          port: 2222,
-          user: 'alice',
-          remote_path: '/data',
-        },
-      },
-    });
 
     await waitFor(() => {
-      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onClose).toHaveBeenCalled();
+      expect(invokeMock).toHaveBeenCalledWith('remote_mount_cancel_connect', {
+        attemptId: expect.any(String),
+      });
     });
   });
 
@@ -229,6 +239,8 @@ describe('RemoteMountDialog', () => {
             save_profile: true,
             profile_name: undefined,
             reconnect_on_launch: false,
+            attempt_id: expect.any(String),
+            browse_only: undefined,
           },
         });
         return Promise.resolve({
@@ -541,6 +553,8 @@ describe('RemoteMountDialog', () => {
             save_profile: true,
             profile_name: undefined,
             reconnect_on_launch: false,
+            attempt_id: expect.any(String),
+            browse_only: undefined,
           },
         });
         return Promise.resolve({
@@ -757,5 +771,108 @@ describe('RemoteMountDialog', () => {
     await waitFor(() => {
       expect(onMounted).toHaveBeenCalled();
     });
+  });
+
+  it('signs in, browses remote folders and fills in the chosen one', async () => {
+    invokeMock.mockImplementation((cmd: string, args?: InvokeArgs) => {
+      if (cmd === 'list_remote_mount_profiles') return Promise.resolve([]);
+      if (cmd === 'remote_mount_connect') {
+        const request = (args as { request: Record<string, unknown> }).request;
+        expect(request.browse_only).toBe(true);
+        expect(request.save_profile).toBe(false);
+        return Promise.resolve({
+          status: 'session_ready',
+          session: { host: 'login.example.org', port: 2222, user: 'alice', home: '/home/alice' },
+        });
+      }
+      if (cmd === 'remote_list_folders') {
+        const path = (args as { path: string | null }).path;
+        if (path === '/data') return Promise.reject(new Error('No such file'));
+        if (path === '/home/alice' || path === null) {
+          return Promise.resolve({ path: '/home/alice', parent: '/home', folders: ['projects', 'scratch'] });
+        }
+        if (path === '/home/alice/projects') {
+          return Promise.resolve({ path: '/home/alice/projects', parent: '/home/alice', folders: [] });
+        }
+      }
+      if (cmd === 'remote_browse_close') return Promise.resolve(true);
+      return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+    });
+
+    const { onClose } = setupDialog();
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('list_remote_mount_profiles');
+    });
+    fillPasswordForm();
+    fireEvent.click(screen.getByRole('button', { name: 'Browse…' }));
+
+    // The typed folder does not exist: the browser falls back to home.
+    await waitFor(() => {
+      expect(screen.getByText('/home/alice')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'projects/' })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'projects/' }));
+    await waitFor(() => {
+      expect(screen.getByText('No subfolders')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Use this folder' }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Remote folder')).toHaveValue('/home/alice/projects');
+    });
+
+    // Closing releases the browse-only session.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+      expect(invokeMock).toHaveBeenCalledWith('remote_browse_close', expect.anything());
+    });
+  });
+
+  it('renames saved connections and changes launch reconnects without connecting', async () => {
+    const profile = {
+      id: 'alice@login.example.org:22:/data',
+      name: 'lab data',
+      host: 'login.example.org',
+      port: 22,
+      user: 'alice',
+      remote_path: '/data',
+      auth_method: 'agent',
+      key_path: null,
+      verify_host_key: true,
+      accept_unknown_host_keys: false,
+      known_hosts_path: null,
+      has_password: false,
+      has_key_passphrase: false,
+      updated_at_ms: 1,
+      reconnect_on_launch: false,
+    };
+    invokeMock.mockImplementation((cmd: string, args?: InvokeArgs) => {
+      if (cmd === 'list_remote_mount_profiles') return Promise.resolve([profile]);
+      if (cmd === 'update_remote_mount_profile') {
+        expect(args).toEqual({ profileId: profile.id, name: 'Lab (cluster)', reconnectOnLaunch: true });
+        return Promise.resolve({ ...profile, name: 'Lab (cluster)', reconnect_on_launch: true });
+      }
+      return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+    });
+
+    setupDialog();
+    await waitFor(() => {
+      expect(screen.getByLabelText('Saved profile')).toHaveValue(profile.id);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Manage…' }));
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(`Name for ${profile.id}`), {
+      target: { value: 'Lab (cluster)' },
+    });
+    fireEvent.click(screen.getByRole('switch', { name: 'Reconnect lab data when Brainflow starts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Saved connections updated.')).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Lab (cluster)' })).toBeInTheDocument();
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith('remote_mount_connect', expect.anything());
   });
 });

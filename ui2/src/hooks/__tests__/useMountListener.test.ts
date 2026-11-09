@@ -91,6 +91,7 @@ vi.mock('@/services/FileLoadingService', () => ({
 
 vi.mock('@/services/RemoteMountService', () => ({
   mountRemoteFromStartupSpec: mockMountRemoteFromStartupSpec,
+  formatBytes: (bytes: number) => `${bytes} B`,
 }));
 
 vi.mock('../useServicesInit', () => ({
@@ -141,13 +142,14 @@ describe('useMountListener', () => {
     renderHook(() => useMountListener());
 
     await waitFor(() => {
-      expect(mockSafeListen).toHaveBeenCalledTimes(5);
+      expect(mockSafeListen).toHaveBeenCalledTimes(6);
     });
 
     expect(listeners['mount-directory-event']).toBeTypeOf('function');
     expect(listeners['open-file-event']).toBeTypeOf('function');
     expect(listeners['mount-remote-event']).toBeTypeOf('function');
     expect(listeners['remote-mount-recovery']).toBeTypeOf('function');
+    expect(listeners['remote-prefetch-progress']).toBeTypeOf('function');
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('flush_startup_actions');
     });
@@ -399,13 +401,13 @@ describe('useMountListener', () => {
     const { unmount } = renderHook(() => useMountListener());
 
     await waitFor(() => {
-      expect(mockSafeListen).toHaveBeenCalledTimes(5);
+      expect(mockSafeListen).toHaveBeenCalledTimes(6);
     });
 
     unmount();
 
     await waitFor(() => {
-      expect(mockSafeUnlisten).toHaveBeenCalledTimes(5);
+      expect(mockSafeUnlisten).toHaveBeenCalledTimes(6);
     });
 
     expect(mockSafeUnlisten).toHaveBeenCalledWith(unlistenFns[0]);
@@ -420,7 +422,7 @@ describe('useMountListener', () => {
     renderHook(() => useMountListener());
 
     await waitFor(() => {
-      expect(mockSafeListen).toHaveBeenCalledTimes(5);
+      expect(mockSafeListen).toHaveBeenCalledTimes(6);
     });
 
     expect(mockInvoke).not.toHaveBeenCalled();
@@ -445,5 +447,53 @@ describe('useMountListener', () => {
     });
     expect(useLoadingQueueStore.getState().activeLoads.get(id)).toMatchObject({ progress: 50, remoteTransfer: true, stage: 'Downloading 1.0 / 2.0 MiB' });
     store.markComplete(id);
+  });
+
+  it('tracks offline downloads and announces how they ended', async () => {
+    const { useRemoteMountStore } = await import('@/stores/remoteMountStore');
+    const emitSpy = vi.spyOn(getEventBus(), 'emit');
+    renderHook(() => useMountListener());
+    await waitFor(() => {
+      expect(listeners['remote-prefetch-progress']).toBeTypeOf('function');
+    });
+    const base = {
+      job_id: 'job-1',
+      mount_id: 'm',
+      folder: '/cache/cache-x/sub-01',
+      files_done: 1,
+      files_total: 3,
+      bytes_done: 10,
+      bytes_total: 30,
+      current: 'a.nii',
+      error: null,
+      truncated: false,
+    };
+
+    await act(async () => {
+      await listeners['remote-prefetch-progress']({ payload: { ...base, state: 'downloading' } });
+    });
+    expect(useRemoteMountStore.getState().prefetchJobs['job-1']?.files_done).toBe(1);
+
+    await act(async () => {
+      await listeners['remote-prefetch-progress']({
+        payload: { ...base, state: 'done', files_done: 3, bytes_done: 30 },
+      });
+    });
+    expect(useRemoteMountStore.getState().prefetchJobs['job-1']).toBeUndefined();
+    expect(emitSpy).toHaveBeenCalledWith('ui.notification', {
+      type: 'success',
+      message: 'sub-01 is available offline (3 files, 30 B).',
+    });
+
+    await act(async () => {
+      await listeners['remote-prefetch-progress']({
+        payload: { ...base, job_id: 'job-2', state: 'failed', error: 'cache full' },
+      });
+    });
+    expect(emitSpy).toHaveBeenCalledWith('ui.notification', {
+      type: 'error',
+      message: 'Could not make sub-01 available offline: cache full',
+    });
+    emitSpy.mockRestore();
   });
 });

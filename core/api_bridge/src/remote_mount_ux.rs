@@ -494,7 +494,7 @@ async fn cache_usage(state: &BridgeState) -> BridgeResult<RemoteCacheUsage> {
                     last_used_ms: modified_unix_ms(&path.join(".last-used")),
                 });
             }
-            folders.sort_by(|a, b| b.bytes.cmp(&a.bytes));
+            folders.sort_by_key(|folder| std::cmp::Reverse(folder.bytes));
             Ok(folders)
         })
         .await
@@ -753,9 +753,7 @@ async fn run_prefetch(
         };
         for node in listing.nodes {
             if node.is_dir {
-                if depth + 1 <= PREFETCH_MAX_DEPTH
-                    && folders_seen + queue.len() < PREFETCH_MAX_FOLDERS
-                {
+                if depth < PREFETCH_MAX_DEPTH && folders_seen + queue.len() < PREFETCH_MAX_FOLDERS {
                     queue.push_back((PathBuf::from(&node.id), depth + 1));
                 } else {
                     progress.truncated = true;

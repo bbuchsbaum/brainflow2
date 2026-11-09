@@ -28,3 +28,20 @@
     display: none;
   }
 }
+
+.fb-footer-item--offline {
+  color: var(--bf-warning);
+}
+
+.fb-footer-item--job {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fb-footer-status .fb-footer-action {
+  height: auto;
+  padding: 0;
+  font-size: inherit;
+}

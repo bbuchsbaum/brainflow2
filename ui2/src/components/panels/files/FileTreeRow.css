@@ -157,3 +157,19 @@
     display: none;
   }
 }
+
+/* Connection state of a mounted remote root (dot, plus Reconnect when down). */
+.file-tree-item .remote-connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+.file-tree-item .remote-connection-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}

@@ -261,6 +261,15 @@ const NEUROIMAGING_EXTENSIONS = [
 // cap prefetch concurrency to one rather than letting hovers storm the link.
 let prefetchBusy = false;
 
+/** Whether `path` is a mounted remote root or inside one. */
+function isInsideRemoteMount(entries: FileTreeNode[], path: string): boolean {
+  return entries.some(
+    (root) =>
+      root.mountSource?.kind === "remote" &&
+      (path === root.path || path.startsWith(`${root.path}/`)),
+  );
+}
+
 /** Convert a raw `fs_list_directory` response into tree children. */
 function convertApiNodesToTreeChildren(
   files: FileNode[],
@@ -521,6 +530,23 @@ const createFileBrowserStore = () => {
 
           try {
             const apiService = getApiService();
+            // Remote folders: show the listing remembered from the last visit
+            // at once; the live listing below replaces it.
+            if (
+              isInsideRemoteMount(get().entries, path) &&
+              typeof apiService.cachedRemoteDirectory === "function"
+            ) {
+              void apiService.cachedRemoteDirectory(path).then((cached) => {
+                if (!cached || requests.get(path) !== request) return;
+                set((state) => {
+                  const node = findNodeByPath(state.entries, path);
+                  if (node && (!node.children || node.children.length === 0)) {
+                    node.children = convertApiNodesToTreeChildren(cached, node.depth + 1);
+                    node.expanded = true;
+                  }
+                });
+              });
+            }
             const files = await apiService.listDirectory(path, 1);
             if (requests.get(path) !== request) return;
             listed.add(path);

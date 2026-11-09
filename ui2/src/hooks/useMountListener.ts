@@ -10,8 +10,11 @@ import { getFileLoadingService } from '@/services/FileLoadingService';
 import {
   mountRemoteFromStartupSpec,
   reconnectRemoteProfilesOnLaunch,
+  formatBytes,
+  type RemotePrefetchProgress,
   type StartupRemoteMountSpec,
 } from '@/services/RemoteMountService';
+import { useRemoteMountStore } from '@/stores/remoteMountStore';
 import { getEventBus } from '@/events/EventBus';
 import { getTransport, getHostCapabilities } from '@/services/transport';
 import { formatTauriError } from '@/utils/formatTauriError';
@@ -66,6 +69,35 @@ async function reconnectRemoteFoldersOnLaunch(): Promise<void> {
   }
 }
 
+/** Track a "make available offline" job and announce how it ended. */
+function handlePrefetchProgress(progress: RemotePrefetchProgress): void {
+  const store = useRemoteMountStore.getState();
+  if (progress.state === 'scanning' || progress.state === 'downloading') {
+    store.applyPrefetchProgress(progress);
+    return;
+  }
+  store.dismissPrefetchJob(progress.job_id);
+  const folder = progress.folder.split(/[\\/]/).filter(Boolean).pop() || progress.folder;
+  if (progress.state === 'done') {
+    const size = progress.bytes_total > 0 ? `, ${formatBytes(progress.bytes_total)}` : '';
+    const partial = progress.truncated ? ' Very large folders are only partly downloaded.' : '';
+    getEventBus().emit('ui.notification', {
+      type: progress.truncated ? 'warning' : 'success',
+      message: `${folder} is available offline (${progress.files_total} files${size}).${partial}`,
+    });
+  } else if (progress.state === 'failed') {
+    getEventBus().emit('ui.notification', {
+      type: 'error',
+      message: `Could not make ${folder} available offline: ${progress.error ?? 'download failed'}`,
+    });
+  } else {
+    getEventBus().emit('ui.notification', {
+      type: 'info',
+      message: `Stopped downloading ${folder}; ${progress.files_done} of ${progress.files_total} files are available offline.`,
+    });
+  }
+}
+
 function isTauriRuntime(): boolean {
   try {
     return typeof window !== 'undefined' && Boolean((window as any).__TAURI__);
@@ -83,6 +115,7 @@ export function useMountListener() {
     let remoteMountUnlisten: (() => void) | null = null;
     let remoteProgressUnlisten: (() => void) | null = null;
     let remoteRecoveryUnlisten: (() => void) | null = null;
+    let remotePrefetchUnlisten: (() => void) | null = null;
     let unsubscribeServicesInitialized: (() => void) | null = null;
     let listenersReady = false;
     let servicesReady = areServicesInitialized();
@@ -231,6 +264,13 @@ export function useMountListener() {
           }
         );
 
+        remotePrefetchUnlisten = await safeListen<RemotePrefetchProgress>(
+          'remote-prefetch-progress',
+          (event) => {
+            if (event.payload) handlePrefetchProgress(event.payload);
+          }
+        );
+
         remoteProgressUnlisten = await safeListen<{ path: string; bytes_downloaded: number; total_bytes?: number }>(
           'remote-file-progress', (event) => {
             const { path, bytes_downloaded, total_bytes } = event.payload;
@@ -275,6 +315,9 @@ export function useMountListener() {
           if (remoteProgressUnlisten) await safeUnlisten(remoteProgressUnlisten);
           if (remoteRecoveryUnlisten) {
             await safeUnlisten(remoteRecoveryUnlisten);
+          }
+          if (remotePrefetchUnlisten) {
+            await safeUnlisten(remotePrefetchUnlisten);
           }
         } catch (error) {
           console.error('Failed to teardown filesystem listeners:', error);

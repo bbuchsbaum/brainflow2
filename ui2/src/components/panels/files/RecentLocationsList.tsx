@@ -2,6 +2,13 @@ import React from 'react';
 import { Button, IconButton } from '@/components/ui/bf';
 import { VscHistory, VscPin, VscClose } from 'react-icons/vsc';
 import { useFileBrowserStore, type RecentLocation } from '@/stores/fileBrowserStore';
+import { formatRemoteHost, formatRemoteLocation } from '@/services/RemoteMountService';
+import type { MountSource } from '@/types/filesystem';
+
+/** Tooltip: where the location really is (remote: `user@host:/path`). */
+function locationTitle(path: string, source: MountSource): string {
+  return source.kind === 'remote' && source.host ? formatRemoteLocation(source) : path;
+}
 
 interface RecentLocationsListProps {
   /** With a path: reopen that location. Without: show the folder picker. */
@@ -69,12 +76,12 @@ export const RecentLocationsList: React.FC<RecentLocationsListProps> = ({
                 onClick={() =>
                   isRemote ? onMountRemote(recent) : onMountLocal(recent.path)
                 }
-                title={recent.path}
+                title={locationTitle(recent.path, recent.mountSource)}
               >
                 <VscHistory className="files-start-row-icon" aria-hidden="true" />
                 <span className="files-start-row-label">{recent.displayName}</span>
                 <span className="files-start-row-meta">
-                  {isRemote ? 'Remote · ' : ''}
+                  {isRemote ? `${formatRemoteHost(recent.mountSource)} · ` : ''}
                   {formatRelativeTime(recent.lastOpened)}
                 </span>
               </Button>
@@ -123,12 +130,12 @@ export const PinnedLocationsList: React.FC<{ onActivate: (item: { path: string; 
               size="sm"
               className="files-start-row-main min-w-0 flex-1 justify-start font-normal"
               onClick={() => onActivate({ path: item.path, mountSource: item.mountSource })}
-              title={item.path}
+              title={locationTitle(item.path, item.mountSource)}
             >
               <VscPin className="files-start-row-icon" aria-hidden="true" />
               <span className="files-start-row-label">{item.label}</span>
               <span className="files-start-row-meta">
-                {item.mountSource.kind === 'remote' ? 'Remote' : 'Local'}
+                {item.mountSource.kind === 'remote' ? formatRemoteHost(item.mountSource) : 'Local'}
               </span>
             </Button>
             <IconButton
