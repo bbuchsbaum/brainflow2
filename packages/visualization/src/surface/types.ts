@@ -23,6 +23,12 @@ export interface SurfaceRenderableLayer {
   volumeData?: ArrayBuffer;
   volumeDims?: [number, number, number];
   affineMatrix?: Float32Array;
+  /**
+   * Anatomical positions, in the drawn mesh's vertex order, to sample a
+   * volume layer at instead of the drawn positions: set while an inflated or
+   * spherical embedding is shown (surfview's ribbon projection, one sample).
+   */
+  samplingPositions?: Float32Array;
 }
 
 export interface SurfaceRenderable {
@@ -131,6 +137,12 @@ export interface RenderableLayerSpec {
   volumeData?: ArrayBuffer;
   volumeDims?: [number, number, number];
   affineMatrix?: Float32Array;
+  /**
+   * Anatomical positions, in the drawn mesh's vertex order, to sample a
+   * volume layer at instead of the drawn positions: set while an inflated or
+   * spherical embedding is shown (surfview's ribbon projection, one sample).
+   */
+  samplingPositions?: Float32Array;
 }
 
 export interface SurfaceReconciliationPlan {

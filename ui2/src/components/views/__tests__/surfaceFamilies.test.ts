@@ -202,27 +202,23 @@ describe('overlays on unfolded geometries', () => {
     expect(anatomicalStandIn(lone, [lone])).toBeNull();
   });
 
-  it('draws a GPU volume layer on inflated as values sampled at the folded vertices', () => {
+  it('samples a GPU volume layer at the folded vertices while inflated is shown', () => {
     const all = subject();
-    // x-ramp volume: value = voxel x; identity affine shifted so world x = -40 is voxel 0.
-    const nx = 64;
-    const volume = new Float32Array(nx * 2 * 2);
-    for (let i = 0; i < volume.length; i++) volume[i] = i % nx;
-    const affine = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -40, 0, 0, 1]);
     all.get('lh-pial')!.layers.set('gpu', {
       ...layer('gpu'),
       values: new Float32Array(0),
-      volumeData: volume.buffer,
-      volumeDims: [nx, 2, 2],
-      affineMatrix: affine,
+      volumeData: new Float32Array(8).buffer,
+      volumeDims: [2, 2, 2],
+      affineMatrix: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
     });
     const [onPial] = buildSurfaceDisplays([all.get('lh-pial')!], all);
-    expect(onPial.layers.get('gpu')!.volumeData).toBeDefined(); // folded: the shader samples
+    // Folded: the shader samples at the drawn vertices.
+    expect(onPial.layers.get('gpu')!.samplingPositions).toBeUndefined();
     const [onInflated] = buildSurfaceDisplays([all.get('lh-pial')!], all, 'inflated');
-    const sampled = onInflated.layers.get('gpu')!;
-    expect(sampled.volumeData).toBeUndefined();
-    // White vertices x = -38, -22, -6  ->  voxel x 2, 18, 34.
-    expect(Array.from(sampled.values)).toEqual([2, 18, 34]);
+    const gpu = onInflated.layers.get('gpu')!;
+    expect(gpu.volumeData).toBeDefined();
+    // The white mesh stands in (surfview samples there, not at inflated positions).
+    expect(gpu.samplingPositions).toBe(all.get('lh-white')!.geometry.vertices);
   });
 });
 

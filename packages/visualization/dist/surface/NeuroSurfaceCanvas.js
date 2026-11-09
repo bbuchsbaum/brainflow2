@@ -66,25 +66,34 @@ function variantNamesOf(item) {
     const names = Object.keys(item.variants).filter((name) => item.variants[name].length === item.geometry.vertices.length);
     return names.length > 1 ? names : null;
 }
-/**
- * Bring a mounted VariantSurface's embeddings in line with `item.variants`
- * (a geometry loaded or unloaded since it was mounted). SurfaceSet keeps
- * its own copies; `sources` remembers which input each copy came from.
- */
+export function hasUpstreamVariantApi(surface) {
+    const candidate = surface;
+    return (typeof candidate?.targetVariant === 'function' &&
+        typeof candidate.addVariant === 'function' &&
+        typeof candidate.removeVariant === 'function');
+}
 function syncVariants(surface, item, sources) {
     const set = surface.surfaceSet;
     const wanted = item.variants ?? {};
+    const upstream = hasUpstreamVariantApi(surface);
     for (const [name, positions] of Object.entries(wanted)) {
         if (positions.length !== set.vertexCount * 3 || sources.get(name) === positions)
             continue;
-        set.variants[name] = new Float32Array(positions);
+        if (upstream)
+            surface.addVariant(name, positions);
+        else
+            set.variants[name] = new Float32Array(positions);
         sources.set(name, positions);
     }
     for (const name of Object.keys(set.variants)) {
-        if (!(name in wanted) && name !== surface.currentVariant()) {
-            delete set.variants[name];
+        if (name in wanted)
+            continue;
+        // Upstream refuses the default, shown and pending variants itself.
+        const removed = upstream
+            ? surface.removeVariant(name)
+            : name !== surface.currentVariant() && name !== set.defaultVariant && delete set.variants[name];
+        if (removed)
             sources.delete(name);
-        }
     }
 }
 function applySmoothingToRenderedSurface(renderedSurface, original, smoothingValue) {
@@ -245,9 +254,12 @@ function startMorphDriver(viewer, meshes, from, to, durationMs) {
         const t = Math.min(1, (now - start) / durationMs);
         placeCamera(easeInOutCubic(t));
         // Every other frame: a 160k-vertex mesh costs a few ms per refresh.
+        // surfview 3.3+ interpolates normals itself during a switch.
         if (t < 1 && tick++ % 2 === 0) {
-            for (const surface of meshes)
-                surface.mesh?.geometry?.computeVertexNormals();
+            for (const surface of meshes) {
+                if (!hasUpstreamVariantApi(surface))
+                    surface.mesh?.geometry?.computeVertexNormals();
+            }
         }
         viewer.requestRender();
         if (t < 1)
@@ -677,9 +689,11 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             applySurfaceRenderSettings(renderedSurface, displaySettings, materialSettings);
             applyCurvature(renderedSurface, item.curvature, item.geometry.vertices.length / 3, showCurvatureRef.current);
             viewer.addSurface(renderedSurface, item.handle);
-            // A morph passes through shapes outside any one embedding's bounds.
+            // A morph passes through shapes outside any one embedding's bounds
+            // (surfview 3.3+ keeps the bounds around both shapes itself).
             if (variantNames && renderedSurface.mesh) {
-                renderedSurface.mesh.frustumCulled = false;
+                if (!hasUpstreamVariantApi(renderedSurface))
+                    renderedSurface.mesh.frustumCulled = false;
                 renderedSurface.mesh.geometry?.computeBoundingSphere();
             }
             renderedSurfacesRef.current.set(item.handle, renderedSurface);
@@ -743,10 +757,11 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                             faces: originalGeometryRef.current.get(item.handle)?.faces ?? new Uint32Array(item.geometry.faces),
                         });
                         const duration = Math.max(0, morphDurationRef.current);
-                        // surfview names the new variant only when a morph ends, and
-                        // ignores a switch to the variant it names: a switch back during
-                        // a morph would then be dropped. Clear the name so it runs.
-                        if (item.variant === variantSurface.currentVariant()) {
+                        // Before surfview 3.3 the variant is named only when a morph
+                        // ends and a switch to that name is ignored: a switch back during
+                        // a morph would be dropped. Clear the name so it runs.
+                        if (!hasUpstreamVariantApi(variantSurface) &&
+                            item.variant === variantSurface.currentVariant()) {
                             variantSurface.currentVariantName = '';
                         }
                         const animate = duration > 0 && smoothingRef.current === 0;

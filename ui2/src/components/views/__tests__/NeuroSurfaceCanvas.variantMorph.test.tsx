@@ -16,6 +16,9 @@ const log = vi.hoisted(() => ({
   variantSurfaces: [] as Array<{ surfaceSet: { variants: Record<string, Float32Array> } }>,
   plainSurfaces: 0,
   cameraStates: [] as Array<{ position: number[]; target: number[] }>,
+  /** Fake surfview >= 3.3 (targetVariant, add/removeVariant); else 3.1/3.2. */
+  upstream: false,
+  upstreamAdded: [] as string[],
 }));
 
 vi.mock('neurosurface', async () => {
@@ -112,10 +115,27 @@ vi.mock('neurosurface', async () => {
     surfaceSet: FakeSurfaceSet;
     currentVariantName: string;
     listeners = new Map<string, Array<() => void>>();
+    // Present only on the upstream (>= 3.3) fake; undefined, not absorbed, otherwise.
+    targetVariant?: () => string;
+    addVariant?: (name: string, positions: Float32Array) => void;
+    removeVariant?: (name: string) => boolean;
     constructor(set: FakeSurfaceSet) {
       this.surfaceSet = set;
       this.currentVariantName = set.defaultVariant;
       this.mesh = meshOf(set.variants[set.defaultVariant], set.faces);
+      if (log.upstream) {
+        this.targetVariant = () => this.currentVariantName;
+        this.addVariant = (name, positions) => {
+          log.upstreamAdded.push(name);
+          set.variants[name] = new Float32Array(positions);
+        };
+        this.removeVariant = (name) => delete set.variants[name];
+      } else {
+        // Own properties, so the catch-all proxy does not answer for them.
+        this.targetVariant = undefined;
+        this.addVariant = undefined;
+        this.removeVariant = undefined;
+      }
       log.variantSurfaces.push(this);
       return withAbsorb(this);
     }
@@ -196,6 +216,8 @@ describe('NeuroSurfaceCanvas geometry morph', () => {
     log.variantSurfaces = [];
     log.plainSurfaces = 0;
     log.cameraStates = [];
+    log.upstream = false;
+    log.upstreamAdded = [];
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
       width: 200,
       height: 100,
@@ -280,5 +302,15 @@ describe('NeuroSurfaceCanvas geometry morph', () => {
     expect(distance).toBeGreaterThan(150);
     // The target follows the scene's centre (pial x -30, inflated x -33).
     expect(last.target[0]).toBeLessThan(0);
+  });
+
+  it('adds geometries through the upstream API when surfview has it', async () => {
+    log.upstream = true;
+    const view = render(canvas(display('pial', { pial: PIAL, white: WHITE })));
+    await act(async () => {});
+    view.rerender(canvas(display('pial')));
+    await act(async () => {});
+    expect(log.upstreamAdded).toEqual(['inflated']);
+    expect(Object.keys(log.variantSurfaces[0].surfaceSet.variants)).toContain('inflated');
   });
 });

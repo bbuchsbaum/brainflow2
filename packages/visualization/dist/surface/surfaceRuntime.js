@@ -4,6 +4,19 @@ function surfaceColormap(name = 'viridis') {
     // the canonical preset name or silently falls back to a different palette.
     return ['gray', 'grey', 'grays'].includes(name.toLowerCase()) ? 'greys' : name;
 }
+/**
+ * Where a volume layer samples: at `samplingPositions` (one-sample ribbon,
+ * the folded mesh standing in for an inflated one) or at the drawn vertices.
+ */
+function anatomicalSampling(spec) {
+    const positions = spec.samplingPositions;
+    return positions
+        ? {
+            projectionMode: 'ribbon',
+            ribbon: { pial: positions, white: positions, samples: 1 },
+        }
+        : { projectionMode: 'vertex' };
+}
 export function buildLayerInstance(spec) {
     switch (spec.kind) {
         case 'rgba':
@@ -20,6 +33,7 @@ export function buildLayerInstance(spec) {
                 range: spec.range,
                 threshold: spec.threshold,
                 opacity: spec.opacity,
+                ...anatomicalSampling(spec),
             });
         case 'data':
         default:
@@ -47,6 +61,7 @@ export function applyLayerUpdate(renderedSurface, spec) {
                 threshold: spec.threshold,
                 affineMatrix: spec.affineMatrix,
                 opacity: spec.opacity,
+                ...anatomicalSampling(spec),
             });
             return;
         case 'data':

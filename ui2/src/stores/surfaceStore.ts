@@ -65,6 +65,11 @@ export interface SurfaceDataLayer {
   volumeDims?: [number, number, number]; // Volume dimensions [nx, ny, nz]
   affineMatrix?: Float32Array; // Column-major 4x4 voxel-to-world affine
   volumeId?: string; // Reference to source volume
+  /**
+   * Display only (set by the surface view, never stored): anatomical
+   * positions to sample `volumeData` at while an inflated geometry is shown.
+   */
+  samplingPositions?: Float32Array;
 }
 
 export interface LoadedSurface {

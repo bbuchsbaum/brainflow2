@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sampleVolumeLabels, sampleVolumeLinear } from '@brainflow/visualization/surface/projection';
+import { sampleVolumeLabels } from '@brainflow/visualization/surface/projection';
 
 const identity = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 describe('shared nearest categorical volume sampling', () => {
@@ -45,22 +45,5 @@ describe('shared nearest categorical volume sampling', () => {
     expect(() => sample(new Float32Array([1]), identity, new Float32Array([NaN, 0, 0]))).toThrow(
       /finite/,
     );
-  });
-});
-
-describe('sampleVolumeLinear', () => {
-  it('interpolates between voxel centres and is NaN outside the volume', () => {
-    const values = new Float32Array([0, 10, 0, 10, 0, 10, 0, 10]); // x-ramp, 2x2x2
-    const identity = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
-    const out = sampleVolumeLinear(
-      new Float32Array([0, 0, 0, 0.25, 0.5, 0.5, 1, 1, 1, 5, 0, 0]),
-      values,
-      [2, 2, 2],
-      identity,
-    );
-    expect(out[0]).toBeCloseTo(0);
-    expect(out[1]).toBeCloseTo(2.5);
-    expect(out[2]).toBeCloseTo(10);
-    expect(out[3]).toBeNaN();
   });
 });

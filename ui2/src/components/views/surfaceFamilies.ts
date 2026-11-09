@@ -20,7 +20,6 @@
  */
 import type { LoadedSurface, SurfaceDataLayer } from '@/stores/surfaceStore';
 import type { SurfaceSetMember } from '@/services/surfaceSetDiscovery';
-import { sampleVolumeLinear } from '@brainflow/visualization/surface/projection';
 import {
   ANATOMICAL_TYPES,
   anatomyKey,
@@ -188,13 +187,11 @@ function familyLayers(
   return layers;
 }
 
-const anatomicalSampleCache = new WeakMap<ArrayBuffer, WeakMap<Float32Array, Float32Array | null>>();
-
 /**
  * A GPU volume-projection layer samples the volume where the mesh is drawn:
  * right on a folded mesh, meaningless on an inflated or spherical one (and
- * changing while it morphs). There it becomes per-vertex values sampled once
- * at the folded `anatomy` vertices (cached per volume and mesh).
+ * changing while it morphs). There it samples at the folded `anatomy`
+ * vertices instead (surfview's ribbon projection, `samplingPositions`).
  */
 function anatomicalLayers(
   layers: Map<string, SurfaceDataLayer>,
@@ -202,31 +199,9 @@ function anatomicalLayers(
 ): Map<string, SurfaceDataLayer> {
   let out: Map<string, SurfaceDataLayer> | null = null;
   for (const [id, layer] of layers) {
-    if (!layer.volumeData || !layer.volumeDims || !layer.affineMatrix || layer.rgba) continue;
-    let row = anatomicalSampleCache.get(layer.volumeData);
-    if (!row) anatomicalSampleCache.set(layer.volumeData, (row = new WeakMap()));
-    let values = row.get(anatomy);
-    if (values === undefined) {
-      try {
-        values = sampleVolumeLinear(
-          anatomy,
-          new Float32Array(layer.volumeData),
-          layer.volumeDims,
-          layer.affineMatrix,
-        );
-      } catch (error) {
-        console.warn(`[SurfaceView] Could not sample '${layer.name}' on the folded mesh:`, error);
-        values = null;
-      }
-      row.set(anatomy, values);
-    }
+    if (!layer.volumeData || !layer.volumeDims || layer.rgba) continue;
     out ??= new Map(layers);
-    out.set(
-      id,
-      values
-        ? { ...layer, values, volumeData: undefined, volumeDims: undefined, affineMatrix: undefined }
-        : { ...layer, visible: false },
-    );
+    out.set(id, { ...layer, samplingPositions: anatomy });
   }
   return out ?? layers;
 }

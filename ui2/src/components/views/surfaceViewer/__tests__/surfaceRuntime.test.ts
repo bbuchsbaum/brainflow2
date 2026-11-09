@@ -71,4 +71,29 @@ describe('SurfView 3 runtime integration', () => {
       surface.dispose();
     }
   });
+
+  it('samples at the anatomical positions it is given, not at the drawn (inflated) ones', () => {
+    // x-ramp: value 0 at voxel x = 0, 1 at x = 1.
+    const data = new Float32Array([0, 1, 0, 1, 0, 1, 0, 1]);
+    const spec: RenderableLayerSpec = {
+      id: 'volume', kind: 'volume', volumeData: data.buffer,
+      volumeDims: [2, 2, 2], range: [0, 1], threshold: [0, 0],
+      colormap: 'gray', opacity: 1,
+      // Drawn at x = 0 / 1 / 0; anatomically every vertex sits at x = 0.75.
+      samplingPositions: new Float32Array([0.75, 0, 0, 0.75, 1, 0, 0.75, 0, 1]),
+    };
+    const surface = new MultiLayerNeuroSurface(geometry());
+    const layer = buildLayerInstance(spec) as VolumeProjectionLayer;
+    surface.addLayer(layer);
+    try {
+      expect(layer.usesGPUVertexProjection()).toBe(false);
+      for (const vertex of [0, 1, 2]) expect(layer.sampleValueAtVertex(vertex)).toBeCloseTo(0.75, 6);
+      // Back on a folded mesh: the drawn vertices again.
+      applyLayerUpdate(surface, { ...spec, samplingPositions: undefined });
+      expect(layer.usesGPUVertexProjection()).toBe(true);
+      expect(layer.sampleValueAtVertex(1)).toBeCloseTo(1, 6);
+    } finally {
+      surface.dispose();
+    }
+  });
 });

@@ -121,6 +121,7 @@ export function buildRenderableLayerSpec(
       volumeData: layer.volumeData,
       volumeDims: layer.volumeDims,
       affineMatrix: layer.affineMatrix,
+      samplingPositions: layer.samplingPositions,
       colormap: layer.colormap || 'viridis',
       range: layer.range,
       threshold: layer.threshold,
@@ -171,7 +172,8 @@ export function areRenderableLayerSpecsEqual(
       return (
         previousSpec.volumeData === nextSpec.volumeData &&
         dimsEqual(previousSpec.volumeDims, nextSpec.volumeDims) &&
-        float32ArrayValuesEqual(previousSpec.affineMatrix, nextSpec.affineMatrix)
+        float32ArrayValuesEqual(previousSpec.affineMatrix, nextSpec.affineMatrix) &&
+        previousSpec.samplingPositions === nextSpec.samplingPositions
       );
     default:
       return false;
