@@ -287,6 +287,13 @@ describe('tracing controls', () => {
     expect(screen.queryByRole('button', { name: /Unlock/ })).not.toBeInTheDocument();
   });
 
+  it('offers two paint-over choices that differ, and shows an old "all" session as unlocked', async () => {
+    state.session = { ...(state.session as object), paintOver: 'all' };
+    render(<SegmentViewport workspaceId={document.workspaceId} />);
+    const select = screen.getByLabelText('Paint over') as HTMLSelectElement;
+    expect([...select.options].map((option) => option.text)).toEqual(['Empty space only', 'Unlocked labels']);
+    expect(select.value).toBe('unlocked');
+  });
   it('shows a radius change made elsewhere instead of a stale draft', async () => {
     const view = render(<SegmentViewport workspaceId={document.workspaceId} />);
     const radius = screen.getByLabelText(/Radius/) as HTMLInputElement;

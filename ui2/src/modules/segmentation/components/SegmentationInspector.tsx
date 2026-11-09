@@ -25,6 +25,7 @@ export function SegmentationInspector() {
     <Section title="Session"><p className="text-bf-text-secondary">{snapshot.identity.subject} · {snapshot.identity.hemisphere}</p><p className="font-mono text-bf-2xs text-bf-text-muted">{snapshot.identity.rater} · revision {snapshot.revision} · <span data-testid="segmentation-save-state">{saveState}</span></p>
       {frames ? <p className="font-mono text-bf-2xs text-bf-text-muted" data-testid="segmentation-frames">{frames} (recorded in the saved header)</p> : null}
       <p className="mt-2 text-bf-2xs text-bf-text-muted">Free tracing. No anatomical protocol is attached.</p>
+      <p className="mt-1 text-bf-2xs text-bf-text-secondary" data-testid="segmentation-workflow">Pick the brush (B) and drag to paint · scroll to step slices · mark each label complete · save as NIfTI.</p>
       <Button size="sm" className="mt-2" disabled={session.busy} onClick={() => void saveSegmentationLabels(workspaceId)}>Save labels as NIfTI…</Button>
       {saved ? <p role="status" className="mt-2 text-bf-2xs text-bf-text-muted">Saved revision {saved.revision} to <span className="font-mono">{fileName(saved.labelPath)}</span> with its label table <span className="font-mono">{fileName(saved.tablePath)}</span>.</p> : null}
     </Section>
