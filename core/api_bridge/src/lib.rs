@@ -6783,7 +6783,10 @@ async fn prepare_frontend_layers_for_render(
                                 );
                                 swapped.index()
                             }
-                            Err(error @ BridgeError::GpuBudgetExceeded { .. }) => {
+                            Err(error)
+                                if matches!(error, BridgeError::GpuBudgetExceeded { .. })
+                                    || crate::gpu_upload::is_gpu_slots_full(&error) =>
+                            {
                                 // Keep the previously displayed member and its
                                 // ownership intact; pressure in one layer must
                                 // not prevent unrelated layers from rendering.

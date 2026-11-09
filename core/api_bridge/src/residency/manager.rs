@@ -175,8 +175,8 @@ pub struct ResidencyReport {
 pub(crate) struct Residency {
     origin: Instant,
     pub(crate) state: Mutex<ResidencyState>,
-    /// A frame failed to allocate a layer's texture: the backend owner (R5c)
-    /// runs an admission on its next tick.
+    /// A frame failed to allocate a layer's texture: the manager runs an
+    /// admission on its next tick.
     admission_wanted: std::sync::atomic::AtomicBool,
     /// Texture bytes a volume's upload really took, kept after eviction. The
     /// per-type estimate is an upper bound (an f32 volume often fits
