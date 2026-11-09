@@ -21,4 +21,14 @@ export type RemoteMountConnectRequest = {
      * `None` keeps the profile's current setting.
      */
     reconnect_on_launch: boolean | null;
+    /**
+     * Client-chosen id for this attempt; `remote_mount_cancel_connect` with
+     * the same id abandons it (including a pending prompt).
+     */
+    attempt_id: string | null;
+    /**
+     * Sign in for browsing folders only: the result is `session_ready`
+     * and nothing is mounted.
+     */
+    browse_only: boolean | null;
 };

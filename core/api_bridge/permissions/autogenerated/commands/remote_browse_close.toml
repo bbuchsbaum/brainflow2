@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-remote-browse-close"
+description = "Enables the remote_browse_close command without any pre-configured scope."
+commands.allow = ["remote_browse_close"]
+
+[[permission]]
+identifier = "deny-remote-browse-close"
+description = "Denies the remote_browse_close command without any pre-configured scope."
+commands.deny = ["remote_browse_close"]

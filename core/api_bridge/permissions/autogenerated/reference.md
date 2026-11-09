@@ -24,6 +24,9 @@ Default permissions for api-bridge plugin
 - `allow-fs-list-directory`
 - `allow-list-remote-mounts`
 - `allow-list-remote-directory`
+- `allow-remote-mount-statuses`
+- `allow-cached-remote-directory`
+- `allow-remote-cache-usage`
 - `allow-init-render-loop`
 - `allow-resize-canvas`
 - `allow-update-frame-ubo`
@@ -284,6 +287,32 @@ Denies the cache_template command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-cached-remote-directory`
+
+</td>
+<td>
+
+Enables the cached_remote_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-cached-remote-directory`
+
+</td>
+<td>
+
+Denies the cached_remote_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-cancel-analysis`
 
 </td>
@@ -433,6 +462,32 @@ Enables the check_bids_directory command without any pre-configured scope.
 <td>
 
 Denies the check_bids_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-clear-inactive-remote-caches`
+
+</td>
+<td>
+
+Enables the clear_inactive_remote_caches command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-clear-inactive-remote-caches`
+
+</td>
+<td>
+
+Denies the clear_inactive_remote_caches command without any pre-configured scope.
 
 </td>
 </tr>
@@ -2676,6 +2731,110 @@ Denies the release_sampler command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-remote-browse-close`
+
+</td>
+<td>
+
+Enables the remote_browse_close command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-remote-browse-close`
+
+</td>
+<td>
+
+Denies the remote_browse_close command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-remote-cache-usage`
+
+</td>
+<td>
+
+Enables the remote_cache_usage command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-remote-cache-usage`
+
+</td>
+<td>
+
+Denies the remote_cache_usage command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-remote-list-folders`
+
+</td>
+<td>
+
+Enables the remote_list_folders command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-remote-list-folders`
+
+</td>
+<td>
+
+Denies the remote_list_folders command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-remote-mount-cancel-connect`
+
+</td>
+<td>
+
+Enables the remote_mount_cancel_connect command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-remote-mount-cancel-connect`
+
+</td>
+<td>
+
+Denies the remote_mount_cancel_connect command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-remote-mount-connect`
 
 </td>
@@ -2754,6 +2913,32 @@ Denies the remote_mount_respond_host_key command without any pre-configured scop
 <tr>
 <td>
 
+`api-bridge:allow-remote-mount-statuses`
+
+</td>
+<td>
+
+Enables the remote_mount_statuses command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-remote-mount-statuses`
+
+</td>
+<td>
+
+Denies the remote_mount_statuses command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-remote-mount-unmount`
 
 </td>
@@ -2773,6 +2958,58 @@ Enables the remote_mount_unmount command without any pre-configured scope.
 <td>
 
 Denies the remote_mount_unmount command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-remote-prefetch-cancel`
+
+</td>
+<td>
+
+Enables the remote_prefetch_cancel command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-remote-prefetch-cancel`
+
+</td>
+<td>
+
+Denies the remote_prefetch_cancel command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-remote-prefetch-folder`
+
+</td>
+<td>
+
+Enables the remote_prefetch_folder command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-remote-prefetch-folder`
+
+</td>
+<td>
+
+Denies the remote_prefetch_folder command without any pre-configured scope.
 
 </td>
 </tr>
@@ -3560,6 +3797,32 @@ Denies the set_layer_mask command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-set-remote-cache-budget`
+
+</td>
+<td>
+
+Enables the set_remote_cache_budget command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-set-remote-cache-budget`
+
+</td>
+<td>
+
+Denies the set_remote_cache_budget command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-set-residency-demand`
 
 </td>
@@ -3969,6 +4232,32 @@ Enables the update_layer_threshold command without any pre-configured scope.
 <td>
 
 Denies the update_layer_threshold command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-update-remote-mount-profile`
+
+</td>
+<td>
+
+Enables the update_remote_mount_profile command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-update-remote-mount-profile`
+
+</td>
+<td>
+
+Denies the update_remote_mount_profile command without any pre-configured scope.
 
 </td>
 </tr>

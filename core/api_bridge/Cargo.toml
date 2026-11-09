@@ -65,7 +65,7 @@ neuroatlas = { workspace = true }  # For surface template loading
 nifti = { version = "0.17", features = ["ndarray_volumes"] }
 ndarray = "0.16"  # For vol-to-surf projection (matches neurosurf-rs)
 directories = "5"
-remotely = { git = "https://github.com/bbuchsbaum/remotely", rev = "9c03b2e8f701bb8484556e14c106573c44cdb237" }
+remotely = { git = "https://github.com/bbuchsbaum/remotely", rev = "ea6d2b8aa8cfc1e74d1aa79ddb06761abc07aead" }
 # keyring 3 has no default store: without these features it silently uses an
 # in-memory mock. Same keychain/credential-manager/secret-service items as 2.x.
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service"] }

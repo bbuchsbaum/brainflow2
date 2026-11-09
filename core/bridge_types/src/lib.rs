@@ -415,7 +415,7 @@ pub struct LayerPatch {
 // --- Tree Browser Payload Types (New for BF-TB-02 / Plan v1.2) ---
 
 /// Represents a node in the file tree, optimized for flat list transfer
-#[derive(Debug, Serialize, Clone, TS)]
+#[derive(Debug, Serialize, Deserialize, Clone, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct FlatNode {
@@ -433,7 +433,7 @@ pub struct FlatNode {
 }
 
 /// The payload returned by the fs_list_directory command
-#[derive(Debug, Serialize, Clone, Default, TS)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, TS)]
 #[ts(export)]
 pub struct TreePayload {
     pub nodes: Vec<FlatNode>,
@@ -500,6 +500,14 @@ pub struct RemoteMountConnectRequest {
     /// `None` keeps the profile's current setting.
     #[serde(default)]
     pub reconnect_on_launch: Option<bool>,
+    /// Client-chosen id for this attempt; `remote_mount_cancel_connect` with
+    /// the same id abandons it (including a pending prompt).
+    #[serde(default)]
+    pub attempt_id: Option<String>,
+    /// Sign in for browsing folders only: the result is `session_ready`
+    /// and nothing is mounted.
+    #[serde(default)]
+    pub browse_only: Option<bool>,
 }
 
 /// Host-key confirmation challenge details from interactive SSH connection flow.
@@ -541,6 +549,72 @@ pub enum RemoteMountConnectResult {
     Connected { mount: RemoteMountInfo },
     NeedHostKey { challenge: RemoteHostKeyChallenge },
     NeedAuth { challenge: RemoteAuthChallenge },
+    /// `browse_only`: signed in; list folders with `remote_list_folders`.
+    SessionReady { session: RemoteSessionInfo },
+}
+
+/// A signed-in SSH session available for browsing remote folders.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RemoteSessionInfo {
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    /// The account's home directory on the server.
+    pub home: String,
+}
+
+/// One remote folder's subfolders, for the remote folder picker.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RemoteFolderListing {
+    /// Absolute path that was listed.
+    pub path: String,
+    /// Its parent, or `None` at `/`.
+    pub parent: Option<String>,
+    /// Subfolder names, sorted.
+    pub folders: Vec<String>,
+}
+
+/// Live connection state of a mounted remote folder.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RemoteMountStatus {
+    pub mount_id: String,
+    /// "connected"; "reconnecting" (dropped, comes back on next use); or
+    /// "disconnected" (needs a new sign-in).
+    pub state: String,
+    /// Mounted folders sharing this mount's SSH session (including itself).
+    pub shared_session_mounts: u32,
+}
+
+/// Disk used by downloaded remote files.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RemoteCacheUsage {
+    #[ts(type = "number")]
+    pub total_bytes: u64,
+    #[ts(type = "number")]
+    pub budget_bytes: u64,
+    /// Whether the budget comes from BRAINFLOW_REMOTE_CACHE_BYTES (then it
+    /// cannot be changed from the app).
+    pub budget_from_env: bool,
+    pub folders: Vec<RemoteCacheFolderUsage>,
+}
+
+/// Downloaded files for one remote folder.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RemoteCacheFolderUsage {
+    /// Set while the folder is mounted.
+    pub mount_id: Option<String>,
+    /// `user@host:/path` when known, else the cache directory name.
+    pub label: String,
+    #[ts(type = "number")]
+    pub bytes: u64,
+    /// Unix ms of the last use, if recorded.
+    #[ts(type = "number | null")]
+    pub last_used_ms: Option<u64>,
 }
 
 /// Saved remote connection profile metadata.

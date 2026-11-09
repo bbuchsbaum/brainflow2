@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-cached-remote-directory"
+description = "Enables the cached_remote_directory command without any pre-configured scope."
+commands.allow = ["cached_remote_directory"]
+
+[[permission]]
+identifier = "deny-cached-remote-directory"
+description = "Denies the cached_remote_directory command without any pre-configured scope."
+commands.deny = ["cached_remote_directory"]

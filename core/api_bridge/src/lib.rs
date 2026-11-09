@@ -91,6 +91,13 @@ mod projection_geometry;
 mod raw_ipc;
 mod region_locus;
 mod remote_cache;
+mod remote_mount_ux;
+use remote_mount_ux::{
+    cached_remote_directory, clear_inactive_remote_caches, remote_browse_close, remote_cache_usage,
+    remote_list_folders, remote_mount_cancel_connect, remote_mount_statuses,
+    remote_prefetch_cancel, remote_prefetch_folder, set_remote_cache_budget,
+    update_remote_mount_profile,
+};
 mod remote_transfer;
 mod render_bridge_adapter;
 mod render_lifecycle;
@@ -1183,8 +1190,15 @@ struct NormalizedRemoteMountRequest {
     /// First existing `IdentityFile` from `~/.ssh/config`, used for key auth
     /// when no key path was given.
     config_identity: Option<PathBuf>,
-    /// `ProxyJump` from `~/.ssh/config`; only used to explain a failed connect.
+    /// `ProxyJump` from `~/.ssh/config`, as written (for messages).
     proxy_jump: Option<String>,
+    /// The `ProxyJump` chain resolved through `~/.ssh/config`, in connection
+    /// order.
+    jump_hops: Vec<JumpHop>,
+    /// Client id for cancelling this attempt.
+    attempt_id: Option<String>,
+    /// Sign in for folder browsing only; mount nothing.
+    browse_only: bool,
     verify_host_key: bool,
     accept_unknown_host_keys: bool,
     known_hosts_path: Option<PathBuf>,
@@ -1194,6 +1208,16 @@ struct NormalizedRemoteMountRequest {
     save_profile: bool,
     profile_name: Option<String>,
     reconnect_on_launch: Option<bool>,
+}
+
+/// One jump host on the way to a remote mount.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct JumpHop {
+    host: String,
+    port: u16,
+    user: String,
+    /// First existing `IdentityFile` configured for the hop.
+    identity: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -1292,6 +1316,12 @@ pub struct BridgeState {
     // Pending keyboard-interactive context keyed by conversation UUID.
     pub pending_remote_auth:
         Arc<Mutex<HashMap<uuid::Uuid, (PendingAuth, PendingRemoteMountContext)>>>,
+    // Cancel flags for in-flight remote connect attempts, by client attempt id.
+    remote_connect_attempts: Arc<Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>>,
+    // Sessions signed in to for browsing folders, by (connect host, port, user).
+    remote_browse_sessions: Arc<Mutex<HashMap<(String, u16, String), Arc<RemoteClient>>>>,
+    // Cancel flags of running "make available offline" jobs, by job id.
+    remote_prefetch_jobs: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
     // CPU-only path-keyed cache for Set-Studio cohort sampling. Keeps member
     // NIfTIs loaded across repeated crosshair moves without ever registering
     // them into the GPU VolumeRegistry/atlas (avoids AtlasPressureMonitor thrash
@@ -1350,6 +1380,9 @@ impl BridgeState {
             remote_mounts: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_host_key: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_auth: Arc::new(Mutex::new(HashMap::new())),
+            remote_connect_attempts: Arc::new(Mutex::new(HashMap::new())),
+            remote_browse_sessions: Arc::new(Mutex::new(HashMap::new())),
+            remote_prefetch_jobs: Arc::new(Mutex::new(HashMap::new())),
             set_sample_cache: set_sample_cache::SetSampleCache::default(),
             population_sampling: population_sampling::PopulationSampling::default(),
             population_slice: population_slice::PopulationSliceEngine::default(),
@@ -1789,6 +1822,30 @@ fn normalize_remote_mount_request(
         .iter()
         .find(|path| path.is_file())
         .cloned();
+    let jump_hops = resolved
+        .jump_hosts()
+        .into_iter()
+        .map(|hop| {
+            let hop_config = ssh_config.resolve(&hop.host);
+            JumpHop {
+                host: hop_config
+                    .host_name
+                    .clone()
+                    .unwrap_or_else(|| hop.host.clone()),
+                port: hop.port.or(hop_config.port).unwrap_or(22),
+                user: hop
+                    .user
+                    .clone()
+                    .or_else(|| hop_config.user.clone())
+                    .unwrap_or_else(|| user.clone()),
+                identity: hop_config
+                    .identity_files
+                    .iter()
+                    .find(|path| path.is_file())
+                    .cloned(),
+            }
+        })
+        .collect();
 
     let auth_method = request
         .auth_method
@@ -1814,6 +1871,11 @@ fn normalize_remote_mount_request(
         key_passphrase,
         config_identity,
         proxy_jump: resolved.proxy_jump,
+        jump_hops,
+        attempt_id: request
+            .attempt_id
+            .filter(|id| !id.trim().is_empty() && id.len() <= 128),
+        browse_only: request.browse_only.unwrap_or(false),
         verify_host_key: request.verify_host_key.unwrap_or(true),
         accept_unknown_host_keys: request.accept_unknown_host_keys.unwrap_or(false),
         known_hosts_path: request.known_hosts_path.map(PathBuf::from),
@@ -2129,7 +2191,25 @@ async fn list_remote_directory_for_local_path(
             })?;
     }
 
-    let entries = remote_transfer::list_owned(mount.clone(), remote_path.clone()).await?;
+    let entries = match remote_transfer::list_owned(mount.clone(), remote_path.clone()).await {
+        Ok(entries) => entries,
+        Err(err) => {
+            // Unreachable server: browse the last listing seen, so folders
+            // and downloaded files stay usable offline. The status indicator
+            // shows the folder as disconnected.
+            if remote_mount_ux::is_unreachable(&mount, &err).await {
+                if let Some(cached) = remote_mount_ux::load_cached_listing(&mount, local_path).await
+                {
+                    warn!(
+                        "Remote listing of {} failed ({err}); showing the cached listing",
+                        local_path.display()
+                    );
+                    return Ok(Some(cached));
+                }
+            }
+            return Err(err);
+        }
+    };
 
     let mut nodes = Vec::with_capacity(entries.len());
 
@@ -2153,7 +2233,9 @@ async fn list_remote_directory_for_local_path(
     }
 
     nodes.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(Some(TreePayload { nodes }))
+    let payload = TreePayload { nodes };
+    remote_mount_ux::save_cached_listing(&mount, local_path, &payload).await;
+    Ok(Some(payload))
 }
 
 async fn list_local_directory(path: &Path) -> BridgeResult<TreePayload> {
@@ -2218,7 +2300,27 @@ async fn materialize_remote_file_if_needed(state: &BridgeState, path: &Path) -> 
     }
     let _ = tokio::fs::write(mount.local_root.join(".last-used"), []).await;
     let metadata_path = remote_cache_metadata_path(&mount, path)?;
-    let remote_stat = remote_transfer::stat_owned(mount.clone(), remote_path.clone()).await?;
+    let remote_stat = match remote_transfer::stat_owned(mount.clone(), remote_path.clone()).await {
+        Ok(stat) => stat,
+        Err(err) => {
+            // Unreachable server: open the downloaded copy if it is complete
+            // (its size matches what was recorded when it was downloaded).
+            if remote_mount_ux::is_unreachable(&mount, &err).await {
+                if let Some(metadata) = load_remote_file_cache_metadata(&metadata_path).await? {
+                    let local_len = tokio::fs::metadata(path).await.map(|m| m.len()).ok();
+                    if metadata.remote_path == remote_path
+                        && local_len == Some(metadata.remote_size)
+                    {
+                        warn!(
+                            "Remote server unreachable ({err}); opening the downloaded copy of {remote_path}"
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+            return Err(err);
+        }
+    };
 
     if tokio::fs::metadata(path)
         .await
@@ -2328,13 +2430,20 @@ async fn finalize_remote_mount<R: Runtime>(
         &request.user,
         &request.remote_path,
     ));
+    // A fresh sign-in revives every mounted folder on this endpoint whose
+    // session dropped for good; they keep their mount ids and trees.
+    if !shared {
+        remote_mount_ux::revive_dropped_mounts(state, &request, &client, &app).await;
+    }
     {
         let mounts = state.remote_mounts.lock().await;
         if let Some(existing) = mounts.values().find(|mount| mount.local_root == local_root) {
             let info = remote_mount_info_from_entry(existing);
+            let revived = Arc::ptr_eq(&existing.client, &client);
             drop(mounts);
-            // A session borrowed from another mount stays open for it.
-            if !shared {
+            // A session borrowed from another mount, or just handed to a
+            // revived one, stays open.
+            if !shared && !revived {
                 client
                     .close()
                     .await
@@ -2415,6 +2524,13 @@ async fn finalize_remote_mount<R: Runtime>(
         request.port,
         &request.remote_path,
     );
+
+    // Names this cache directory in the cache view after the folder is unmounted.
+    let _ = tokio::fs::write(
+        local_root.join(remote_mount_ux::ORIGIN_FILE_NAME),
+        &origin_label,
+    )
+    .await;
 
     // A shared session already reports recovery for the mount that opened it.
     if !shared {
@@ -2516,6 +2632,10 @@ async fn handle_remote_connect_outcome<R: Runtime>(
     app: tauri::AppHandle<R>,
 ) -> BridgeResult<RemoteMountConnectResult> {
     match outcome {
+        RemoteConnectOutcome::Connected(client) if context.request.browse_only => {
+            remote_mount_ux::register_browse_session(state, &context.request, Arc::new(*client))
+                .await
+        }
         RemoteConnectOutcome::Connected(client) => {
             finalize_remote_mount(state, context.request, Arc::new(*client), false, app).await
         }
@@ -3866,67 +3986,83 @@ async fn remote_mount_connect<R: Runtime>(
 ) -> BridgeResult<RemoteMountConnectResult> {
     let ssh_config = load_user_ssh_config().await;
     let normalized = normalize_remote_mount_request(request, &ssh_config)?;
-    let probe_options = remote_probe_options(&normalized);
     let app = window.app_handle().clone();
+    let attempt_id = normalized.attempt_id.clone();
+    let state = state.inner();
+    let result = remote_connect_attempt(state, normalized, app).await;
+    remote_mount_ux::settle(state, attempt_id.as_deref(), result).await
+}
 
-    // Already mounted: hand back the live mount without a new login.
-    if let Some(info) = live_remote_mount_for_request(state.inner(), &normalized).await {
-        return Ok(RemoteMountConnectResult::Connected { mount: info });
-    }
+async fn remote_connect_attempt<R: Runtime>(
+    state: &BridgeState,
+    normalized: NormalizedRemoteMountRequest,
+    app: tauri::AppHandle<R>,
+) -> BridgeResult<RemoteMountConnectResult> {
+    let attempt_id = normalized.attempt_id.clone();
+    let probe_options = if normalized.browse_only {
+        // Browsing starts from wherever the user can reach; the typed
+        // folder may not exist yet.
+        FilesystemProbeOptions::new(".").timeout(Duration::from_secs(15))
+    } else {
+        remote_probe_options(&normalized)
+    };
 
-    // Another folder on the same host is mounted: reuse its authenticated
-    // session, so a second folder needs no second password or 2FA prompt.
-    if let Some(client) = shared_remote_client_for_request(state.inner(), &normalized).await {
-        match tokio::time::timeout(
-            REMOTE_FS_OPERATION_TIMEOUT,
-            client.probe_filesystem(probe_options.clone()),
-        )
-        .await
-        {
-            Ok(Ok(_)) => {
-                return finalize_remote_mount(state.inner(), normalized, client, true, app).await;
+    if normalized.browse_only {
+        if let Some(client) = shared_remote_client_for_request(state, &normalized).await {
+            return remote_mount_ux::session_ready(&normalized, &client).await;
+        }
+    } else {
+        // Already mounted: hand back the live mount without a new login.
+        if let Some(info) = live_remote_mount_for_request(state, &normalized).await {
+            return Ok(RemoteMountConnectResult::Connected { mount: info });
+        }
+
+        // Another folder on the same host is mounted (or was signed in to
+        // for browsing): reuse that session, so a second folder needs no
+        // second password or 2FA prompt.
+        if let Some(client) = shared_remote_client_for_request(state, &normalized).await {
+            match tokio::time::timeout(
+                REMOTE_FS_OPERATION_TIMEOUT,
+                client.probe_filesystem(probe_options.clone()),
+            )
+            .await
+            {
+                Ok(Ok(_)) => {
+                    return finalize_remote_mount(state, normalized, client, true, app).await;
+                }
+                // The folder itself is unusable (missing, not a directory,
+                // no SFTP): a fresh login would fail the same way.
+                Ok(Err(err @ remotely::Error::Readiness(_))) => {
+                    return Err(map_remotely_error(err, 8221));
+                }
+                // Transport trouble on the shared session: fall back to a
+                // new login.
+                Ok(Err(err)) => {
+                    warn!("Shared SSH session probe failed, reconnecting: {err}");
+                }
+                Err(_) => warn!("Shared SSH session probe timed out, reconnecting"),
             }
-            // The folder itself is unusable (missing, not a directory, no
-            // SFTP): a fresh login would fail the same way.
-            Ok(Err(err @ remotely::Error::Readiness(_))) => {
-                return Err(map_remotely_error(err, 8221));
-            }
-            // Transport trouble on the shared session: fall back to a new login.
-            Ok(Err(err)) => {
-                warn!("Shared SSH session probe failed, reconnecting: {err}");
-            }
-            Err(_) => warn!("Shared SSH session probe timed out, reconnecting"),
         }
     }
 
     let auth = select_remote_auth(&normalized)?;
     let proxy_jump = normalized.proxy_jump.clone();
     let config_host = normalized.host.clone();
-
-    let connect_config = RemoteConnectConfig {
-        host: normalized.connect_host.clone(),
-        port: normalized.port,
-        user: normalized.user.clone(),
-        auth,
-        connect_timeout: Duration::from_secs(12),
-        operation_timeout: Duration::from_secs(30),
-        retry_count: 1,
-        retry_delay: Duration::from_millis(250),
-        verify_host_key: normalized.verify_host_key,
-        accept_unknown_host_keys: normalized.accept_unknown_host_keys,
-        known_hosts_path: normalized.known_hosts_path.clone(),
-        ..Default::default()
-    };
+    let connect_config = remote_connect_config(&normalized, auth);
 
     let context = PendingRemoteMountContext {
         request: normalized,
     };
 
-    let outcome = tokio::time::timeout(
-        REMOTE_MOUNT_HANDSHAKE_TIMEOUT,
-        Connector::new(connect_config).probe(probe_options).start(),
+    let outcome = remote_mount_ux::cancellable(
+        state,
+        attempt_id.as_deref(),
+        tokio::time::timeout(
+            REMOTE_MOUNT_HANDSHAKE_TIMEOUT,
+            Connector::new(connect_config).probe(probe_options).start(),
+        ),
     )
-    .await
+    .await?
     .map_err(|_| BridgeError::Io {
         code: 8221,
         details: format!(
@@ -3937,19 +4073,79 @@ async fn remote_mount_connect<R: Runtime>(
     .and_then(|result| result.map_err(|e| map_remotely_error(e, 8221)))
     .map_err(|err| with_proxy_jump_hint(err, &config_host, proxy_jump.as_deref()))?;
 
-    handle_remote_connect_outcome(state.inner(), context, outcome, app).await
+    handle_remote_connect_outcome(state, context, outcome, app).await
+}
+
+/// SSH settings for a mount request, with its `ProxyJump` chain nested as
+/// jump hosts (the last hop tunnels directly to the target).
+fn remote_connect_config(
+    request: &NormalizedRemoteMountRequest,
+    auth: RemoteAuthMethod,
+) -> RemoteConnectConfig {
+    let base =
+        |host: String, port: u16, user: String, auth: RemoteAuthMethod| RemoteConnectConfig {
+            host,
+            port,
+            user,
+            auth,
+            connect_timeout: Duration::from_secs(12),
+            operation_timeout: Duration::from_secs(30),
+            retry_count: 1,
+            retry_delay: Duration::from_millis(250),
+            verify_host_key: request.verify_host_key,
+            accept_unknown_host_keys: request.accept_unknown_host_keys,
+            known_hosts_path: request.known_hosts_path.clone(),
+            ..Default::default()
+        };
+    let mut via: Option<RemoteConnectConfig> = None;
+    for hop in &request.jump_hops {
+        let mut hop_config = base(
+            hop.host.clone(),
+            hop.port,
+            hop.user.clone(),
+            jump_hop_auth(hop, &auth),
+        );
+        hop_config.jump_host = via.take().map(Box::new);
+        via = Some(hop_config);
+    }
+    let mut config = base(
+        request.connect_host.clone(),
+        request.port,
+        request.user.clone(),
+        auth,
+    );
+    config.jump_host = via.map(Box::new);
+    config
+}
+
+/// Jump hosts sign in without prompts: the hop's own `IdentityFile`, else the
+/// target's key, agent or password, else the default key files.
+fn jump_hop_auth(hop: &JumpHop, target: &RemoteAuthMethod) -> RemoteAuthMethod {
+    if let Some(identity) = &hop.identity {
+        return RemoteAuthMethod::KeyFile {
+            source: remotely::ssh::KeySource::File(identity.clone()),
+            passphrase: None,
+        };
+    }
+    match target {
+        RemoteAuthMethod::KeyboardInteractive { .. } => RemoteAuthMethod::KeyFile {
+            source: remotely::ssh::KeySource::DefaultLocations,
+            passphrase: None,
+        },
+        other => other.clone(),
+    }
 }
 
 /// A failed connect to a host that `~/.ssh/config` reaches through a jump host
-/// most likely failed for that reason; say so.
+/// may have failed at the jump host; say which one was used.
 fn with_proxy_jump_hint(err: BridgeError, host: &str, proxy_jump: Option<&str>) -> BridgeError {
     let Some(jump) = proxy_jump else {
         return err;
     };
     let hint = format!(
-        " ~/.ssh/config reaches '{host}' through the jump host '{jump}' (ProxyJump), \
-         which remote mounts cannot use yet. Connect over VPN or use a host that is \
-         directly reachable."
+        " (Connected through the jump host '{jump}' from ~/.ssh/config for '{host}'. \
+         The jump host must accept your SSH key, agent or saved password without a \
+         prompt, and its host key must already be trusted.)"
     );
     match err {
         BridgeError::Io { code, details } => BridgeError::Io {
@@ -4016,7 +4212,13 @@ async fn shared_remote_client_for_request(
             .map(|mount| Arc::clone(&mount.client))
             .collect()
     };
-    for client in candidates {
+    let browse = {
+        let sessions = state.remote_browse_sessions.lock().await;
+        sessions
+            .get(&remote_mount_ux::endpoint_key(request))
+            .cloned()
+    };
+    for client in candidates.into_iter().chain(browse) {
         if client.is_connected().await {
             return Some(client);
         }
@@ -4051,19 +4253,26 @@ async fn remote_mount_respond_host_key<R: Runtime>(
         return Err(map_remotely_error(pending.reject(), 8224));
     }
 
-    let outcome = tokio::time::timeout(REMOTE_MOUNT_HANDSHAKE_TIMEOUT, pending.trust())
-        .await
-        .map_err(|_| BridgeError::Io {
-            code: 8224,
-            details: format!(
-                "SSH connection timed out after {}s while resuming host-key validation.",
-                REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
-            ),
-        })?
-        .map_err(|e| map_remotely_error(e, 8224))?;
+    let attempt_id = context.request.attempt_id.clone();
+    let outcome = remote_mount_ux::cancellable(
+        state.inner(),
+        attempt_id.as_deref(),
+        tokio::time::timeout(REMOTE_MOUNT_HANDSHAKE_TIMEOUT, pending.trust()),
+    )
+    .await?
+    .map_err(|_| BridgeError::Io {
+        code: 8224,
+        details: format!(
+            "SSH connection timed out after {}s while resuming host-key validation.",
+            REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
+        ),
+    })?
+    .map_err(|e| map_remotely_error(e, 8224))?;
 
-    handle_remote_connect_outcome(state.inner(), context, outcome, window.app_handle().clone())
-        .await
+    let result =
+        handle_remote_connect_outcome(state.inner(), context, outcome, window.app_handle().clone())
+            .await;
+    remote_mount_ux::settle(state.inner(), attempt_id.as_deref(), result).await
 }
 
 #[command]
@@ -4089,19 +4298,26 @@ async fn remote_mount_respond_auth<R: Runtime>(
         details: format!("Unknown auth conversation id: {conversation_id}"),
     })?;
 
-    let outcome = tokio::time::timeout(REMOTE_MOUNT_HANDSHAKE_TIMEOUT, pending.respond(responses))
-        .await
-        .map_err(|_| BridgeError::Io {
-            code: 8227,
-            details: format!(
-                "SSH connection timed out after {}s while completing authentication.",
-                REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
-            ),
-        })?
-        .map_err(|e| map_remotely_error(e, 8227))?;
+    let attempt_id = context.request.attempt_id.clone();
+    let outcome = remote_mount_ux::cancellable(
+        state.inner(),
+        attempt_id.as_deref(),
+        tokio::time::timeout(REMOTE_MOUNT_HANDSHAKE_TIMEOUT, pending.respond(responses)),
+    )
+    .await?
+    .map_err(|_| BridgeError::Io {
+        code: 8227,
+        details: format!(
+            "SSH connection timed out after {}s while completing authentication.",
+            REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
+        ),
+    })?
+    .map_err(|e| map_remotely_error(e, 8227))?;
 
-    handle_remote_connect_outcome(state.inner(), context, outcome, window.app_handle().clone())
-        .await
+    let result =
+        handle_remote_connect_outcome(state.inner(), context, outcome, window.app_handle().clone())
+            .await;
+    remote_mount_ux::settle(state.inner(), attempt_id.as_deref(), result).await
 }
 
 #[command]
@@ -14745,6 +14961,8 @@ mod tests {
             save_profile: None,
             profile_name: None,
             reconnect_on_launch: None,
+            attempt_id: None,
+            browse_only: None,
         }
     }
 
@@ -14793,6 +15011,57 @@ mod tests {
     }
 
     #[test]
+    fn proxy_jump_chains_nest_with_the_last_hop_nearest_the_target() {
+        let config = SshConfig::parse(
+            "Host cluster\n  HostName node.internal\n  User alice\n  ProxyJump ops@outer:2200,inner\n\
+             Host inner\n  HostName inner.example.org\n  Port 2222\n",
+        );
+        let normalized =
+            normalize_remote_mount_request(remote_request("cluster", "", None), &config).unwrap();
+        assert_eq!(
+            normalized.jump_hops,
+            vec![
+                JumpHop {
+                    host: "outer".into(),
+                    port: 2200,
+                    user: "ops".into(),
+                    identity: None,
+                },
+                JumpHop {
+                    host: "inner.example.org".into(),
+                    port: 2222,
+                    user: "alice".into(),
+                    identity: None,
+                },
+            ]
+        );
+        let connect = remote_connect_config(&normalized, RemoteAuthMethod::Agent);
+        assert_eq!(connect.host, "node.internal");
+        let last_hop = connect.jump_host.as_deref().expect("tunnelled");
+        assert_eq!(
+            (last_hop.host.as_str(), last_hop.port),
+            ("inner.example.org", 2222)
+        );
+        assert!(matches!(last_hop.auth, RemoteAuthMethod::Agent));
+        let first_hop = last_hop.jump_host.as_deref().expect("two hops");
+        assert_eq!(
+            (first_hop.host.as_str(), first_hop.user.as_str()),
+            ("outer", "ops")
+        );
+        assert!(first_hop.jump_host.is_none());
+
+        // A keyboard-interactive target cannot prompt on the jump host.
+        let interactive = remote_connect_config(
+            &normalized,
+            RemoteAuthMethod::KeyboardInteractive { submethods: None },
+        );
+        assert!(matches!(
+            interactive.jump_host.as_deref().unwrap().auth,
+            RemoteAuthMethod::KeyFile { .. }
+        ));
+    }
+
+    #[test]
     fn ssh_config_hosts_lists_concrete_aliases() {
         let config = SshConfig::parse(
             "Host cluster\n  HostName login.example.org\n  User alice\nHost *.internal\n  User x\nHost *\n  Port 2200\n",
@@ -14817,7 +15086,7 @@ mod tests {
             panic!("variant preserved");
         };
         assert!(details.starts_with("connection refused"));
-        assert!(details.contains("ProxyJump"));
+        assert!(details.contains("jump host 'gw'"));
         let BridgeError::Io { details, .. } = with_proxy_jump_hint(err, "cluster", None) else {
             panic!("variant preserved");
         };

@@ -2,8 +2,9 @@
 import type { RemoteAuthChallenge } from "./RemoteAuthChallenge";
 import type { RemoteHostKeyChallenge } from "./RemoteHostKeyChallenge";
 import type { RemoteMountInfo } from "./RemoteMountInfo";
+import type { RemoteSessionInfo } from "./RemoteSessionInfo";
 
 /**
  * Result of a remote mount connection step.
  */
-export type RemoteMountConnectResult = { "status": "connected", mount: RemoteMountInfo, } | { "status": "need_host_key", challenge: RemoteHostKeyChallenge, } | { "status": "need_auth", challenge: RemoteAuthChallenge, };
+export type RemoteMountConnectResult = { "status": "connected", mount: RemoteMountInfo, } | { "status": "need_host_key", challenge: RemoteHostKeyChallenge, } | { "status": "need_auth", challenge: RemoteAuthChallenge, } | { "status": "session_ready", session: RemoteSessionInfo, };

@@ -8,4 +8,14 @@ export type RemoteMountConnectRequest = { host: string, port: number | null, use
  * Saved with the profile: reconnect this folder when Brainflow starts.
  * `None` keeps the profile's current setting.
  */
-reconnect_on_launch: boolean | null, };
+reconnect_on_launch: boolean | null, 
+/**
+ * Client-chosen id for this attempt; `remote_mount_cancel_connect` with
+ * the same id abandons it (including a pending prompt).
+ */
+attempt_id: string | null, 
+/**
+ * Sign in for browsing folders only: the result is `session_ready`
+ * and nothing is mounted.
+ */
+browse_only: boolean | null, };

@@ -75,6 +75,17 @@ fn main() {
     if let Err(e) = SshConfigHost::export_all() {
         eprintln!("Warning: {e}");
     }
+    for result in [
+        RemoteSessionInfo::export_all(),
+        RemoteFolderListing::export_all(),
+        RemoteMountStatus::export_all(),
+        RemoteCacheUsage::export_all(),
+        RemoteCacheFolderUsage::export_all(),
+    ] {
+        if let Err(e) = result {
+            eprintln!("Warning: {e}");
+        }
+    }
 
     if let Err(e) = BidsDatasetSummary::export_all() {
         eprintln!("Warning: {e}");

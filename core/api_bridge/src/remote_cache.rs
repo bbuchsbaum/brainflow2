@@ -17,14 +17,110 @@ pub(crate) fn identity(host: &str, port: u16, user: &str, remote_root: &str) -> 
     format!("cache-{:x}", Sha256::digest(identity))
 }
 
-pub(crate) fn budget() -> u64 {
+/// Smallest and largest budgets the app accepts from the user.
+pub(crate) const MIN_BUDGET: u64 = 256 * 1024 * 1024;
+pub(crate) const MAX_BUDGET: u64 = 2 * 1024 * 1024 * 1024 * 1024;
+const SETTINGS_FILE: &str = "remote_cache.json";
+
+/// The budget chosen in the app (0 = none), loaded once from the settings file.
+static SAVED_BUDGET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SAVED_BUDGET_LOADED: std::sync::Once = std::sync::Once::new();
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Settings {
+    budget_bytes: u64,
+}
+
+fn settings_path() -> Option<PathBuf> {
+    directories::ProjectDirs::from("org", "Brainflow", "Brainflow")
+        .map(|dirs| dirs.config_dir().join(SETTINGS_FILE))
+}
+
+fn env_budget() -> Option<u64> {
     std::env::var("BRAINFLOW_REMOTE_CACHE_BYTES")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_BUDGET)
 }
 
-fn directory_bytes(path: &Path) -> BridgeResult<u64> {
+fn saved_budget() -> Option<u64> {
+    SAVED_BUDGET_LOADED.call_once(|| {
+        let saved = settings_path()
+            .and_then(|path| std::fs::read(path).ok())
+            .and_then(|bytes| serde_json::from_slice::<Settings>(&bytes).ok())
+            .map(|settings| settings.budget_bytes.clamp(MIN_BUDGET, MAX_BUDGET))
+            .unwrap_or(0);
+        SAVED_BUDGET.store(saved, std::sync::atomic::Ordering::Relaxed);
+    });
+    match SAVED_BUDGET.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => None,
+        bytes => Some(bytes),
+    }
+}
+
+/// `BRAINFLOW_REMOTE_CACHE_BYTES`, else the budget saved in the app, else 4 GiB.
+pub(crate) fn budget() -> u64 {
+    env_budget().or_else(saved_budget).unwrap_or(DEFAULT_BUDGET)
+}
+
+/// Whether the environment variable fixes the budget.
+pub(crate) fn budget_from_env() -> bool {
+    env_budget().is_some()
+}
+
+/// Save the budget chosen in the app.
+pub(crate) fn save_budget(bytes: u64) -> BridgeResult<()> {
+    if !(MIN_BUDGET..=MAX_BUDGET).contains(&bytes) {
+        return Err(error("Cache limit must be between 256 MB and 2 TB"));
+    }
+    let path = settings_path().ok_or_else(|| error("No settings directory for the cache limit"))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| error(&e.to_string()))?;
+    }
+    let payload = serde_json::to_vec_pretty(&Settings {
+        budget_bytes: bytes,
+    })
+    .map_err(|e| error(&e.to_string()))?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, payload).map_err(|e| error(&e.to_string()))?;
+    std::fs::rename(&tmp, &path).map_err(|e| error(&e.to_string()))?;
+    saved_budget();
+    SAVED_BUDGET.store(bytes, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
+/// Cache directories this module owns (`cache-*`, or legacy UUID names).
+pub(crate) fn is_owned_cache_dir(name: &str) -> bool {
+    name.starts_with("cache-") || uuid::Uuid::parse_str(name).is_ok()
+}
+
+/// Remove every owned cache directory that is not mounted, with its
+/// metadata. Called under ADMISSION. Returns the bytes freed.
+pub(crate) fn evict_inactive(root: &Path, active: &HashSet<PathBuf>) -> BridgeResult<u64> {
+    if !root.exists() {
+        return Ok(0);
+    }
+    let mut freed = 0u64;
+    for entry in std::fs::read_dir(root).map_err(|e| error(&e.to_string()))? {
+        let entry = entry.map_err(|e| error(&e.to_string()))?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if !is_dir || !is_owned_cache_dir(&name) || active.contains(&path) {
+            continue;
+        }
+        freed = freed.saturating_add(directory_bytes(&path)?);
+        std::fs::remove_dir_all(&path)
+            .map_err(|e| error(&format!("Unable to clear remote cache: {e}")))?;
+        let metadata = root.join(crate::REMOTE_CACHE_METADATA_DIR_NAME).join(&name);
+        if metadata.is_dir() {
+            freed = freed.saturating_add(directory_bytes(&metadata)?);
+            std::fs::remove_dir_all(metadata).map_err(|e| error(&e.to_string()))?;
+        }
+    }
+    Ok(freed)
+}
+
+pub(crate) fn directory_bytes(path: &Path) -> BridgeResult<u64> {
     let mut bytes = 0u64;
     for entry in walkdir::WalkDir::new(path).follow_links(false) {
         let entry = entry.map_err(|e| error(&format!("Unable to inspect remote cache: {e}")))?;
@@ -57,7 +153,7 @@ pub(crate) fn make_room(
         let entry = entry.map_err(|e| error(&e.to_string()))?;
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
-        let owned = name.starts_with("cache-") || uuid::Uuid::parse_str(&name).is_ok();
+        let owned = is_owned_cache_dir(&name);
         if owned
             && entry
                 .file_type()
@@ -109,6 +205,29 @@ mod tests {
             make_room(&root, &HashSet::new(), 101, 100).is_err(),
             "budget still applies"
         );
+    }
+
+    #[test]
+    fn evict_inactive_keeps_mounted_and_foreign_directories() {
+        let root =
+            std::env::temp_dir().join(format!("brainflow-evict-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let cleanup = crate::remote_transfer::Staging(root.clone());
+        let active = root.join("cache-active");
+        let inactive = root.join("cache-old");
+        let foreign = root.join("keep-me");
+        let metadata = root
+            .join(crate::REMOTE_CACHE_METADATA_DIR_NAME)
+            .join("cache-old");
+        for path in [&active, &inactive, &foreign, &metadata] {
+            std::fs::create_dir_all(path).unwrap();
+            std::fs::write(path.join("data"), vec![1; 10]).unwrap();
+        }
+        let freed = evict_inactive(&root, &HashSet::from([active.clone()])).unwrap();
+        assert_eq!(freed, 20);
+        assert!(active.exists() && foreign.exists());
+        assert!(!inactive.exists() && !metadata.exists());
+        drop(cleanup);
     }
 
     #[test]

@@ -632,6 +632,8 @@ async fn remote_mounts_share_a_live_session_per_endpoint() {
                 save_profile: None,
                 profile_name: None,
                 reconnect_on_launch: None,
+                attempt_id: None,
+                browse_only: None,
             },
             &no_config,
         )
@@ -668,4 +670,220 @@ async fn remote_mounts_share_a_live_session_per_endpoint() {
         .await
         .is_none());
     drop(cleanup);
+}
+
+async fn fixture_client(port: u16) -> Arc<RemoteClient> {
+    let config = ConnectConfig::new("127.0.0.1", "fixture")
+        .port(port)
+        .auth(AuthMethod::Password("ephemeral-test-only".into()))
+        .connect_timeout(Duration::from_secs(5))
+        .operation_timeout(Duration::from_secs(5))
+        .retry_count(0)
+        .skip_host_key_verification();
+    Arc::new(RemoteClient::connect(config).await.unwrap())
+}
+
+fn fixture_mount(
+    mount_id: &str,
+    local_root: std::path::PathBuf,
+    port: u16,
+    client: Arc<RemoteClient>,
+) -> crate::RemoteMountEntry {
+    crate::RemoteMountEntry {
+        mount_id: mount_id.into(),
+        local_root,
+        remote_root: "/data".into(),
+        display_name: "fixture".into(),
+        origin_label: format!("fixture@127.0.0.1:/data ({mount_id})"),
+        host: "127.0.0.1".into(),
+        connect_host: "127.0.0.1".into(),
+        port,
+        user: "fixture".into(),
+        client,
+        op_semaphore: Arc::new(tokio::sync::Semaphore::new(2)),
+        transfers: Arc::new(super::Control::default()),
+        progress: Arc::new(|_| {}),
+    }
+}
+
+/// While the server is unreachable a mounted folder stays browsable from the
+/// last listing and its downloaded files still open; a dropped 2FA-style
+/// session is reported as disconnected, and signing in again hands the new
+/// session to the folder without remounting it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remote_folders_work_offline_and_revive_on_a_new_sign_in() {
+    let server = spawn_sftp_server(
+        PrivateKey::random(&mut rand::rng(), russh::keys::Algorithm::Ed25519).unwrap(),
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicUsize::new(0)),
+    )
+    .await;
+    let port = server.addr.port();
+    let client = fixture_client(port).await;
+    let root =
+        std::env::temp_dir().join(format!("brainflow-offline-test-{}", uuid::Uuid::new_v4()));
+    let local_root = root.join(format!("cache-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&local_root).unwrap();
+    let cleanup = super::Staging(root.clone());
+    let metadata_dir = crate::remote_cache_metadata_root()
+        .unwrap()
+        .join(local_root.file_name().unwrap());
+    let metadata_cleanup = super::Staging(metadata_dir.clone());
+    std::fs::create_dir_all(&metadata_dir).unwrap();
+
+    let state = crate::BridgeState::default().unwrap();
+    state.remote_mounts.lock().await.insert(
+        "m".into(),
+        fixture_mount("m", local_root.clone(), port, client.clone()),
+    );
+
+    // Online: list, cache the listing, download a file.
+    assert!(
+        crate::remote_mount_ux::cached_listing_for_test(&state, &local_root)
+            .await
+            .is_none()
+    );
+    let live = crate::list_remote_directory_for_local_path(&state, &local_root)
+        .await
+        .unwrap()
+        .unwrap();
+    let names: Vec<_> = live.nodes.iter().map(|n| n.name.clone()).collect();
+    assert_eq!(names, ["alpha.nii", "beta.nii"]);
+    let cached = crate::remote_mount_ux::cached_listing_for_test(&state, &local_root)
+        .await
+        .expect("listing remembered");
+    assert_eq!(cached.nodes.len(), 2);
+    let alpha = local_root.join("alpha.nii");
+    crate::materialize_remote_file_if_needed(&state, &alpha)
+        .await
+        .unwrap();
+    let statuses = crate::remote_mount_ux::mount_statuses(&state).await;
+    assert_eq!(statuses[0].state, "connected");
+
+    // The session dies for good (closed, like an expired 2FA session).
+    client.close().await.unwrap();
+    let statuses = crate::remote_mount_ux::mount_statuses(&state).await;
+    assert_eq!(statuses[0].state, "disconnected");
+    let offline = crate::list_remote_directory_for_local_path(&state, &local_root)
+        .await
+        .expect("offline listing comes from the cache")
+        .unwrap();
+    assert_eq!(offline.nodes.len(), 2);
+    crate::materialize_remote_file_if_needed(&state, &alpha)
+        .await
+        .expect("the downloaded copy opens offline");
+    assert!(
+        crate::materialize_remote_file_if_needed(&state, &local_root.join("beta.nii"))
+            .await
+            .is_err(),
+        "a file never downloaded cannot open offline"
+    );
+
+    // Signing in again revives the folder in place.
+    let fresh = fixture_client(port).await;
+    let request = crate::normalize_remote_mount_request(
+        bridge_types::RemoteMountConnectRequest {
+            host: "127.0.0.1".into(),
+            port: Some(port),
+            user: "fixture".into(),
+            remote_path: "/elsewhere".into(),
+            auth_method: Some("password".into()),
+            password: None,
+            key_path: None,
+            key_passphrase: None,
+            verify_host_key: None,
+            accept_unknown_host_keys: None,
+            known_hosts_path: None,
+            remember_password: None,
+            save_profile: None,
+            profile_name: None,
+            reconnect_on_launch: None,
+            attempt_id: None,
+            browse_only: None,
+        },
+        &remotely::ssh::SshConfig::default(),
+    )
+    .unwrap();
+    let revived = crate::remote_mount_ux::swap_dropped_sessions(&state, &request, &fresh).await;
+    assert_eq!(revived.len(), 1);
+    assert_eq!(revived[0].0, "m");
+    let statuses = crate::remote_mount_ux::mount_statuses(&state).await;
+    assert_eq!(statuses[0].state, "connected");
+    assert!(Arc::ptr_eq(
+        &state.remote_mounts.lock().await["m"].client,
+        &fresh
+    ));
+    // A live session is never swapped out.
+    let other = fixture_client(port).await;
+    assert!(
+        crate::remote_mount_ux::swap_dropped_sessions(&state, &request, &other)
+            .await
+            .is_empty()
+    );
+
+    fresh.close().await.unwrap();
+    other.close().await.unwrap();
+    server.shutdown.shutdown("done".into());
+    let _ = server.join.await;
+    drop(metadata_cleanup);
+    drop(cleanup);
+}
+
+/// Cancelling an attempt ends its in-flight step at once; a finished attempt
+/// leaves no flag behind.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn remote_connect_attempts_can_be_cancelled() {
+    let state = Arc::new(crate::BridgeState::default().unwrap());
+    let waiting = {
+        let state = Arc::clone(&state);
+        tokio::spawn(async move {
+            crate::remote_mount_ux::cancellable(
+                &state,
+                Some("attempt-1"),
+                std::future::pending::<()>(),
+            )
+            .await
+        })
+    };
+    // Let the attempt register before cancelling it.
+    for _ in 0..50 {
+        if state
+            .remote_connect_attempts
+            .lock()
+            .await
+            .contains_key("attempt-1")
+        {
+            break;
+        }
+        sleep(Duration::from_millis(10)).await;
+    }
+    assert!(crate::remote_mount_ux::cancel_attempt(&state, "attempt-1").await);
+    let result = tokio::time::timeout(Duration::from_secs(2), waiting)
+        .await
+        .expect("cancel ends the attempt")
+        .unwrap();
+    assert!(result.unwrap_err().to_string().contains("cancelled"));
+    assert!(!crate::remote_mount_ux::cancel_attempt(&state, "unknown").await);
+
+    // Without an id nothing is registered.
+    assert_eq!(
+        crate::remote_mount_ux::cancellable(&state, None, async { 7 })
+            .await
+            .unwrap(),
+        7
+    );
+    let done = crate::remote_mount_ux::cancellable(&state, Some("attempt-2"), async {
+        Ok(bridge_types::RemoteMountConnectResult::SessionReady {
+            session: bridge_types::RemoteSessionInfo {
+                host: "h".into(),
+                port: 22,
+                user: "u".into(),
+                home: "/home/u".into(),
+            },
+        })
+    })
+    .await
+    .unwrap();
+    let _ = crate::remote_mount_ux::settle(&state, Some("attempt-2"), done).await;
+    assert!(state.remote_connect_attempts.lock().await.is_empty());
 }

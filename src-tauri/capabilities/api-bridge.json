@@ -13,6 +13,14 @@
     "api-bridge:allow-remote-mount-unmount",
     "api-bridge:allow-list-remote-mount-profiles",
     "api-bridge:allow-list-ssh-config-hosts",
+    "api-bridge:allow-remote-mount-cancel-connect",
+    "api-bridge:allow-remote-list-folders",
+    "api-bridge:allow-remote-browse-close",
+    "api-bridge:allow-update-remote-mount-profile",
+    "api-bridge:allow-set-remote-cache-budget",
+    "api-bridge:allow-clear-inactive-remote-caches",
+    "api-bridge:allow-remote-prefetch-folder",
+    "api-bridge:allow-remote-prefetch-cancel",
     "api-bridge:allow-remove-remote-mount-profile"
   ]
 }

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-remote-cache-usage"
+description = "Enables the remote_cache_usage command without any pre-configured scope."
+commands.allow = ["remote_cache_usage"]
+
+[[permission]]
+identifier = "deny-remote-cache-usage"
+description = "Denies the remote_cache_usage command without any pre-configured scope."
+commands.deny = ["remote_cache_usage"]

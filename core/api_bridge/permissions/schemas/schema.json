@@ -355,6 +355,18 @@
           "markdownDescription": "Denies the cache_template command without any pre-configured scope."
         },
         {
+          "description": "Enables the cached_remote_directory command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cached-remote-directory",
+          "markdownDescription": "Enables the cached_remote_directory command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cached_remote_directory command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cached-remote-directory",
+          "markdownDescription": "Denies the cached_remote_directory command without any pre-configured scope."
+        },
+        {
           "description": "Enables the cancel_analysis command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cancel-analysis",
@@ -425,6 +437,18 @@
           "type": "string",
           "const": "deny-check-bids-directory",
           "markdownDescription": "Denies the check_bids_directory command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the clear_inactive_remote_caches command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-clear-inactive-remote-caches",
+          "markdownDescription": "Enables the clear_inactive_remote_caches command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clear_inactive_remote_caches command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-clear-inactive-remote-caches",
+          "markdownDescription": "Denies the clear_inactive_remote_caches command without any pre-configured scope."
         },
         {
           "description": "Enables the clear_render_layers command without any pre-configured scope.",
@@ -1459,6 +1483,54 @@
           "markdownDescription": "Denies the release_sampler command without any pre-configured scope."
         },
         {
+          "description": "Enables the remote_browse_close command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-browse-close",
+          "markdownDescription": "Enables the remote_browse_close command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_browse_close command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-browse-close",
+          "markdownDescription": "Denies the remote_browse_close command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remote_cache_usage command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-cache-usage",
+          "markdownDescription": "Enables the remote_cache_usage command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_cache_usage command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-cache-usage",
+          "markdownDescription": "Denies the remote_cache_usage command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remote_list_folders command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-list-folders",
+          "markdownDescription": "Enables the remote_list_folders command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_list_folders command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-list-folders",
+          "markdownDescription": "Denies the remote_list_folders command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remote_mount_cancel_connect command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-mount-cancel-connect",
+          "markdownDescription": "Enables the remote_mount_cancel_connect command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_mount_cancel_connect command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-mount-cancel-connect",
+          "markdownDescription": "Denies the remote_mount_cancel_connect command without any pre-configured scope."
+        },
+        {
           "description": "Enables the remote_mount_connect command without any pre-configured scope.",
           "type": "string",
           "const": "allow-remote-mount-connect",
@@ -1495,6 +1567,18 @@
           "markdownDescription": "Denies the remote_mount_respond_host_key command without any pre-configured scope."
         },
         {
+          "description": "Enables the remote_mount_statuses command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-mount-statuses",
+          "markdownDescription": "Enables the remote_mount_statuses command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_mount_statuses command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-mount-statuses",
+          "markdownDescription": "Denies the remote_mount_statuses command without any pre-configured scope."
+        },
+        {
           "description": "Enables the remote_mount_unmount command without any pre-configured scope.",
           "type": "string",
           "const": "allow-remote-mount-unmount",
@@ -1505,6 +1589,30 @@
           "type": "string",
           "const": "deny-remote-mount-unmount",
           "markdownDescription": "Denies the remote_mount_unmount command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remote_prefetch_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-prefetch-cancel",
+          "markdownDescription": "Enables the remote_prefetch_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_prefetch_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-prefetch-cancel",
+          "markdownDescription": "Denies the remote_prefetch_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remote_prefetch_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-prefetch-folder",
+          "markdownDescription": "Enables the remote_prefetch_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_prefetch_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-prefetch-folder",
+          "markdownDescription": "Denies the remote_prefetch_folder command without any pre-configured scope."
         },
         {
           "description": "Enables the remove_remote_mount_profile command without any pre-configured scope.",
@@ -1867,6 +1975,18 @@
           "markdownDescription": "Denies the set_layer_mask command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_remote_cache_budget command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-remote-cache-budget",
+          "markdownDescription": "Enables the set_remote_cache_budget command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_remote_cache_budget command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-remote-cache-budget",
+          "markdownDescription": "Denies the set_remote_cache_budget command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_residency_demand command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-residency-demand",
@@ -2059,6 +2179,18 @@
           "markdownDescription": "Denies the update_layer_threshold command without any pre-configured scope."
         },
         {
+          "description": "Enables the update_remote_mount_profile command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-remote-mount-profile",
+          "markdownDescription": "Enables the update_remote_mount_profile command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_remote_mount_profile command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-remote-mount-profile",
+          "markdownDescription": "Denies the update_remote_mount_profile command without any pre-configured scope."
+        },
+        {
           "description": "Enables the update_slice_outline command without any pre-configured scope.",
           "type": "string",
           "const": "allow-update-slice-outline",
@@ -2155,10 +2287,10 @@
           "markdownDescription": "Enables every command of the segmentation module.\n#### This permission set includes:\n\n- `allow-segmentation-create-session`\n- `allow-segmentation-get-session`\n- `allow-segmentation-preview-stroke`\n- `allow-segmentation-commit-stroke`\n- `allow-segmentation-undo`\n- `allow-segmentation-set-label-state`\n- `allow-segmentation-get-slice`\n- `allow-segmentation-save-labels`"
         },
         {
-          "description": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `module-segmentation`\n- `allow-dispose-module-workspace`\n- `allow-get-render-capabilities`\n- `allow-cancel-remote-file-load`\n- `allow-load-file`\n- `allow-load-surface`\n- `allow-unload-surface`\n- `allow-unload-surface-overlay`\n- `allow-unload-volume`\n- `allow-get-surface-geometry`\n- `allow-get-volume-bounds`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-recalculate-all-views`\n- `allow-request-layer-gpu-resources`\n- `allow-wait-for-layer-ready`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-list-remote-mounts`\n- `allow-list-remote-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-update-slice-outline`\n- `allow-create-offscreen-render-target`\n- `allow-add-render-layer`\n- `allow-request-frame`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-compute-layer-histogram`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-sample-layer-value-at-world`\n- `allow-get-volume-for-projection`\n- `allow-project-volume-to-surface`\n- `allow-create-surface-sampler`\n- `allow-apply-sampler`\n- `allow-release-sampler`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`\n- `allow-get-atlas-catalog`\n- `allow-get-filtered-atlases`\n- `allow-get-atlas-entry`\n- `allow-toggle-atlas-favorite`\n- `allow-get-recent-atlases`\n- `allow-get-favorite-atlases`\n- `allow-validate-atlas-config`\n- `allow-load-atlas`\n- `allow-get-atlas-roi-locations`\n- `allow-preview-surface-parcel-table`\n- `allow-bind-surface-parcel-table`\n- `allow-preview-parcel-table`\n- `allow-create-parcel-overlay`\n- `allow-select-parcel-column`\n- `allow-get-atlas-palette`\n- `allow-register-categorical-colormap`\n- `allow-get-atlas-stats`\n- `allow-reclaim-cached-image-slots`\n- `allow-set-residency-demand`\n- `allow-clear-residency-demand`\n- `allow-get-residency-state`\n- `allow-start-atlas-progress-monitoring`\n- `allow-get-atlas-subscription-count`\n- `allow-set-volume-timepoint`\n- `allow-get-volume-timepoint`\n- `allow-get-volume-info`\n- `allow-get-volume-native-plane`\n- `allow-get-nifti-header-info`\n- `allow-peek-volume-metadata`\n- `allow-render-view`\n- `allow-submit-view`\n- `allow-render-views`\n- `allow-get-template-catalog`\n- `allow-get-filtered-templates`\n- `allow-get-template-entry`\n- `allow-validate-template-config`\n- `allow-load-template`\n- `allow-load-template-by-id`\n- `allow-get-template-cache-stats`\n- `allow-cache-template`\n- `allow-clear-template-cache`\n- `allow-load-surface-template`\n- `allow-get-surface-template-catalog`\n- `allow-load-surface-atlas`\n- `allow-load-surface-overlay`\n- `allow-get-surface-overlay-data`\n- `allow-set-layer-mask`\n- `allow-set-layer-border`\n- `allow-list-modules`\n- `allow-set-enabled-modules`\n- `module-analysis`\n- `allow-preview-folder-ontology`\n- `allow-preview-set-studio-imports`\n- `allow-promote-discovery-to-neurotabs`\n- `allow-materialize-set-studio-compare-panes`\n- `allow-start-set-studio-compare-materialization`\n- `allow-get-set-studio-materialization-status`\n- `allow-cancel-set-studio-materialization`\n- `allow-check-bids-directory`\n- `allow-probe-bids-directory`\n- `allow-scan-bids-dataset`\n- `allow-get-bids-events`\n- `allow-scan-bids-browser`\n- `allow-cancel-bids-scan`\n- `allow-get-bids-run-detail`\n- `allow-get-bids-slice`\n- `allow-get-bids-median-slice`\n- `allow-get-bids-carpet`\n- `allow-write-bids-exclusions`\n- `allow-revert-bids-exclusions`\n- `allow-read-bids-exclusions`\n- `allow-get-bids-run-events`\n- `allow-sample-voxel-timeseries`\n- `allow-sample-stack`\n- `allow-compute-temporal-metric-plane`\n- `allow-compute-region-stats`\n- `allow-sample-set-at-world`\n- `allow-cancel-population-sample`\n- `allow-evaluate-population-slice`\n- `allow-population-peak-slice`\n- `allow-fit-population-relationship`\n- `allow-population-mean-distance`\n- `allow-export-population-summary`\n- `allow-replay-population-summary`\n- `allow-open-population-summary`\n- `allow-export-population-plot`\n- `allow-save-image-bytes`\n- `allow-compute-clusters`\n- `allow-volume-extremum`\n- `allow-volume-nonzero-bbox`\n- `allow-release-population-slice`\n- `allow-sample-set-trace-at-world`",
+          "description": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `module-segmentation`\n- `allow-dispose-module-workspace`\n- `allow-get-render-capabilities`\n- `allow-cancel-remote-file-load`\n- `allow-load-file`\n- `allow-load-surface`\n- `allow-unload-surface`\n- `allow-unload-surface-overlay`\n- `allow-unload-volume`\n- `allow-get-surface-geometry`\n- `allow-get-volume-bounds`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-recalculate-all-views`\n- `allow-request-layer-gpu-resources`\n- `allow-wait-for-layer-ready`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-list-remote-mounts`\n- `allow-list-remote-directory`\n- `allow-remote-mount-statuses`\n- `allow-cached-remote-directory`\n- `allow-remote-cache-usage`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-update-slice-outline`\n- `allow-create-offscreen-render-target`\n- `allow-add-render-layer`\n- `allow-request-frame`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-compute-layer-histogram`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-sample-layer-value-at-world`\n- `allow-get-volume-for-projection`\n- `allow-project-volume-to-surface`\n- `allow-create-surface-sampler`\n- `allow-apply-sampler`\n- `allow-release-sampler`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`\n- `allow-get-atlas-catalog`\n- `allow-get-filtered-atlases`\n- `allow-get-atlas-entry`\n- `allow-toggle-atlas-favorite`\n- `allow-get-recent-atlases`\n- `allow-get-favorite-atlases`\n- `allow-validate-atlas-config`\n- `allow-load-atlas`\n- `allow-get-atlas-roi-locations`\n- `allow-preview-surface-parcel-table`\n- `allow-bind-surface-parcel-table`\n- `allow-preview-parcel-table`\n- `allow-create-parcel-overlay`\n- `allow-select-parcel-column`\n- `allow-get-atlas-palette`\n- `allow-register-categorical-colormap`\n- `allow-get-atlas-stats`\n- `allow-reclaim-cached-image-slots`\n- `allow-set-residency-demand`\n- `allow-clear-residency-demand`\n- `allow-get-residency-state`\n- `allow-start-atlas-progress-monitoring`\n- `allow-get-atlas-subscription-count`\n- `allow-set-volume-timepoint`\n- `allow-get-volume-timepoint`\n- `allow-get-volume-info`\n- `allow-get-volume-native-plane`\n- `allow-get-nifti-header-info`\n- `allow-peek-volume-metadata`\n- `allow-render-view`\n- `allow-submit-view`\n- `allow-render-views`\n- `allow-get-template-catalog`\n- `allow-get-filtered-templates`\n- `allow-get-template-entry`\n- `allow-validate-template-config`\n- `allow-load-template`\n- `allow-load-template-by-id`\n- `allow-get-template-cache-stats`\n- `allow-cache-template`\n- `allow-clear-template-cache`\n- `allow-load-surface-template`\n- `allow-get-surface-template-catalog`\n- `allow-load-surface-atlas`\n- `allow-load-surface-overlay`\n- `allow-get-surface-overlay-data`\n- `allow-set-layer-mask`\n- `allow-set-layer-border`\n- `allow-list-modules`\n- `allow-set-enabled-modules`\n- `module-analysis`\n- `allow-preview-folder-ontology`\n- `allow-preview-set-studio-imports`\n- `allow-promote-discovery-to-neurotabs`\n- `allow-materialize-set-studio-compare-panes`\n- `allow-start-set-studio-compare-materialization`\n- `allow-get-set-studio-materialization-status`\n- `allow-cancel-set-studio-materialization`\n- `allow-check-bids-directory`\n- `allow-probe-bids-directory`\n- `allow-scan-bids-dataset`\n- `allow-get-bids-events`\n- `allow-scan-bids-browser`\n- `allow-cancel-bids-scan`\n- `allow-get-bids-run-detail`\n- `allow-get-bids-slice`\n- `allow-get-bids-median-slice`\n- `allow-get-bids-carpet`\n- `allow-write-bids-exclusions`\n- `allow-revert-bids-exclusions`\n- `allow-read-bids-exclusions`\n- `allow-get-bids-run-events`\n- `allow-sample-voxel-timeseries`\n- `allow-sample-stack`\n- `allow-compute-temporal-metric-plane`\n- `allow-compute-region-stats`\n- `allow-sample-set-at-world`\n- `allow-cancel-population-sample`\n- `allow-evaluate-population-slice`\n- `allow-population-peak-slice`\n- `allow-fit-population-relationship`\n- `allow-population-mean-distance`\n- `allow-export-population-summary`\n- `allow-replay-population-summary`\n- `allow-open-population-summary`\n- `allow-export-population-plot`\n- `allow-save-image-bytes`\n- `allow-compute-clusters`\n- `allow-volume-extremum`\n- `allow-volume-nonzero-bbox`\n- `allow-release-population-slice`\n- `allow-sample-set-trace-at-world`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `module-segmentation`\n- `allow-dispose-module-workspace`\n- `allow-get-render-capabilities`\n- `allow-cancel-remote-file-load`\n- `allow-load-file`\n- `allow-load-surface`\n- `allow-unload-surface`\n- `allow-unload-surface-overlay`\n- `allow-unload-volume`\n- `allow-get-surface-geometry`\n- `allow-get-volume-bounds`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-recalculate-all-views`\n- `allow-request-layer-gpu-resources`\n- `allow-wait-for-layer-ready`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-list-remote-mounts`\n- `allow-list-remote-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-update-slice-outline`\n- `allow-create-offscreen-render-target`\n- `allow-add-render-layer`\n- `allow-request-frame`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-compute-layer-histogram`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-sample-layer-value-at-world`\n- `allow-get-volume-for-projection`\n- `allow-project-volume-to-surface`\n- `allow-create-surface-sampler`\n- `allow-apply-sampler`\n- `allow-release-sampler`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`\n- `allow-get-atlas-catalog`\n- `allow-get-filtered-atlases`\n- `allow-get-atlas-entry`\n- `allow-toggle-atlas-favorite`\n- `allow-get-recent-atlases`\n- `allow-get-favorite-atlases`\n- `allow-validate-atlas-config`\n- `allow-load-atlas`\n- `allow-get-atlas-roi-locations`\n- `allow-preview-surface-parcel-table`\n- `allow-bind-surface-parcel-table`\n- `allow-preview-parcel-table`\n- `allow-create-parcel-overlay`\n- `allow-select-parcel-column`\n- `allow-get-atlas-palette`\n- `allow-register-categorical-colormap`\n- `allow-get-atlas-stats`\n- `allow-reclaim-cached-image-slots`\n- `allow-set-residency-demand`\n- `allow-clear-residency-demand`\n- `allow-get-residency-state`\n- `allow-start-atlas-progress-monitoring`\n- `allow-get-atlas-subscription-count`\n- `allow-set-volume-timepoint`\n- `allow-get-volume-timepoint`\n- `allow-get-volume-info`\n- `allow-get-volume-native-plane`\n- `allow-get-nifti-header-info`\n- `allow-peek-volume-metadata`\n- `allow-render-view`\n- `allow-submit-view`\n- `allow-render-views`\n- `allow-get-template-catalog`\n- `allow-get-filtered-templates`\n- `allow-get-template-entry`\n- `allow-validate-template-config`\n- `allow-load-template`\n- `allow-load-template-by-id`\n- `allow-get-template-cache-stats`\n- `allow-cache-template`\n- `allow-clear-template-cache`\n- `allow-load-surface-template`\n- `allow-get-surface-template-catalog`\n- `allow-load-surface-atlas`\n- `allow-load-surface-overlay`\n- `allow-get-surface-overlay-data`\n- `allow-set-layer-mask`\n- `allow-set-layer-border`\n- `allow-list-modules`\n- `allow-set-enabled-modules`\n- `module-analysis`\n- `allow-preview-folder-ontology`\n- `allow-preview-set-studio-imports`\n- `allow-promote-discovery-to-neurotabs`\n- `allow-materialize-set-studio-compare-panes`\n- `allow-start-set-studio-compare-materialization`\n- `allow-get-set-studio-materialization-status`\n- `allow-cancel-set-studio-materialization`\n- `allow-check-bids-directory`\n- `allow-probe-bids-directory`\n- `allow-scan-bids-dataset`\n- `allow-get-bids-events`\n- `allow-scan-bids-browser`\n- `allow-cancel-bids-scan`\n- `allow-get-bids-run-detail`\n- `allow-get-bids-slice`\n- `allow-get-bids-median-slice`\n- `allow-get-bids-carpet`\n- `allow-write-bids-exclusions`\n- `allow-revert-bids-exclusions`\n- `allow-read-bids-exclusions`\n- `allow-get-bids-run-events`\n- `allow-sample-voxel-timeseries`\n- `allow-sample-stack`\n- `allow-compute-temporal-metric-plane`\n- `allow-compute-region-stats`\n- `allow-sample-set-at-world`\n- `allow-cancel-population-sample`\n- `allow-evaluate-population-slice`\n- `allow-population-peak-slice`\n- `allow-fit-population-relationship`\n- `allow-population-mean-distance`\n- `allow-export-population-summary`\n- `allow-replay-population-summary`\n- `allow-open-population-summary`\n- `allow-export-population-plot`\n- `allow-save-image-bytes`\n- `allow-compute-clusters`\n- `allow-volume-extremum`\n- `allow-volume-nonzero-bbox`\n- `allow-release-population-slice`\n- `allow-sample-set-trace-at-world`"
+          "markdownDescription": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `module-segmentation`\n- `allow-dispose-module-workspace`\n- `allow-get-render-capabilities`\n- `allow-cancel-remote-file-load`\n- `allow-load-file`\n- `allow-load-surface`\n- `allow-unload-surface`\n- `allow-unload-surface-overlay`\n- `allow-unload-volume`\n- `allow-get-surface-geometry`\n- `allow-get-volume-bounds`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-recalculate-all-views`\n- `allow-request-layer-gpu-resources`\n- `allow-wait-for-layer-ready`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-list-remote-mounts`\n- `allow-list-remote-directory`\n- `allow-remote-mount-statuses`\n- `allow-cached-remote-directory`\n- `allow-remote-cache-usage`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-update-slice-outline`\n- `allow-create-offscreen-render-target`\n- `allow-add-render-layer`\n- `allow-request-frame`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-compute-layer-histogram`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-sample-layer-value-at-world`\n- `allow-get-volume-for-projection`\n- `allow-project-volume-to-surface`\n- `allow-create-surface-sampler`\n- `allow-apply-sampler`\n- `allow-release-sampler`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`\n- `allow-get-atlas-catalog`\n- `allow-get-filtered-atlases`\n- `allow-get-atlas-entry`\n- `allow-toggle-atlas-favorite`\n- `allow-get-recent-atlases`\n- `allow-get-favorite-atlases`\n- `allow-validate-atlas-config`\n- `allow-load-atlas`\n- `allow-get-atlas-roi-locations`\n- `allow-preview-surface-parcel-table`\n- `allow-bind-surface-parcel-table`\n- `allow-preview-parcel-table`\n- `allow-create-parcel-overlay`\n- `allow-select-parcel-column`\n- `allow-get-atlas-palette`\n- `allow-register-categorical-colormap`\n- `allow-get-atlas-stats`\n- `allow-reclaim-cached-image-slots`\n- `allow-set-residency-demand`\n- `allow-clear-residency-demand`\n- `allow-get-residency-state`\n- `allow-start-atlas-progress-monitoring`\n- `allow-get-atlas-subscription-count`\n- `allow-set-volume-timepoint`\n- `allow-get-volume-timepoint`\n- `allow-get-volume-info`\n- `allow-get-volume-native-plane`\n- `allow-get-nifti-header-info`\n- `allow-peek-volume-metadata`\n- `allow-render-view`\n- `allow-submit-view`\n- `allow-render-views`\n- `allow-get-template-catalog`\n- `allow-get-filtered-templates`\n- `allow-get-template-entry`\n- `allow-validate-template-config`\n- `allow-load-template`\n- `allow-load-template-by-id`\n- `allow-get-template-cache-stats`\n- `allow-cache-template`\n- `allow-clear-template-cache`\n- `allow-load-surface-template`\n- `allow-get-surface-template-catalog`\n- `allow-load-surface-atlas`\n- `allow-load-surface-overlay`\n- `allow-get-surface-overlay-data`\n- `allow-set-layer-mask`\n- `allow-set-layer-border`\n- `allow-list-modules`\n- `allow-set-enabled-modules`\n- `module-analysis`\n- `allow-preview-folder-ontology`\n- `allow-preview-set-studio-imports`\n- `allow-promote-discovery-to-neurotabs`\n- `allow-materialize-set-studio-compare-panes`\n- `allow-start-set-studio-compare-materialization`\n- `allow-get-set-studio-materialization-status`\n- `allow-cancel-set-studio-materialization`\n- `allow-check-bids-directory`\n- `allow-probe-bids-directory`\n- `allow-scan-bids-dataset`\n- `allow-get-bids-events`\n- `allow-scan-bids-browser`\n- `allow-cancel-bids-scan`\n- `allow-get-bids-run-detail`\n- `allow-get-bids-slice`\n- `allow-get-bids-median-slice`\n- `allow-get-bids-carpet`\n- `allow-write-bids-exclusions`\n- `allow-revert-bids-exclusions`\n- `allow-read-bids-exclusions`\n- `allow-get-bids-run-events`\n- `allow-sample-voxel-timeseries`\n- `allow-sample-stack`\n- `allow-compute-temporal-metric-plane`\n- `allow-compute-region-stats`\n- `allow-sample-set-at-world`\n- `allow-cancel-population-sample`\n- `allow-evaluate-population-slice`\n- `allow-population-peak-slice`\n- `allow-fit-population-relationship`\n- `allow-population-mean-distance`\n- `allow-export-population-summary`\n- `allow-replay-population-summary`\n- `allow-open-population-summary`\n- `allow-export-population-plot`\n- `allow-save-image-bytes`\n- `allow-compute-clusters`\n- `allow-volume-extremum`\n- `allow-volume-nonzero-bbox`\n- `allow-release-population-slice`\n- `allow-sample-set-trace-at-world`"
         }
       ]
     }
