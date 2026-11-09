@@ -228,6 +228,7 @@ describe('RemoteMountDialog', () => {
             remember_password: true,
             save_profile: true,
             profile_name: undefined,
+            reconnect_on_launch: false,
           },
         });
         return Promise.resolve({
@@ -539,6 +540,7 @@ describe('RemoteMountDialog', () => {
             remember_password: false,
             save_profile: true,
             profile_name: undefined,
+            reconnect_on_launch: false,
           },
         });
         return Promise.resolve({
@@ -577,6 +579,183 @@ describe('RemoteMountDialog', () => {
     await waitFor(() => {
       expect(screen.getByText('Keyboard-interactive')).toBeInTheDocument();
       expect(screen.getByText('Duo prompt')).toBeInTheDocument();
+    });
+  });
+
+  describe('reopening a known remote folder', () => {
+    const agentProfile = {
+      id: 'alice@login.example.org:22:/data',
+      name: 'lab data',
+      host: 'login.example.org',
+      port: 22,
+      user: 'alice',
+      remote_path: '/data',
+      auth_method: 'agent',
+      key_path: null,
+      verify_host_key: true,
+      accept_unknown_host_keys: false,
+      known_hosts_path: null,
+      has_password: false,
+      has_key_passphrase: false,
+      updated_at_ms: 5,
+      reconnect_on_launch: false,
+    };
+    const newerProfile = { ...agentProfile, id: 'other', name: 'other', host: 'other.example.org', updated_at_ms: 9 };
+    const mount = {
+      mount_id: 'mount-7',
+      local_path: '/cache/cache-abc',
+      display_name: 'lab data',
+      origin: {
+        mount_id: 'mount-7',
+        label: 'alice@login.example.org:/data',
+        host: 'login.example.org',
+        port: 22,
+        user: 'alice',
+        remote_path: '/data',
+      },
+    };
+
+    it('reconnects the matching saved profile without waiting for Connect', async () => {
+      invokeMock.mockImplementation((cmd: string, args?: InvokeArgs) => {
+        if (cmd === 'list_remote_mount_profiles') return Promise.resolve([newerProfile, agentProfile]);
+        if (cmd === 'remote_mount_connect') {
+          const request = (args as { request: Record<string, unknown> }).request;
+          expect(request.host).toBe('login.example.org');
+          expect(request.auth_method).toBe('agent');
+          expect(request.remote_path).toBe('/data');
+          return Promise.resolve({ status: 'connected', mount });
+        }
+        return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+      });
+      const onClose = vi.fn();
+      const onMounted = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <RemoteMountDialog
+          isOpen={true}
+          onClose={onClose}
+          onMounted={onMounted}
+          initialTarget={{ host: 'login.example.org', port: 22, user: 'alice', remotePath: '/data/' }}
+          autoConnect
+        />
+      );
+
+      await waitFor(() => {
+        expect(onMounted).toHaveBeenCalledWith(mount);
+        expect(onClose).toHaveBeenCalled();
+      });
+    });
+
+    it('waits for a password the keychain does not hold', async () => {
+      const passwordProfile = { ...agentProfile, auth_method: 'password', has_password: false };
+      invokeMock.mockImplementation((cmd: string) => {
+        if (cmd === 'list_remote_mount_profiles') return Promise.resolve([passwordProfile]);
+        return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+      });
+
+      render(
+        <RemoteMountDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          onMounted={vi.fn()}
+          initialTarget={{ host: 'login.example.org', port: 22, user: 'alice', remotePath: '/data' }}
+          autoConnect
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Saved profile')).toHaveValue(passwordProfile.id);
+        expect(screen.getByLabelText('Password')).toHaveValue('');
+      });
+      expect(invokeMock).not.toHaveBeenCalledWith('remote_mount_connect', expect.anything());
+    });
+
+    it('prefills an unsaved folder instead of connecting', async () => {
+      render(
+        <RemoteMountDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          onMounted={vi.fn()}
+          initialTarget={{ host: 'scratch.example.org', port: 2200, user: 'bob', remotePath: '/scratch' }}
+          autoConnect
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Host')).toHaveValue('scratch.example.org');
+        expect(screen.getByLabelText('Port')).toHaveValue('2200');
+        expect(screen.getByLabelText('User')).toHaveValue('bob');
+        expect(screen.getByLabelText('Remote folder')).toHaveValue('/scratch');
+      });
+      expect(invokeMock).not.toHaveBeenCalledWith('remote_mount_connect', expect.anything());
+    });
+  });
+
+  it('fills user and port from a ~/.ssh/config alias', async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === 'list_remote_mount_profiles') return Promise.resolve([]);
+      if (cmd === 'list_ssh_config_hosts') {
+        return Promise.resolve([
+          { alias: 'cluster', host_name: 'login.cluster.org', user: 'alice', port: 2222, proxy_jump: null },
+          { alias: 'behind', host_name: 'inner.org', user: null, port: null, proxy_jump: 'gw.org' },
+        ]);
+      }
+      return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+    });
+
+    setupDialog();
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('list_ssh_config_hosts');
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText('Host')).toHaveAttribute('list');
+    });
+
+    fireEvent.change(screen.getByLabelText('Host'), { target: { value: 'cluster' } });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('User')).toHaveValue('alice');
+      expect(screen.getByLabelText('Port')).toHaveValue('2222');
+      expect(screen.getByText(/From ~\/\.ssh\/config: alice@login\.cluster\.org:2222/)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText('Host'), { target: { value: 'behind' } });
+    await waitFor(() => {
+      expect(screen.getByText(/jump host gw\.org/)).toBeInTheDocument();
+    });
+  });
+
+  it('saves the reconnect-at-launch choice with the profile', async () => {
+    invokeMock.mockImplementation((cmd: string, args?: InvokeArgs) => {
+      if (cmd === 'list_remote_mount_profiles') return Promise.resolve([]);
+      if (cmd === 'remote_mount_connect') {
+        const request = (args as { request: Record<string, unknown> }).request;
+        expect(request.reconnect_on_launch).toBe(true);
+        expect(request.save_profile).toBe(true);
+        return Promise.resolve({
+          status: 'connected',
+          mount: {
+            mount_id: 'm',
+            local_path: '/c',
+            display_name: 'd',
+            origin: { mount_id: 'm', label: 'l', host: 'h', port: 22, user: 'u', remote_path: '/' },
+          },
+        });
+      }
+      return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+    });
+
+    const { onMounted } = setupDialog();
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('list_remote_mount_profiles');
+    });
+    fillPasswordForm();
+    fireEvent.click(screen.getByRole('switch', { name: 'Reconnect when Brainflow starts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+
+    await waitFor(() => {
+      expect(onMounted).toHaveBeenCalled();
     });
   });
 });

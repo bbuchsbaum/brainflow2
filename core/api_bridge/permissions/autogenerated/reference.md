@@ -1870,6 +1870,32 @@ Denies the list_remote_mounts command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-list-ssh-config-hosts`
+
+</td>
+<td>
+
+Enables the list_ssh_config_hosts command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-list-ssh-config-hosts`
+
+</td>
+<td>
+
+Denies the list_ssh_config_hosts command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-load-atlas`
 
 </td>

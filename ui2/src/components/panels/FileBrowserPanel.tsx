@@ -11,7 +11,7 @@ import { VscFolder } from "react-icons/vsc";
 import "./FileBrowserPanel.css";
 import { useFileBrowserStore } from "@/stores/fileBrowserStore";
 import { findOwningRoot, nodeMatchesQuery } from "@/stores/fileBrowserSearch";
-import type { FileTreeNode } from "@/types/filesystem";
+import type { FileTreeNode, MountSource } from "@/types/filesystem";
 import { getEventBus } from "@/events/EventBus";
 import type { DisplayOpenIntent } from "@/types/loadIntent";
 import { getTransport } from "@/services/transport";
@@ -20,6 +20,7 @@ import { getImageSetService } from "@/services/ImageSetService";
 import {
   mountConnectedRemoteDirectory,
   type ConnectedRemoteMount,
+  type RemoteMountTarget,
 } from "@/services/RemoteMountService";
 import { PanelErrorBoundary } from "../common/PanelErrorBoundary";
 import { PanelHeader } from "@/components/ui/PanelHeader";
@@ -49,6 +50,10 @@ const FileBrowserPanelContent: React.FC = () => {
   const [mountActionError, setMountActionError] = useState<string | null>(null);
   const [mountActionPending, setMountActionPending] = useState(false);
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
+  // Set when the dialog opens for a known remote folder (Pinned/Recents):
+  // it reconnects that folder's saved profile without asking.
+  const [remoteDialogTarget, setRemoteDialogTarget] =
+    useState<RemoteMountTarget | null>(null);
   const treeContainerRef = useRef<HTMLDivElement>(null);
   const treeResizeObserverRef = useRef<ResizeObserver | null>(null);
   // Folders the user opened (outside a search), so a remounted tree (a new
@@ -311,6 +316,22 @@ const FileBrowserPanelContent: React.FC = () => {
 
   function openRemoteMountDialog() {
     setMountActionError(null);
+    setRemoteDialogTarget(null);
+    setRemoteDialogOpen(true);
+  }
+
+  function reconnectRemoteLocation(source: MountSource) {
+    if (!source.host) {
+      openRemoteMountDialog();
+      return;
+    }
+    setMountActionError(null);
+    setRemoteDialogTarget({
+      host: source.host,
+      port: source.port,
+      user: source.user,
+      remotePath: source.remotePath,
+    });
     setRemoteDialogOpen(true);
   }
 
@@ -644,6 +665,7 @@ const FileBrowserPanelContent: React.FC = () => {
               void (path ? mountKnownLocation(path) : openMountDialog());
             }}
             onMountRemote={openRemoteMountDialog}
+            onReconnectRemote={reconnectRemoteLocation}
             onOpenFile={() => {
               void openFileDialog();
             }}
@@ -761,8 +783,11 @@ const FileBrowserPanelContent: React.FC = () => {
         isOpen={remoteDialogOpen}
         onClose={() => {
           setRemoteDialogOpen(false);
+          setRemoteDialogTarget(null);
         }}
         onMounted={handleRemoteMounted}
+        initialTarget={remoteDialogTarget}
+        autoConnect={remoteDialogTarget !== null}
       />
     </div>
   );

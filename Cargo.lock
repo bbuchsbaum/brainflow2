@@ -281,7 +281,7 @@ dependencies = [
  "objc2-foundation 0.3.1",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
  "x11rb",
 ]
 
@@ -1889,7 +1889,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.0",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4793,7 +4793,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6267,7 +6267,7 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 [[package]]
 name = "remotely"
 version = "0.1.0"
-source = "git+https://github.com/bbuchsbaum/remotely?rev=942fc6257a1390b8edc99b51483acc5658410e84#942fc6257a1390b8edc99b51483acc5658410e84"
+source = "git+https://github.com/bbuchsbaum/remotely?rev=9c03b2e8f701bb8484556e14c106573c44cdb237#9c03b2e8f701bb8484556e14c106573c44cdb237"
 dependencies = [
  "data-encoding",
  "dirs 5.0.1",
@@ -7230,7 +7230,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

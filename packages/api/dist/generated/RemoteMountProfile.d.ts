@@ -16,4 +16,8 @@ export type RemoteMountProfile = {
     has_password: boolean;
     has_key_passphrase: boolean;
     updated_at_ms: bigint;
+    /**
+     * Reconnect (without prompting) when Brainflow starts.
+     */
+    reconnect_on_launch: boolean;
 };

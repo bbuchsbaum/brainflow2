@@ -1087,6 +1087,18 @@
           "markdownDescription": "Denies the list_remote_mounts command without any pre-configured scope."
         },
         {
+          "description": "Enables the list_ssh_config_hosts command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-ssh-config-hosts",
+          "markdownDescription": "Enables the list_ssh_config_hosts command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_ssh_config_hosts command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-ssh-config-hosts",
+          "markdownDescription": "Denies the list_ssh_config_hosts command without any pre-configured scope."
+        },
+        {
           "description": "Enables the load_atlas command without any pre-configured scope.",
           "type": "string",
           "const": "allow-load-atlas",

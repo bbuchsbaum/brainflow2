@@ -7,6 +7,7 @@ import {
 } from "./RecentLocationsList";
 import { DropTargetFooter } from "./DropTargetFooter";
 import { Button, Notice } from "@/components/ui/bf";
+import type { MountSource } from "@/types/filesystem";
 import "./FilesStartPanel.css";
 
 interface FilesStartPanelProps {
@@ -16,6 +17,8 @@ interface FilesStartPanelProps {
   /** With a path: reopen that location. Without: show the folder picker. */
   onMountLocal: (path?: string) => void;
   onMountRemote: () => void;
+  /** Reconnect a remote folder from Pinned or Recents. */
+  onReconnectRemote?: (source: MountSource) => void;
   onOpenFile: () => void;
 }
 
@@ -25,8 +28,17 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
   errorMessage,
   onMountLocal,
   onMountRemote,
+  onReconnectRemote,
   onOpenFile,
 }) => {
+  const reconnectRemote = (source: MountSource) => {
+    if (onReconnectRemote && source.host) {
+      onReconnectRemote(source);
+    } else {
+      onMountRemote();
+    }
+  };
+
   return (
     <div className="files-start-panel" role="region" aria-label="Files start">
       <p className="files-start-kicker">No directory mounted</p>
@@ -87,7 +99,7 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
       <PinnedLocationsList
         onActivate={(item) => {
           if (item.mountSource.kind === "remote") {
-            onMountRemote();
+            reconnectRemote(item.mountSource);
           } else {
             onMountLocal(item.path);
           }
@@ -96,7 +108,7 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
 
       <RecentLocationsList
         onMountLocal={onMountLocal}
-        onMountRemote={() => onMountRemote()}
+        onMountRemote={(recent) => reconnectRemote(recent.mountSource)}
       />
 
       <DropTargetFooter />

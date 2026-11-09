@@ -496,6 +496,10 @@ pub struct RemoteMountConnectRequest {
     pub remember_password: Option<bool>,
     pub save_profile: Option<bool>,
     pub profile_name: Option<String>,
+    /// Saved with the profile: reconnect this folder when Brainflow starts.
+    /// `None` keeps the profile's current setting.
+    #[serde(default)]
+    pub reconnect_on_launch: Option<bool>,
 }
 
 /// Host-key confirmation challenge details from interactive SSH connection flow.
@@ -562,6 +566,23 @@ pub struct RemoteMountProfile {
     pub has_key_passphrase: bool,
     #[serde(default)]
     pub updated_at_ms: u64,
+    /// Reconnect (without prompting) when Brainflow starts.
+    #[serde(default)]
+    pub reconnect_on_launch: bool,
+}
+
+/// A concrete `Host` entry from the user's `~/.ssh/config`, offered as a
+/// connection shortcut. Fields are what OpenSSH would use for that alias.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SshConfigHost {
+    pub alias: String,
+    pub host_name: Option<String>,
+    pub user: Option<String>,
+    pub port: Option<u16>,
+    /// Set when the alias connects through a jump host (`ProxyJump`), which
+    /// remote mounts do not support yet.
+    pub proxy_jump: Option<String>,
 }
 
 fn default_remote_verify_host_key() -> bool {
