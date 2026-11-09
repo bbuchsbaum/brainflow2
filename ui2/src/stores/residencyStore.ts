@@ -7,11 +7,11 @@
  * a jump past the next one means an event was missed, so the store fetches
  * the current report.
  *
- * When the report's `owner` is `backend` (R5c, `BRAINFLOW_BACKEND_RESIDENCY`)
- * the backend decides admission and eviction. The store then keeps each
- * layer's `gpuResident` flag in step with the report, and raises one alert
- * when a layer becomes refused (again after it was drawn or its reason
- * changed), naming why.
+ * The backend decides admission and eviction (R6). The store keeps each
+ * layer's `gpuResident` flag in step with the report, announces
+ * `layer.gpu.ready` when the backend makes a layer resident (so the views
+ * that left it out draw again), and raises one alert when a layer becomes
+ * refused (again after it was drawn or its reason changed), naming why.
  */
 
 import { create } from 'zustand';
@@ -34,9 +34,19 @@ interface ResidencyStoreState {
   refresh: () => Promise<void>;
 }
 
-/** Whether the backend owns admission and eviction (R5c). */
-export function backendOwnsResidency(): boolean {
-  return useResidencyStore.getState().report?.owner === 'backend';
+const residentCount = (report: ResidencyReport): number =>
+  report.layers.filter((layer) => layer.state === 'resident').length;
+
+/**
+ * Whether `next` frees GPU room `prev` held: fewer bytes in use, or fewer
+ * resident layers (fixed slots). Panes refused for want of room retry then.
+ */
+export function residencyFreed(
+  prev: ResidencyReport | null,
+  next: ResidencyReport | null,
+): boolean {
+  if (!prev || !next || next.seq <= prev.seq) return false;
+  return next.used_bytes < prev.used_bytes || residentCount(next) < residentCount(prev);
 }
 
 /** Why layers are not drawn, for their alert; `names` holds at least one. */
@@ -71,7 +81,7 @@ export function refusalMessage(
  */
 const alerted = new Set<string>();
 
-/** Keep the layer store in step with a backend-owned report. */
+/** Keep the layer store in step with the backend's report. */
 function syncLayers(report: ResidencyReport): void {
   const layers = useLayerStore.getState();
   // New alerts, by tab and reason, with the layers they name.
@@ -90,6 +100,9 @@ function syncLayers(report: ResidencyReport): void {
         gpuResident: resident,
         evicted: gone,
       });
+      // Admitted by the backend (a frame's demand): nothing in the view state
+      // changed, so the views that left it out draw again on this.
+      if (resident) getEventBus().emit('layer.gpu.ready', { layerId: entry.layer_id });
     }
     if (entry.state !== 'refused' || !entry.refusal) continue;
     for (const frame of entry.frames) {
@@ -130,7 +143,7 @@ export const useResidencyStore = create<ResidencyStoreState>()((set, get) => ({
     const current = get().report;
     if (current && report.seq <= current.seq) return;
     set({ report });
-    if (report.owner === 'backend') syncLayers(report);
+    syncLayers(report);
     if (!fetched && current && report.seq > current.seq + 1) void get().refresh();
   },
   refresh: async () => {
@@ -151,15 +164,35 @@ export function resetResidencyAlertsForTests(): void {
 
 let stopListening: (() => void) | null = null;
 
-/** Follow `residency-changed` for the app's lifetime; idempotent. */
+/**
+ * The backend's stale-lease watchdog released a layer nothing demanded: mark
+ * it non-resident, so a later show asks for it again and nothing counts it
+ * as held.
+ */
+export function noteBackendRelease(layerId: string): void {
+  const store = useLayerStore.getState();
+  const meta = store.getLayerMetadata(layerId);
+  if (!meta || meta.gpuResident === false) return;
+  store.setLayerMetadata(layerId, { ...meta, gpuResident: false, evicted: true });
+}
+
+/**
+ * Follow `residency-changed` and the watchdog's `layer-gpu-released` for the
+ * app's lifetime; idempotent.
+ */
 export function startResidencyStore(): () => void {
   if (stopListening) return stopListening;
   const off = safeListen<ResidencyReport>('residency-changed', (event) => {
     if (event?.payload) useResidencyStore.getState().apply(event.payload);
   });
+  const offReleased = safeListen<{ layerId?: string }>('layer-gpu-released', (event) => {
+    const layerId = event?.payload?.layerId;
+    if (typeof layerId === 'string') noteBackendRelease(layerId);
+  });
   void useResidencyStore.getState().refresh();
   stopListening = () => {
     void safeUnlisten(off);
+    void safeUnlisten(offReleased);
     stopListening = null;
   };
   return stopListening;

@@ -2,12 +2,12 @@
  * Redraw the orthogonal views when a layer they draw becomes GPU-resident.
  *
  * A frame leaves out a visible layer it cannot allocate (the budget is full),
- * and the UI then makes room and uploads it (LayerEvictionService, the
- * front-workspace restore). The upload changes nothing in the ViewState, so no
- * render follows it: the view kept the frame that left the layer out, showing
- * 1-5 of 10 layers until the next interaction (R4 native forced-pressure run,
- * 2026-11-06). Every upload path announces `layer.gpu.ready`; one redraw
- * follows each burst of them, once it settles.
+ * and the backend admits it later (its residency report says so). The upload
+ * changes nothing in the ViewState, so no render follows it: the view kept the
+ * frame that left the layer out, showing 1-5 of 10 layers until the next
+ * interaction (R4 native forced-pressure run, 2026-11-06). Every upload path
+ * announces `layer.gpu.ready` (UI uploads, and residencyStore for the
+ * backend's own admissions); one redraw follows each burst, once it settles.
  */
 
 import { getEventBus } from '@/events/EventBus';

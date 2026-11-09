@@ -8,8 +8,16 @@ import { getEventBus } from '@/events/EventBus';
 import type { Layer, LayerRender } from '@/types/layers';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { GpuSlotsFullError } from '@/utils/formatTauriError';
 import { getSceneHistory, setLayerVisibleByUser } from '../SceneHistoryService';
+
+/** The backend's refusal when no texture slot can be freed (6024, R6a). */
+const slotsFull = () => ({
+  GpuError: {
+    code: 6024,
+    details:
+      'Could not allocate GPU resources for volume: Maximum texture limit 8 reached. Hide or remove a layer to free a texture slot.',
+  },
+});
 
 // Mock EventBus with default implementation to prevent undefined errors at module initialization
 vi.mock('@/events/EventBus', () => ({
@@ -241,9 +249,9 @@ describe('LayerService', () => {
 
   // QA 2026-10-31 N18: a show the GPU refuses is undone and explained, so
   // no layer stays "visible" without GPU resources.
-  // gpu-residency plan, Phase 1: the draw cap (16) bounds one view, so a
-  // 17th visible layer in the same workspace is refused before any backend
-  // call, with the full sentence as a floating alert.
+  // R6: the per-view draw cap is the backend's. A show past it is asked for
+  // like any other; the backend refuses the extra layer (`draw_cap`), badges
+  // its row and alerts once per tab (residencyStore).
   describe('a show past the per-view draw cap', () => {
     const seed = (visible: number) => {
       const layers = Array.from({ length: visible }, (_, i) => ({
@@ -263,27 +271,12 @@ describe('LayerService', () => {
       });
     };
 
-    it('refuses a 17th visible layer in one view and says why in full', () => {
+    it('asks the backend for a show past the binding capacity', () => {
       seed(16);
-      layerService.toggleVisibility('extra', true);
-      expect(mockApi.updateLayer).not.toHaveBeenCalled();
-      expect(useLayerStore.getState().getLayer('extra')?.visible).toBe(false);
-      expect(useViewStateStore.getState().viewState.layers.find((l) => l.id === 'extra')?.visible).toBe(false);
-      expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification', {
-        type: 'error',
-        message:
-          'Cannot show sub-01_bold.nii.gz: Only 16 layers can be drawn in one view. Hide a layer in this view, then show this one.',
-        subject: 'sub-01_bold.nii.gz',
-        alert: true,
-        logSource: 'layer',
-      });
-    });
-
-    it('lets the 16th visible layer through', () => {
-      seed(15);
       layerService.toggleVisibility('extra', true);
       expect(mockApi.updateLayer).toHaveBeenCalled();
       expect(useLayerStore.getState().getLayer('extra')?.visible).toBe(true);
+      expect(mockEventBus.emit).not.toHaveBeenCalledWith('ui.notification', expect.anything());
     });
   });
 
@@ -301,7 +294,7 @@ describe('LayerService', () => {
 
     it('reverts the toggle and shows the slots-full message once', async () => {
       seed();
-      mockApi.updateLayer = vi.fn().mockRejectedValue(new GpuSlotsFullError(8));
+      mockApi.updateLayer = vi.fn().mockRejectedValue(slotsFull());
       layerService.toggleVisibility('layer1', true);
       expect(shownInStores()).toEqual({ store: true, view: true });
       await vi.waitFor(() => expect(shownInStores()).toEqual({ store: false, view: false }));
@@ -339,7 +332,7 @@ describe('LayerService', () => {
       layerService.toggleVisibility('layer1', true);
       layerService.toggleVisibility('layer1', false);
       layerService.toggleVisibility('layer1', true);
-      reject(new GpuSlotsFullError(8));
+      reject(slotsFull());
       await Promise.resolve();
       await new Promise((r) => setTimeout(r, 0));
       // Superseded: no revert and no toast for the stale request.
@@ -352,7 +345,7 @@ describe('LayerService', () => {
       seed();
       initializeLayerService(mockApi);
       getSceneHistory().clear();
-      mockApi.updateLayer = vi.fn().mockRejectedValue(new GpuSlotsFullError(8));
+      mockApi.updateLayer = vi.fn().mockRejectedValue(slotsFull());
       setLayerVisibleByUser('layer1', true);
       expect(getSceneHistory().canUndo()).toBe(true);
       await vi.waitFor(() => expect(shownInStores()).toEqual({ store: false, view: false }));
@@ -375,7 +368,7 @@ describe('LayerService', () => {
       initializeLayerService(mockApi);
       getSceneHistory().clear();
       mockApi.updateLayer = vi.fn((id: string) =>
-        id === 'layer1' ? Promise.reject(new GpuSlotsFullError(8)) : Promise.resolve(mockLayer),
+        id === 'layer1' ? Promise.reject(slotsFull()) : Promise.resolve(mockLayer),
       );
       getSceneHistory().record('showAll', 'Show all layers', () => {
         getLayerService().toggleVisibility('layer1', true);
@@ -398,7 +391,7 @@ describe('LayerService', () => {
       useViewStateStore.setState({
         workspaceViewStates: new Map([...store.workspaceViewStates, ['ws-behind', behindState]]),
       });
-      mockApi.loadLayerData = vi.fn().mockRejectedValue(new GpuSlotsFullError(8));
+      mockApi.loadLayerData = vi.fn().mockRejectedValue(slotsFull());
       layerService.toggleVisibility('layer1', true, 'ws-behind');
       const behind = () =>
         useViewStateStore.getState().getWorkspaceViewState('ws-behind').layers.find((l) => l.id === 'layer1')

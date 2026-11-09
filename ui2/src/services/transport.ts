@@ -395,9 +395,6 @@ export class MockTransport implements BackendTransport {
         };
       }
 
-      case 'reclaim_cached_image_slots':
-        return { reclaimed: 0, free_texture_slots: 12 };
-
       case 'load_file':
         return {
           id: 'mock-volume-' + Math.random().toString(36).substr(2, 9),

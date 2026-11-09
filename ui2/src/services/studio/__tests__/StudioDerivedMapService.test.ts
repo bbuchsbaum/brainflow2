@@ -4,7 +4,6 @@ import {
   gpuTexturePressureMessage,
   isGpuTextureSlotsFull,
 } from '../StudioDerivedMapService';
-import { GpuSlotsFullError } from '@/utils/formatTauriError';
 
 const AFFINE = [2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, -10, -10, -10, 1];
 
@@ -20,8 +19,7 @@ function setup() {
     releaseLayerGpuResources: vi.fn(async () => undefined),
     unloadVolume: vi.fn(async () => undefined),
   };
-  const makeRoom = vi.fn(async () => undefined);
-  return { backend, makeRoom, service: new StudioDerivedMapService(() => backend, makeRoom) };
+  return { backend, service: new StudioDerivedMapService(() => backend) };
 }
 
 describe('StudioDerivedMapService', () => {
@@ -42,7 +40,7 @@ describe('StudioDerivedMapService', () => {
   // resident layer of that template instead of a second texture slot.
   describe('template underlay borrowing', () => {
     function withWorkspaceTemplate() {
-      const { backend, makeRoom, service } = setup();
+      const { backend, service } = setup();
       let resident: { layerId: string; volumeId: string } | null = {
         layerId: 'ws-mni',
         volumeId: 'vol-mni',
@@ -55,18 +53,17 @@ describe('StudioDerivedMapService', () => {
             : null,
         ),
       });
-      return { backend: full, makeRoom, service, drop: () => (resident = null) };
+      return { backend: full, service, drop: () => (resident = null) };
     }
 
     it('borrows the resident workspace layer: no load, no slot, pinned, never unloaded', async () => {
-      const { backend, makeRoom, service } = withWorkspaceTemplate();
+      const { backend, service } = withWorkspaceTemplate();
       const hold = service.acquire('template:MNI152NLin2009cAsym_T1w_1mm');
       const map = await hold.map;
       expect(map).toMatchObject({ layerId: 'ws-mni', volumeId: 'vol-mni', borrowed: true });
       expect(map?.dataRange).toEqual({ min: 0, max: 99 });
       expect(backend.loadTemplate).not.toHaveBeenCalled();
       expect(backend.requestLayerGpuResources).not.toHaveBeenCalled();
-      expect(makeRoom).not.toHaveBeenCalled();
       expect(service.liveCount()).toBe(0);
       expect([...service.pinnedLayerIds()]).toEqual(['ws-mni']);
       hold.release();
@@ -134,9 +131,12 @@ describe('StudioDerivedMapService', () => {
 
   it('keeps a shared entry valid when one holder releases during the upload grace period', async () => {
     const { backend } = setup();
+    // The load is held open, so the holder releases before the upload.
     let openRoom!: () => void;
-    const makeRoom = vi.fn(() => new Promise<void>((resolve) => (openRoom = resolve)));
-    const service = new StudioDerivedMapService(() => backend, makeRoom);
+    backend.loadFile.mockImplementationOnce(
+      () => new Promise<{ id: string }>((resolve) => (openRoom = () => resolve({ id: 'vol-1' }))),
+    );
+    const service = new StudioDerivedMapService(() => backend);
     const first = service.acquire('/c/shared.nii.gz');
     const second = service.acquire('/c/shared.nii.gz');
     await Promise.resolve();
@@ -165,9 +165,12 @@ describe('StudioDerivedMapService', () => {
         return rawUpload();
       },
     );
+    // The load is held open, so the holder releases before the upload.
     let openRoom!: () => void;
-    const makeRoom = vi.fn(() => new Promise<void>((resolve) => (openRoom = resolve)));
-    const service = new StudioDerivedMapService(() => backend, makeRoom);
+    backend.loadFile.mockImplementationOnce(
+      () => new Promise<{ id: string }>((resolve) => (openRoom = () => resolve({ id: 'vol-1' }))),
+    );
+    const service = new StudioDerivedMapService(() => backend);
     const hold = service.acquire('/c/disposed.nii.gz');
     await Promise.resolve();
     hold.release();
@@ -242,12 +245,11 @@ describe('StudioDerivedMapService', () => {
     expect(service.liveCount()).toBe(0);
   });
 
-  it('counts live maps for the GPU budget and makes room before taking a slot (W1)', async () => {
-    const { makeRoom, service } = setup();
+  it('counts live maps for the GPU budget (W1)', async () => {
+    const { service } = setup();
     const hold = service.acquire('/c/m.nii.gz');
     expect(service.liveCount()).toBe(1);
     await hold.map;
-    expect(makeRoom).toHaveBeenCalledTimes(1);
     hold.release();
     await vi.runAllTimersAsync();
     expect(service.liveCount()).toBe(0);
@@ -268,24 +270,6 @@ describe('StudioDerivedMapService', () => {
     expect(backend.releaseLayerGpuResources.mock.invocationCallOrder[0]).toBeLessThan(
       backend.unloadVolume.mock.invocationCallOrder[0],
     );
-  });
-
-  // N18 review: with no slot to free, the map is refused before the backend
-  // is asked, like a layer's show; its volume is unloaded.
-  it('refuses a map when no GPU slot can be freed, without asking the backend', async () => {
-    const { backend, makeRoom, service } = setup();
-    makeRoom.mockRejectedValueOnce(new GpuSlotsFullError(8));
-    const error = await service.acquire('/c/full.nii.gz').map.catch((e) => e);
-    expect(isGpuTextureSlotsFull(error)).toBe(true);
-    expect(backend.requestLayerGpuResources).not.toHaveBeenCalled();
-    expect(backend.unloadVolume).toHaveBeenCalledWith('vol-1');
-  });
-
-  it('still asks the backend when the eviction fails for another reason', async () => {
-    const { backend, makeRoom, service } = setup();
-    makeRoom.mockRejectedValueOnce(new Error('stats unavailable'));
-    await expect(service.acquire('/c/m.nii.gz').map).resolves.not.toBeNull();
-    expect(backend.requestLayerGpuResources).toHaveBeenCalledTimes(1);
   });
 
   it('retries a volume still mapped (4048) once, and survives an unload failure (L1)', async () => {

@@ -27,6 +27,7 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import type { ViewPlane } from '@/types/coordinates';
 import { buildActiveCrosshairStyle } from '@/utils/crosshairUtils';
 import { getEventBus } from '@/events/EventBus';
+import { residencyFreed, useResidencyStore } from '@/stores/residencyStore';
 import { safeUnlisten } from '@/utils/eventUtils';
 
 /** How long a pane keeps its cached bitmap waiting for its anatomy on return (N29). */
@@ -67,17 +68,17 @@ export function StudioDerivedPaneCanvas({
   // re-entering acquires it again (review M1).
   const [map, setMap] = useState<StudioDerivedMap | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  // A map refused for want of a GPU slot is asked for again when slots are
-  // freed (N32): bumping these re-runs the acquiring effects. Returning to
+  // A map refused for want of GPU room is asked for again when the residency
+  // report shows room freed (N32): bumping these re-runs the acquiring effects. Returning to
   // the Studio tab re-acquires too (studioActive).
   const [mapAttempt, setMapAttempt] = useState(0);
   const [anatomyAttempt, setAnatomyAttempt] = useState(0);
   const [, setWaitingForSlots] = useState(false);
   const [, setAnatomyWaiting] = useState(false);
-  // Keep the slots-freed listener live from the initial layout commit.  A
+  // Keep the residency listener live from the initial layout commit.  A
   // rejected promise can update the error DOM before a conditional passive
-  // effect has subscribed; these refs make that event retry the next acquire
-  // rather than losing the only release notification.
+  // effect has subscribed; these refs make that report retry the next acquire
+  // rather than losing the only notice of freed room.
   const waitingForSlotsRef = useRef(false);
   const anatomyWaitingRef = useRef(false);
   useEffect(() => {
@@ -147,17 +148,15 @@ export function StudioDerivedPaneCanvas({
   }, [underlayPath, studioActive, paneId, anatomyAttempt]);
 
   // Subscribe before promise effects can report pressure.  The refs are set
-  // synchronously with the failure, so a capacity event immediately after
+  // synchronously with the failure, so a report that frees room right after
   // the error is not lost waiting for another render's passive effect.
   useLayoutEffect(() => {
     if (!studioActive) return;
-    const off = getEventBus().on('gpu.slots.freed', () => {
+    return useResidencyStore.subscribe((state, prev) => {
+      if (!residencyFreed(prev.report, state.report)) return;
       if (waitingForSlotsRef.current) setMapAttempt((n) => n + 1);
       if (anatomyWaitingRef.current) setAnatomyAttempt((n) => n + 1);
     });
-    return () => {
-      void safeUnlisten(off);
-    };
   }, [studioActive]);
 
   // A borrowed workspace underlay whose layer was removed: load the template

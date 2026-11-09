@@ -32,18 +32,6 @@ export interface EventMap {
   'layer.updated': { layerId: string; updates?: Record<string, unknown> };
   'layer.render.changed': { layerId: string; renderProps: Record<string, unknown> };
   'layer.gpu.ready': { layerId: string };
-  /**
-   * GPU texture slots were freed: a layer's lease was released (eviction,
-   * removal, unload) or cached 4D members were reclaimed. Views and Studio
-   * panes refused for want of a slot may retry.
-   */
-  'gpu.slots.freed': { reason: 'release' | 'reclaim'; layerId?: string };
-  /**
-   * A layer's GPU resources were dropped behind the user's back (eviction or
-   * the backend's stale-lease watchdog): it is marked non-resident, and is
-   * uploaded again at once if it is visible in the front workspace.
-   */
-  'layer.gpu.evicted': { layerId: string; reason: 'eviction' | 'watchdog' };
 
   // Annotation events
   'annotation.added': { annotation: Annotation };
@@ -134,7 +122,7 @@ export interface EventMap {
     level: 'warning' | 'critical' | 'recovered';
     stats: AtlasStats;
     timestamp: number;
-    reason: 'low-watermark' | 'full-event' | 'recovered' | 'evicted';
+    reason: 'low-watermark' | 'full-event' | 'recovered';
   };
   'atlas.eviction': {
     layerId: string | null;

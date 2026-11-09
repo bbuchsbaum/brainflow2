@@ -52,7 +52,6 @@ export interface VolumeMetadata {
   renderProps?: LayerRender; // Initial/default render properties
   gpuResident?: boolean; // Whether this layer currently has full GPU resources
   evicted?: boolean; // Whether residency was dropped by the eviction service
-  lastRenderTime?: number; // Monotonic timestamp used by LRU eviction
 }
 
 // Declare global interface for store

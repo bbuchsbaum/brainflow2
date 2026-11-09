@@ -6,9 +6,7 @@
 import { getApiService } from './apiService';
 import { getEventBus } from '@/events/EventBus';
 import type { AtlasStats } from '@/types/atlas';
-import { useLayerStore, type LayerInfo } from '@/stores/layerStore';
-import { getLayerService } from './LayerService';
-import { backendOwnsResidency } from '@/stores/residencyStore';
+import { useLayerStore } from '@/stores/layerStore';
 
 type PressureLevel = 'warning' | 'critical' | 'recovered';
 
@@ -16,12 +14,11 @@ interface AtlasPressureEvent {
   level: PressureLevel;
   stats: AtlasStats;
   timestamp: number;
-  reason: 'low-watermark' | 'full-event' | 'recovered' | 'evicted';
+  reason: 'low-watermark' | 'full-event' | 'recovered';
 }
 
 const POLL_INTERVAL_MS = 5_000;
 const LOW_WATERMARK_THRESHOLD = 2;
-const EVICTION_BACKOFF_MS = 15_000;
 
 /**
  * Minimal hysteresis so we only emit when the number of free layers improves
@@ -55,8 +52,6 @@ export class AtlasPressureMonitor {
   private lastStats: AtlasStats | null = null;
   private lastWarnedFreeLayers: number | null = null;
   private lastFullEvents = 0;
-  private lastEvictedFullEventCount: number | null = null;
-  private lastEvictionTimestamp: number | null = null;
   private readonly api = getApiService();
   private readonly eventBus = getEventBus();
 
@@ -88,7 +83,7 @@ export class AtlasPressureMonitor {
 
       this.emitMetrics(stats, timestamp);
       this.checkLowWatermark(stats, timestamp);
-      await this.checkFullEvents(stats, timestamp);
+      this.checkFullEvents(stats, timestamp);
 
       this.lastStats = stats;
     } catch (error) {
@@ -156,7 +151,7 @@ export class AtlasPressureMonitor {
     }
   }
 
-  private async checkFullEvents(stats: AtlasStats, timestamp: number) {
+  private checkFullEvents(stats: AtlasStats, timestamp: number) {
     // Only react to full-events when there are layers in the session.
     // This prevents a spurious "GPU atlas is full" notification on startup
     // before the user has loaded any volumes.
@@ -178,21 +173,6 @@ export class AtlasPressureMonitor {
           ? `GPU atlas ran out of layers ${increment} times this session. Rendering may fail until layers are released.`
           : 'GPU atlas ran out of layers. Rendering may fail until layers are released.'
       });
-
-      // Trigger eviction once we've exhausted capacity twice in a session
-      // A backend owner (R5c) decides evictions itself.
-      const shouldEvict =
-        !backendOwnsResidency() &&
-        stats.fullEvents >= 2 &&
-        stats.freeLayers === 0 &&
-        this.lastEvictedFullEventCount !== stats.fullEvents;
-
-      if (shouldEvict) {
-        const evicted = await this.attemptEviction(stats, timestamp);
-        if (evicted) {
-          this.lastEvictedFullEventCount = stats.fullEvents;
-        }
-      }
     } else {
       this.lastFullEvents = stats.fullEvents;
     }
@@ -206,87 +186,6 @@ export class AtlasPressureMonitor {
   ) {
     const payload: AtlasPressureEvent = { level, stats, timestamp, reason };
     this.eventBus.emit('atlas.pressure', payload);
-  }
-
-  private async attemptEviction(
-    stats: AtlasStats,
-    timestamp: number
-  ): Promise<boolean> {
-    const now = Date.now();
-    if (this.lastEvictionTimestamp && now - this.lastEvictionTimestamp < EVICTION_BACKOFF_MS) {
-      const remaining = EVICTION_BACKOFF_MS - (now - this.lastEvictionTimestamp);
-      console.warn(
-        '[AtlasPressureMonitor] Eviction skipped: backoff active for another',
-        `${remaining}ms`
-      );
-      return false;
-    }
-
-    const layerState = useLayerStore.getState();
-    const layers = [...layerState.layers];
-
-    if (layers.length === 0) {
-      console.warn('[AtlasPressureMonitor] Eviction skipped: no layers loaded');
-      return false;
-    }
-
-    if (layers.length === 1) {
-      console.warn('[AtlasPressureMonitor] Eviction skipped: single layer session');
-      return false;
-    }
-
-    const candidate = pickAtlasEvictionCandidate(layers);
-    if (!candidate) {
-      console.warn('[AtlasPressureMonitor] Eviction skipped: no suitable candidate found');
-      return false;
-    }
-
-    try {
-      const layerService = getLayerService();
-      await layerService.removeLayer(candidate.id);
-      const refreshedStats = await this.api.getAtlasStats().catch(() => null);
-      const evictionTimestamp = Date.now();
-      this.lastEvictionTimestamp = evictionTimestamp;
-
-      this.eventBus.emit('ui.notification', {
-        type: 'warning',
-        message: `Freed GPU atlas space by unloading layer "${candidate.name}".`
-      });
-      this.eventBus.emit('atlas.eviction', {
-        layerId: candidate.id,
-        stats: refreshedStats ?? stats,
-        timestamp: evictionTimestamp,
-        reason: 'auto',
-        message: `Unloaded layer "${candidate.name}" to relieve atlas pressure.`
-      });
-
-      if (refreshedStats) {
-        const refreshedTimestamp = Date.now();
-        this.emitMetrics(refreshedStats, refreshedTimestamp);
-        this.emitPressureEvent(
-          'warning',
-          refreshedStats,
-          refreshedTimestamp,
-          'evicted'
-        );
-        this.lastStats = refreshedStats;
-      }
-
-      console.info(
-        '[AtlasPressureMonitor] Evicted layer to relieve atlas pressure:',
-        candidate.id
-      );
-
-      return true;
-    } catch (error) {
-      console.error('[AtlasPressureMonitor] Failed to evict layer:', error);
-      this.eventBus.emit('ui.notification', {
-        type: 'error',
-        message:
-          'Atlas is full and automatic eviction failed. Please remove unused layers manually.'
-      });
-      return false;
-    }
   }
 }
 
@@ -303,37 +202,4 @@ export function initializeAtlasPressureMonitor(): AtlasPressureMonitor {
   const monitor = getAtlasPressureMonitor();
   monitor.start();
   return monitor;
-}
-
-export function pickAtlasEvictionCandidate(
-  layers: LayerInfo[]
-): LayerInfo | null {
-  if (layers.length === 0) {
-    return null;
-  }
-
-  const orderOrIndex = (layer: LayerInfo, index: number) =>
-    layer.order ?? index;
-
-  const sorted = [...layers].sort(
-    (a, b) => orderOrIndex(a, layers.indexOf(a)) - orderOrIndex(b, layers.indexOf(b))
-  );
-
-  const hidden = sorted.filter((layer) => !layer.visible);
-  if (hidden.length > 0) {
-    return hidden[0];
-  }
-
-  const nonAnatomical = sorted.filter(
-    (layer) => layer.visible && layer.type !== 'anatomical'
-  );
-  if (nonAnatomical.length > 0) {
-    return nonAnatomical[0];
-  }
-
-  if (sorted.length > 1) {
-    return sorted[1];
-  }
-
-  return sorted[0] ?? null;
 }

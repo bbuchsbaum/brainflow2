@@ -5,12 +5,10 @@
 
 import { getEventBus } from '@/events/EventBus';
 import {
-  drawCapMessage,
   gpuTextureSlotsFullLimit,
   gpuTextureSlotsFullMessage,
   toError,
 } from '@/utils/formatTauriError';
-import { layerEvictionService } from './LayerEvictionService';
 import { noteUserVisibility } from '@/services/series/visibilityIntent';
 import type { EventBus } from '@/events/EventBus';
 import type { ViewState } from '@/types/viewState';
@@ -194,25 +192,9 @@ export class LayerService {
     const front = target === views.activeWorkspaceKey;
     // A show made while undo / redo replays a step is not a new history step.
     const recorded = !getSceneHistory().isReplaying();
-    // One view draws at most the draw cap's layers. The cap is per view, not
-    // a residency budget: other tabs' layers do not count (gpu-residency plan).
-    if (visible) {
-      const viewState = views.getWorkspaceViewState?.(target) ?? views.viewState;
-      const drawn = (viewState?.layers ?? []).filter((layer) => layer.visible && layer.id !== id);
-      const alreadyShown = viewState?.layers?.some((layer) => layer.id === id && layer.visible);
-      const cap = layerEvictionService.drawLayerCap();
-      if (!alreadyShown && drawn.length >= cap) {
-        const name = useLayerStore.getState().getLayer(id)?.name ?? id;
-        this.eventBus.emit('ui.notification', {
-          type: 'error',
-          message: `Cannot show ${name}: ${drawCapMessage(cap)}`,
-          subject: name,
-          alert: true,
-          logSource: 'layer',
-        });
-        return;
-      }
-    }
+    // A view draws at most the backend's binding capacity of layers: past it
+    // the backend refuses the extra layer (`draw_cap`), badges its row and
+    // alerts once per tab (residencyStore).
     // Keep local stores in sync immediately for responsive UI.
     useLayerStore.getState().updateLayer(id, { visible });
     views.setViewState((state) => {

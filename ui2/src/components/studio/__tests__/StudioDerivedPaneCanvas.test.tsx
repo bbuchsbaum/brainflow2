@@ -38,6 +38,35 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { getEventBus } from '@/events/EventBus';
+import type { ResidencyReport } from '@brainflow/api';
+import { useResidencyStore } from '@/stores/residencyStore';
+
+let reportSeq = 0;
+/** A backend residency report with `used_bytes` in use and `resident` layers. */
+function residencyReport(usedBytes: number, resident: number): ResidencyReport {
+  return {
+    seq: ++reportSeq,
+    owner: 'backend',
+    budget_bytes: 1024,
+    used_bytes: usedBytes,
+    binding_capacity: 13,
+    undemanded_bytes: 0,
+    layers: Array.from({ length: resident }, (_, i) => ({
+      layer_id: `resident-${i}`,
+      state: 'resident',
+      bytes: 1,
+      frames: [],
+      refusal: null,
+    })),
+  } as ResidencyReport;
+}
+const publish = (usedBytes: number, resident: number) =>
+  act(() => useResidencyStore.setState({ report: residencyReport(usedBytes, resident) }));
+/** The backend frees room: a full report, then one with less in use. */
+function freeRoom(): void {
+  publish(1024, 2);
+  publish(512, 1);
+}
 
 const AFFINE = [2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, -10, -10, -10, 1];
 const STUDIO = 'studio-ws';
@@ -174,8 +203,8 @@ describe('StudioDerivedPaneCanvas (review H1/M1/M2/M4)', () => {
   });
 
   // N32: a pane refused for want of a slot never retried. It asks again
-  // when slots are freed (a release or eviction anywhere).
-  it('re-requests a map refused for GPU slots once slots are freed (N32)', async () => {
+  // when the residency report shows room freed (a release or eviction anywhere).
+  it('re-requests a map refused for GPU slots once the backend frees room (N32)', async () => {
     api.requestLayerGpuResources.mockRejectedValueOnce({
       GpuError: { code: 5000, details: 'Maximum texture limit 13 reached' },
     });
@@ -187,7 +216,12 @@ describe('StudioDerivedPaneCanvas (review H1/M1/M2/M4)', () => {
     act(() => getEventBus().emit('layer.visibility', { layerId: 'x', visible: false }));
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(api.loadFile.mock.calls.length).toBe(before);
-    act(() => getEventBus().emit('gpu.slots.freed', { reason: 'release', layerId: 'evicted' }));
+    // Nor does a report that frees nothing.
+    publish(1024, 2);
+    publish(1024, 3);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(api.loadFile.mock.calls.length).toBe(before);
+    freeRoom();
     await waitFor(() => expect(screen.getByTestId('pane-viewport')).toBeInTheDocument());
     expect(api.loadFile.mock.calls.length).toBe(before + 1);
     expect(screen.queryByText(/GPU texture slots full/)).toBeNull();
@@ -201,12 +235,12 @@ describe('StudioDerivedPaneCanvas (review H1/M1/M2/M4)', () => {
     render(<StudioDerivedPaneCanvas paneId="zscore" sourcePath="/c/byte-retry.nii.gz" label="Z" workspaceId={STUDIO} />);
     expect(await screen.findByText(/GPU residency budget exceeded/)).toBeInTheDocument();
     const before = api.loadFile.mock.calls.length;
-    act(() => getEventBus().emit('gpu.slots.freed', { reason: 'reclaim' }));
+    freeRoom();
     await waitFor(() => expect(screen.getByTestId('pane-viewport')).toBeInTheDocument());
     expect(api.loadFile.mock.calls.length).toBe(before + 1);
   });
 
-  it('shows an oversized byte-budget refusal but does not retry it on slots-freed', async () => {
+  it('shows an oversized byte-budget refusal but does not retry it when room is freed', async () => {
     const budget = 512 * 1024 * 1024;
     api.requestLayerGpuResources.mockRejectedValueOnce({
       GpuBudgetExceeded: { code: 6008, requested_bytes: budget + 1, used_bytes: 0, budget_bytes: budget },
@@ -214,17 +248,17 @@ describe('StudioDerivedPaneCanvas (review H1/M1/M2/M4)', () => {
     render(<StudioDerivedPaneCanvas paneId="zscore" sourcePath="/c/byte-oversized.nii.gz" label="Z" workspaceId={STUDIO} />);
     expect(await screen.findByText(/GPU residency budget exceeded/)).toBeInTheDocument();
     const before = api.loadFile.mock.calls.length;
-    act(() => getEventBus().emit('gpu.slots.freed', { reason: 'release' }));
+    freeRoom();
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(api.loadFile.mock.calls.length).toBe(before);
   });
 
-  it('a drawn pane does not reload on slots-freed events', async () => {
+  it('a drawn pane does not reload when room is freed', async () => {
     render(<StudioDerivedPaneCanvas paneId="zscore" sourcePath="/c/steady.nii.gz" label="Z" workspaceId={STUDIO} />);
     await waitFor(() => expect(screen.getByTestId('pane-viewport')).toBeInTheDocument());
     const loads = api.loadFile.mock.calls.length;
     const requests = api.requestLayerGpuResources.mock.calls.length;
-    act(() => getEventBus().emit('gpu.slots.freed', { reason: 'release' }));
+    freeRoom();
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(api.loadFile.mock.calls.length).toBe(loads);
     expect(api.requestLayerGpuResources.mock.calls.length).toBe(requests);
