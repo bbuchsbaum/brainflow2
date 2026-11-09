@@ -31,9 +31,6 @@ pub(crate) async fn release_layer_gpu_resources_with(
     if freed && !for_upload {
         clear_allocation_failed_skips(bridge_state, None).await;
     }
-    if freed && for_upload {
-        super::note_release_for_upload(bridge_state, &layer_id).await;
-    }
     result
 }
 

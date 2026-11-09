@@ -38,38 +38,9 @@ pub(crate) fn application_residency_config() -> BridgeResult<RendererResidencyCo
     }
 }
 
-fn parse_backend_residency(value: Option<&str>) -> bool {
-    value.is_some_and(|value| {
-        matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "on"
-        )
-    })
-}
-
-/// Whether the backend owns admission and eviction (R5c): the
-/// `BRAINFLOW_BACKEND_RESIDENCY` flag (`1`, `true` or `on`), read once.
-pub(crate) fn backend_residency_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        parse_backend_residency(std::env::var("BRAINFLOW_BACKEND_RESIDENCY").ok().as_deref())
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn backend_residency_flag_accepts_only_explicit_on_values() {
-        for on in ["1", "true", "TRUE", " on "] {
-            assert!(parse_backend_residency(Some(on)), "{on}");
-        }
-        for off in ["", "0", "false", "off", "yes", "2"] {
-            assert!(!parse_backend_residency(Some(off)), "{off}");
-        }
-        assert!(!parse_backend_residency(None));
-    }
 
     #[test]
     fn defaults_and_explicit_fallback_are_separate_from_draw_capacity() {

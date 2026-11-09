@@ -80,7 +80,7 @@ pub(crate) async fn layer_watchdog_sweep(
     };
     let last_drawn_snapshot: HashMap<String, Instant> = parts.last_drawn.lock().await.clone();
     // Layer and volume ids some frame lists (R5c).
-    let demanded: HashSet<String> = if parts.residency.backend_owner() {
+    let demanded: HashSet<String> = {
         let residency = parts.residency.state.lock().await;
         residency
             .ledger
@@ -89,8 +89,6 @@ pub(crate) async fn layer_watchdog_sweep(
             .flat_map(|(_, demand)| demand.layers.iter().chain(&demand.held))
             .flat_map(|layer| [layer.layer_id.clone(), layer.volume_id.clone()])
             .collect()
-    } else {
-        HashSet::new()
     };
     let leases_snapshot: Vec<(String, Arc<LayerLease>)> = {
         let guard = parts.leases.lock().await;
