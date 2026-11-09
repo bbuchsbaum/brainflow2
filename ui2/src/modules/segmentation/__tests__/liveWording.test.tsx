@@ -7,9 +7,9 @@ import { info } from './liveFixtures';
 
 describe('live tracing wording (QA 2026-11-08)', () => {
   it('states the brush and what it paints over in plain words, without default-only items', () => {
-    render(<ConstraintStripView plain label={1} definition={{ name: 'Label 1', color: 'rgb(196 105 46)' }} paintOver="paints over unlocked labels" diameterMm={4} readout="3 pieces on this slice" />);
+    render(<ConstraintStripView plain label={1} definition={{ name: 'Label 1', color: 'rgb(196 105 46)' }} paintOver="paints over unlocked labels" diameterMm={4} readout="3 pieces" />);
     const strip = screen.getByTestId('constraint-strip');
-    expect(strip).toHaveTextContent('Label 1·brush ⌀ 4.0 mm·paints over unlocked labels·3 pieces on this slice');
+    expect(strip).toHaveTextContent('Label 1·brush ⌀ 4.0 mm·paints over unlocked labels·3 pieces');
     expect(strip).not.toHaveTextContent('2D');
     expect(strip).not.toHaveTextContent('range');
     expect(strip).not.toHaveTextContent('=');
