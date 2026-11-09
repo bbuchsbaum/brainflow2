@@ -539,6 +539,15 @@ fn main() {
                 .id("close_window")
                 .accelerator("CmdOrCtrl+Shift+W")
                 .build(app)?;
+            // ⌘Q goes through the unsaved-session guard. The predefined Quit
+            // sends `terminate:` straight to NSApp, and tao has no
+            // `applicationShouldTerminate:`, so it exits without an
+            // ExitRequested. One item per platform: the app menu on macOS,
+            // File elsewhere.
+            let app_quit = MenuItemBuilder::new("Quit Brainflow")
+                .id("app_quit")
+                .accelerator("CmdOrCtrl+Q")
+                .build(app)?;
 
             // Opens the UI's export dialog (ui2 useExportMenuListener).
             let export_view = MenuItemBuilder::new("Export View as Image...")
@@ -767,7 +776,7 @@ fn main() {
                         .item(&PredefinedMenuItem::hide_others(app, None)?)
                         .item(&PredefinedMenuItem::show_all(app, None)?)
                         .separator()
-                        .item(&PredefinedMenuItem::quit(app, None)?)
+                        .item(&app_quit)
                         .build()?,
                     &{
                         #[cfg(target_os = "macos")]
@@ -830,7 +839,7 @@ fn main() {
                             .item(&close_tab)
                             .item(&close_window)
                             .separator()
-                            .item(&PredefinedMenuItem::quit(app, None)?);
+                            .item(&app_quit);
 
                         file_menu.build()?
                     },
@@ -1061,6 +1070,7 @@ fn main() {
                         let handle = app.app_handle().clone();
                         open_file_dialog(handle, Some("comparison".to_string()));
                     }
+                    "app_quit" => request_document_exit(app, 0),
                     "export_view_image" => {
                         if let Err(e) = app.emit(
                             "export-active-view",
@@ -1477,5 +1487,19 @@ mod close_window_tests {
         let menu = after(main_rs, "app.on_menu_event(move |app, event| {", 10);
         assert!(menu.contains("if event_id != \"close_window\""));
         assert!(menu.contains("reveal_main_window(app);"));
+    }
+
+    /// ⌘Q and the app-menu Quit ask about unsaved sessions: no predefined
+    /// Quit (it calls `terminate:` and skips ExitRequested), and the custom
+    /// item routes through the same guard as ExitRequested.
+    #[test]
+    fn menu_quit_goes_through_the_document_exit_guard() {
+        let main_rs = include_str!("main.rs");
+        let predefined = ["PredefinedMenuItem", "::quit"].concat();
+        assert!(!main_rs.contains(&predefined), "Quit must be a custom item");
+        let handler = after(main_rs, "\"app_quit\" =>", 1);
+        assert!(handler.contains("request_document_exit(app, 0)"));
+        let exit = after(main_rs, "tauri::RunEvent::ExitRequested {", 4);
+        assert!(exit.contains("request_document_exit(app, code.unwrap_or(0))"));
     }
 }
