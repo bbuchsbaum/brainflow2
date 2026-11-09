@@ -8,7 +8,7 @@
 import type { ComponentItemConfig, ContentItem } from 'golden-layout';
 
 import type { SavedSurfaceTab, SurfaceTabSource } from '@/stores/surfaceTabRestoreStore';
-import { surfaceGroupKey } from '@/utils/surfaceIdentity';
+import { normalizeSurfaceGroupKey, surfaceGroupKey } from '@/utils/surfaceIdentity';
 
 /** GoldenLayout component type of a placeholder surface tab. */
 export const SURFACE_PLACEHOLDER_COMPONENT = 'surfacePlaceholder';
@@ -79,7 +79,7 @@ export function describeSurfaceTabs(
     if (type !== 'surfaceView') continue;
     const groupKey =
       typeof state.groupKey === 'string'
-        ? state.groupKey
+        ? normalizeSurfaceGroupKey(state.groupKey)
         : typeof state.path === 'string'
           ? surfaceGroupKey(state.path)
           : null;

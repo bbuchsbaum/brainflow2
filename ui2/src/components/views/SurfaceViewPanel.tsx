@@ -12,6 +12,7 @@ import { Loader2, AlertCircle, X } from 'lucide-react';
 import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
 import { useResolvedSurfaceViewState } from '@/hooks/useSurfaceSelectionContext';
 import { collectRenderSurfaces } from './surfaceRenderSurfaces';
+import { buildSurfaceDisplays } from './surfaceFamilies';
 import { addLogEntry } from '@/stores/logStore';
 
 export interface SurfaceViewPanelProps {
@@ -198,15 +199,25 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
     }
     return Array.from(surfaces.values()).find((surface) => surface.visible !== false) ?? null;
   }, [surfaces, anchorSurfaceId]);
-  const renderSurfaces = useMemo(
+  // The meshes the scene shows (one per hemisphere), then each as its
+  // geometry family: the view's geometry choice is drawn, overlays of every
+  // geometry carried over, and a change of geometry morphs the mesh.
+  const chosenSurfaces = useMemo(
     () => collectRenderSurfaces(surfaces, anchorSurfaceId, groupKey, surfaceHandle),
     [surfaces, anchorSurfaceId, groupKey, surfaceHandle],
+  );
+  const viewGeometry = useSurfaceStore(
+    (state) => state.surfaceViewGeometries.get(resolvedSurfaceViewId) ?? null,
+  );
+  const renderSurfaces = useMemo(
+    () => buildSurfaceDisplays(chosenSurfaces, surfaces, viewGeometry),
+    [chosenSurfaces, surfaces, viewGeometry],
   );
 
   // A mounted canvas with nothing to draw is the black-tab signature; record it
   // once per occurrence so a tester can tell it from a GPU/context failure.
   const emptySceneKey =
-    activeSurface && activeSurface.visible !== false && renderSurfaces.length === 0
+    activeSurface && activeSurface.visible !== false && chosenSurfaces.length === 0
       ? `${activeSurface.handle}|${groupKey ?? ''}` : null;
   useEffect(() => {
     if (!emptySceneKey) return;

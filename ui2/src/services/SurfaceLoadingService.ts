@@ -13,7 +13,14 @@ import {
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { getLayoutService } from './layoutService';
 import { formatTauriError, toError, loadFailureMessage } from '@/utils/formatTauriError';
-import { normalizeSurfaceHemisphere } from '@/utils/surfaceIdentity';
+import { normalizeSurfaceHemisphere, surfaceGroupKey } from '@/utils/surfaceIdentity';
+import { getFilesystemService } from './filesystem/FilesystemService';
+import {
+  directoryOf,
+  surfaceSetFromListing,
+  templateSurfaceSet,
+  type SurfaceSetMember,
+} from './surfaceSetDiscovery';
 import { getTransport, type BackendTransport } from './transport';
 import { applySurfaceSelectionInContext } from '@/utils/surfaceCommandContext';
 
@@ -31,6 +38,10 @@ export interface SurfaceLoadOptions {
   displayName?: string;
   autoActivate?: boolean;
   validateMesh?: boolean;
+  /** Open (or focus) the surface's view tab. Default true. */
+  openViewer?: boolean;
+  /** No success notice and no Surfaces panel focus (a member of a set load). */
+  quiet?: boolean;
 }
 
 interface SurfaceLoadResult {
@@ -118,7 +129,14 @@ export class SurfaceLoadingService {
    * Load a surface file (.gii format)
    */
   async loadSurfaceFile(options: SurfaceLoadOptions): Promise<string | null> {
-    const { path, displayName, autoActivate = true, validateMesh = true } = options;
+    const {
+      path,
+      displayName,
+      autoActivate = true,
+      validateMesh = true,
+      openViewer = true,
+      quiet = false,
+    } = options;
     const filename = displayName || path.split('/').pop() || path;
 
     console.log(`[SurfaceLoadingService] Loading surface file:`, filename);
@@ -199,18 +217,22 @@ export class SurfaceLoadingService {
         handle: loadedSurface.handle,
       });
 
-      // Show success notification
-      this.eventBus.emit('ui.notification', {
-        type: 'success',
-        message: `Surface loaded: ${filename}`,
-      });
+      if (!quiet) {
+        this.eventBus.emit('ui.notification', {
+          type: 'success',
+          message: `Surface loaded: ${filename}`,
+        });
+      }
 
       // Open surface viewer panel in GoldenLayout
       const layoutService = getLayoutService();
-      layoutService.ensureSurfaceView(loadedSurface.handle, path);
+      if (openViewer) layoutService.ensureSurfaceView(loadedSurface.handle, path);
 
       // Focus the Surfaces tab to show the newly loaded surface in the list
-      layoutService.focusSurfacePanel();
+      if (!quiet) layoutService.focusSurfacePanel();
+
+      // Its other geometries / hemisphere, for the view's geometry switcher.
+      void this.discoverSurfaceSet(path);
 
       console.log(`[SurfaceLoadingService] Surface loaded successfully:`, loadedSurface.handle);
       return loadedSurface.handle;
@@ -522,6 +544,8 @@ export class SurfaceLoadingService {
         layoutService.focusSurfacePanel();
       }
 
+      void this.discoverSurfaceSet(templatePath);
+
       console.log(`[SurfaceLoadingService] Surface template loaded successfully:`, surfaceHandle);
       return surfaceHandle;
     } catch (error) {
@@ -583,6 +607,84 @@ export class SurfaceLoadingService {
       options,
     );
     return { left, right };
+  }
+
+  /**
+   * The meshes `path`'s scene could hold: its other geometries and other
+   * hemisphere, from its template or its directory. Cached per scene;
+   * a failed listing yields none (the switcher then shows loaded meshes only).
+   */
+  async discoverSurfaceSet(path: string): Promise<SurfaceSetMember[]> {
+    const key = surfaceGroupKey(path);
+    if (!key) return [];
+    const cached = useSurfaceStore.getState().surfaceSets.get(key);
+    if (cached) return cached;
+    let members = templateSurfaceSet(path);
+    if (!members) {
+      const directory = directoryOf(path);
+      if (!directory) return [];
+      try {
+        const nodes = await getFilesystemService().listDirectory(directory, 1);
+        members = surfaceSetFromListing(
+          path,
+          nodes.filter((node) => !node.isDir).map((node) => node.id),
+        );
+      } catch (error) {
+        console.warn('[SurfaceLoadingService] Could not list the surface set:', error);
+        return [];
+      }
+    }
+    useSurfaceStore.getState().setSurfaceSet(key, members);
+    return members;
+  }
+
+  /**
+   * Load the set members not loaded yet, one after another, into the scene's
+   * existing view (no new tab, no per-file notices). Returns the new handles.
+   */
+  async loadSurfaceSetMembers(members: readonly SurfaceSetMember[]): Promise<string[]> {
+    const handles: string[] = [];
+    let failed = 0;
+    for (const member of members) {
+      const loaded = [...useSurfaceStore.getState().surfaces.values()].some(
+        (surface) => surface.metadata.path === member.path,
+      );
+      if (loaded) continue;
+      const handle = member.template
+        ? await this.loadSurfaceTemplate(member.template, {
+            openViewer: false,
+            focusSurfacePanel: false,
+          })
+        : await this.loadSurfaceFile({
+            path: member.path,
+            autoActivate: false,
+            openViewer: false,
+            quiet: true,
+          });
+      if (handle) handles.push(handle);
+      else failed += 1;
+    }
+    if (failed > 0) {
+      this.eventBus.emit('ui.notification', {
+        type: 'warning',
+        message: `${failed} of ${failed + handles.length} surfaces of the set did not load`,
+      });
+    }
+    return handles;
+  }
+
+  /**
+   * Show `geometry` in a surface view, loading it first for the drawn
+   * hemispheres when the scene does not hold it yet. The view morphs to it
+   * once it is there.
+   */
+  async showSurfaceGeometry(
+    surfaceViewId: string,
+    geometry: string,
+    toLoad: readonly SurfaceSetMember[] = [],
+  ): Promise<void> {
+    useSurfaceStore.getState().setSurfaceViewGeometry(surfaceViewId, geometry);
+    if (toLoad.length > 0) await this.loadSurfaceSetMembers(toLoad);
   }
 
   private async loadSurfaceFromPath(path: string): Promise<LoadedSurface> {

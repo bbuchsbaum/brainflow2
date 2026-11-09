@@ -38,13 +38,33 @@ function shouldUseVolumeProjection(layer, useGPUProjection) {
         layer.volumeDims &&
         layer.volumeDims.length === 3);
 }
+/**
+ * Whether `next` only moves `previous` to another of its embeddings (pial ->
+ * inflated): same faces, hemisphere and vertex count, a different variant.
+ * The viewer morphs such a change in place.
+ */
+export function isSurfaceVariantSwitch(previousSurface, nextSurface) {
+    return Boolean(previousSurface.variants &&
+        nextSurface.variants &&
+        previousSurface.variant &&
+        nextSurface.variant &&
+        previousSurface.variant !== nextSurface.variant &&
+        nextSurface.variants[nextSurface.variant] === nextSurface.geometry.vertices &&
+        previousSurface.geometry.faces === nextSurface.geometry.faces &&
+        previousSurface.geometry.vertices.length === nextSurface.geometry.vertices.length &&
+        previousSurface.geometry.hemisphere === nextSurface.geometry.hemisphere);
+}
+/** Whether the drawn mesh must be rebuilt (a variant switch is not: it morphs). */
 export function isSurfaceGeometryChanged(previousSurface, nextSurface) {
+    if (isSurfaceVariantSwitch(previousSurface, nextSurface))
+        return false;
     return (previousSurface.geometry.vertices !== nextSurface.geometry.vertices ||
         previousSurface.geometry.faces !== nextSurface.geometry.faces ||
         previousSurface.geometry.vertices.length !== nextSurface.geometry.vertices.length ||
         previousSurface.geometry.faces.length !== nextSurface.geometry.faces.length ||
         previousSurface.geometry.hemisphere !== nextSurface.geometry.hemisphere ||
-        previousSurface.geometry.surfaceType !== nextSurface.geometry.surfaceType);
+        (previousSurface.variant === undefined &&
+            previousSurface.geometry.surfaceType !== nextSurface.geometry.surfaceType));
 }
 export function buildRenderableLayerSpec(layer, useGPUProjection) {
     if (layer.rgba) {

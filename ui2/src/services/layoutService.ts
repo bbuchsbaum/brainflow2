@@ -30,7 +30,7 @@ import {
 } from '@/components/layout/centreStack';
 import { SURFACE_PLACEHOLDER_COMPONENT } from '@/components/layout/surfaceTabRestore';
 import { isPlaceholderReloading } from '@/services/surfaceTabReload';
-import { surfaceGroupKey } from '@/utils/surfaceIdentity';
+import { normalizeSurfaceGroupKey, surfaceGroupKey } from '@/utils/surfaceIdentity';
 
 type LayoutComponentState = Record<string, unknown>;
 
@@ -53,7 +53,7 @@ export interface EnsureSurfaceViewOptions {
  */
 const surfaceViewGroupKey = (state: LayoutComponentState): string | null => {
   if (typeof state.groupKey === 'string') {
-    return state.groupKey;
+    return normalizeSurfaceGroupKey(state.groupKey);
   }
   return typeof state.path === 'string' ? surfaceGroupKey(state.path) : null;
 };

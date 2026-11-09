@@ -1,4 +1,5 @@
 import type { SurfaceParcelOverlay } from '@/services/SurfaceParcelOverlayService';
+import type { SurfaceSetMember } from '@/services/surfaceSetDiscovery';
 /**
  * Surface Store
  * Manages surface geometry and data for visualization
@@ -299,6 +300,20 @@ interface SurfaceState {
   viewpoint: string;
   /** Camera preset per surface view, so a new tab opens Lateral, not the last preset. */
   surfaceViewViewpoints: Map<string, string>;
+  /**
+   * Geometry a surface view draws (pial, white, inflated…) when its scene has
+   * several of one hemisphere; absent: the selected mesh's own geometry.
+   * Selecting a different mesh clears it, so the selection is shown.
+   */
+  surfaceViewGeometries: Map<string, string>;
+  /** Draw `geometry` in a view (null: follow the selected mesh). The viewer morphs to it. */
+  setSurfaceViewGeometry: (surfaceViewId: string, geometry: string | null) => void;
+  /**
+   * Meshes each scene could hold (its geometries and hemispheres found on
+   * disk or offered by its template), keyed by scene key; loaded or not.
+   */
+  surfaceSets: Map<string, SurfaceSetMember[]>;
+  setSurfaceSet: (sceneKey: string, members: SurfaceSetMember[]) => void;
   showControls: boolean;
 
   // Per-view rendering settings
@@ -403,6 +418,7 @@ export interface SurfaceViewSnapshot {
   handle?: string;
   selection?: SurfaceViewSelection;
   viewpoint?: string;
+  geometry?: string;
 }
 
 /** Map copy with `key` set to `value`, or removed when `value` is undefined. */
@@ -425,6 +441,24 @@ export const useSurfaceStore = create<SurfaceState>()(
       loadError: null,
       viewpoint: DEFAULT_SURFACE_VIEWPOINT,
       surfaceViewViewpoints: new Map(),
+      surfaceViewGeometries: new Map(),
+      setSurfaceViewGeometry: (surfaceViewId, geometry) => {
+        set((state) => {
+          const current = state.surfaceViewGeometries.get(surfaceViewId);
+          if ((current ?? null) === geometry) return state;
+          return {
+            surfaceViewGeometries: withEntry(
+              state.surfaceViewGeometries,
+              surfaceViewId,
+              geometry ?? undefined,
+            ),
+          };
+        });
+      },
+      surfaceSets: new Map(),
+      setSurfaceSet: (sceneKey, members) => {
+        set((state) => ({ surfaceSets: new Map(state.surfaceSets).set(sceneKey, members) }));
+      },
       viewpointNonce: 0,
       surfaceViewViewpointNonces: new Map(),
       surfaceViewOwners: new Map(),
@@ -756,6 +790,7 @@ export const useSurfaceStore = create<SurfaceState>()(
           handle: state.surfaceViewHandles.get(surfaceViewId),
           selection: state.surfaceViewSelections.get(surfaceViewId),
           viewpoint: state.surfaceViewViewpoints.get(surfaceViewId),
+          geometry: state.surfaceViewGeometries.get(surfaceViewId),
         };
         return Object.values(snapshot).some((value) => value !== undefined) ? snapshot : null;
       },
@@ -773,6 +808,11 @@ export const useSurfaceStore = create<SurfaceState>()(
             state.surfaceViewViewpoints,
             surfaceViewId,
             snapshot.viewpoint,
+          ),
+          surfaceViewGeometries: withEntry(
+            state.surfaceViewGeometries,
+            surfaceViewId,
+            snapshot.geometry,
           ),
           surfaceViewOwners: withEntry(state.surfaceViewOwners, surfaceViewId, undefined),
         }));
@@ -849,7 +889,8 @@ export const useSurfaceStore = create<SurfaceState>()(
             !state.surfaceViewSettings.has(surfaceViewId) &&
             !state.surfaceViewHandles.has(surfaceViewId) &&
             !state.surfaceViewSelections.has(surfaceViewId) &&
-            !state.surfaceViewViewpoints.has(surfaceViewId)
+            !state.surfaceViewViewpoints.has(surfaceViewId) &&
+            !state.surfaceViewGeometries.has(surfaceViewId)
           ) {
             return state;
           }
@@ -873,6 +914,7 @@ export const useSurfaceStore = create<SurfaceState>()(
             surfaceViewHandles,
             surfaceViewSelections,
             surfaceViewViewpoints,
+            surfaceViewGeometries: withEntry(state.surfaceViewGeometries, surfaceViewId, undefined),
             surfaceViewOwners: withEntry(state.surfaceViewOwners, surfaceViewId, undefined),
           };
         });
@@ -911,8 +953,15 @@ export const useSurfaceStore = create<SurfaceState>()(
           const surfaceViewSelections = selectionsEqual(currentSelection, nextSelection)
             ? state.surfaceViewSelections
             : new Map(state.surfaceViewSelections).set(surfaceViewId, nextSelection);
+          // A different mesh selected in this view: show its geometry.
+          const surfaceViewGeometries =
+            currentSelection.activeSurfaceId !== nextSelection.activeSurfaceId &&
+            state.surfaceViewGeometries.has(surfaceViewId)
+              ? withEntry(state.surfaceViewGeometries, surfaceViewId, undefined)
+              : state.surfaceViewGeometries;
 
           if (
+            surfaceViewGeometries === state.surfaceViewGeometries &&
             surfaceViewSelections === state.surfaceViewSelections &&
             state.activeSurfaceId === nextSelection.activeSurfaceId &&
             state.selectedItemType === nextSelection.selectedItemType &&
@@ -923,6 +972,7 @@ export const useSurfaceStore = create<SurfaceState>()(
 
           return {
             surfaceViewSelections,
+            surfaceViewGeometries,
             activeSurfaceId: nextSelection.activeSurfaceId,
             selectedItemType: nextSelection.selectedItemType,
             selectedLayerId: nextSelection.selectedLayerId,

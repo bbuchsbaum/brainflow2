@@ -1,26 +1,30 @@
 import type { LoadedSurface } from '@/stores/surfaceStore';
-import { resolveSurfaceSceneIdentity } from '@/utils/surfaceIdentity';
+import { resolveSurfaceSceneIdentity, surfaceGeometryFromPath } from '@/utils/surfaceIdentity';
 
-function anatomyKey(surface: LoadedSurface): string | null {
+/** Same subject / space / hemisphere, whatever the geometry (the scene key). */
+export function anatomyKey(surface: LoadedSurface): string | null {
   const identity = resolveSurfaceSceneIdentity({
     path: surface.metadata.path,
     geometryHemisphere: surface.geometry.hemisphere,
     surfaceType: surface.geometry.surfaceType,
   });
-  if (!identity) return null;
-  return (
-    identity.basePath.replace(/(^|[_.])(pial|white|midthickness|smoothwm|graymid|inflated|very_inflated|sphere)(?=[_.]|$)/gi, '$1anatomical') +
-    ':' +
-    identity.hemisphere
-  );
+  return identity ? `${identity.basePath}:${identity.hemisphere}` : null;
 }
 
 /** Meshes in the volume's world space (midthickness and smoothwm too). */
-const ANATOMICAL_TYPES = new Set(['pial', 'white', 'midthickness', 'smoothwm', 'graymid']);
+export const ANATOMICAL_TYPES = new Set(['pial', 'white', 'midthickness', 'smoothwm', 'graymid', 'orig']);
 
-function isAnatomical(surface: LoadedSurface): boolean {
-  const type = String(surface.geometry.surfaceType ?? surface.metadata.surfaceType ?? '').toLowerCase();
-  return ANATOMICAL_TYPES.has(type);
+/** The surface's geometry: declared by the loader, else read from its file name. */
+export function surfaceGeometryType(surface: LoadedSurface): string | null {
+  const declared = String(surface.geometry.surfaceType ?? surface.metadata.surfaceType ?? '')
+    .trim()
+    .toLowerCase();
+  if (declared && declared !== 'unknown') return declared === 'wm' ? 'white' : declared;
+  return surfaceGeometryFromPath(surface.metadata.path);
+}
+
+export function isAnatomical(surface: LoadedSurface): boolean {
+  return ANATOMICAL_TYPES.has(surfaceGeometryType(surface) ?? '');
 }
 
 /**
@@ -40,12 +44,28 @@ export function anatomicalMeshesFor(
     .map((c) => c.geometry.vertices);
 }
 
-function sameTopology(a: LoadedSurface, b: LoadedSurface): boolean {
-  return (
-    a.geometry.vertices.length === b.geometry.vertices.length &&
-    a.geometry.faces.length === b.geometry.faces.length &&
-    a.geometry.faces.every((index, i) => index === b.geometry.faces[i])
-  );
+const topologyCache = new WeakMap<Uint32Array, WeakMap<Uint32Array, boolean>>();
+
+/** Identical vertex count and triangle list (cached per face-array pair). */
+export function sameTopology(a: LoadedSurface, b: LoadedSurface): boolean {
+  if (a.geometry.vertices.length !== b.geometry.vertices.length) return false;
+  const fa = a.geometry.faces;
+  const fb = b.geometry.faces;
+  if (fa === fb) return true;
+  if (fa.length !== fb.length) return false;
+  const cached = topologyCache.get(fa)?.get(fb);
+  if (cached !== undefined) return cached;
+  let same = true;
+  for (let i = 0; i < fa.length; i += 1) {
+    if (fa[i] !== fb[i]) {
+      same = false;
+      break;
+    }
+  }
+  let row = topologyCache.get(fa);
+  if (!row) topologyCache.set(fa, (row = new WeakMap()));
+  row.set(fb, same);
+  return same;
 }
 
 /** Backend vertices already have their GIfTI surf_to_world applied.

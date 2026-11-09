@@ -1,5 +1,6 @@
 import type { LoadedSurface } from '@/stores/surfaceStore';
 import {
+  normalizeSurfaceGroupKey,
   resolveSurfaceSceneIdentity,
   type TemplateflowSurfaceIdentity,
 } from '@/utils/surfaceIdentity';
@@ -83,6 +84,8 @@ export function collectRenderSurfaces(
   // When the host panel is pinned to a scene group (a standalone surface tab),
   // only surfaces in that group are eligible. Panels without a group key
   // (e.g. the Integrated workspace pane) keep global anchor-pairing behavior.
+  // Keys saved by older layouts carry a geometry; read them as scene keys.
+  groupKey = normalizeSurfaceGroupKey(groupKey);
   let scoped = groupKey != null ? scopeToGroup(surfaces, groupKey) : surfaces;
 
   // A pinned key that matches nothing while the tab's own surface is loaded

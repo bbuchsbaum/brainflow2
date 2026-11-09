@@ -1,0 +1,265 @@
+/**
+ * Geometry families (pial / white / inflated of one hemisphere) are drawn as
+ * one surfview VariantSurface: a new `variant` morphs the mounted mesh
+ * instead of removing it and adding another, and the embeddings follow the
+ * loaded geometries.
+ */
+import React from 'react';
+import { act, render } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SurfaceRenderable } from '@brainflow/visualization/surface';
+
+const log = vi.hoisted(() => ({
+  added: [] as string[],
+  removed: [] as string[],
+  setVariant: [] as Array<{ name: string; animate?: boolean; duration?: number }>,
+  variantSurfaces: [] as Array<{ surfaceSet: { variants: Record<string, Float32Array> } }>,
+  plainSurfaces: 0,
+}));
+
+vi.mock('neurosurface', async () => {
+  const THREE = await import('three');
+  const absorb = (): unknown =>
+    new Proxy(function () {}, {
+      get: (_target, key) => (key === 'then' ? undefined : absorb()),
+      apply: () => absorb(),
+      set: () => true,
+    });
+  const withAbsorb = <T extends object>(target: T): T =>
+    new Proxy(target, {
+      get(object, key) {
+        if (key in object) return (object as Record<PropertyKey, unknown>)[key];
+        return absorb();
+      },
+    });
+
+  class FakeViewer {
+    renderer: { domElement: HTMLCanvasElement; setClearColor: () => void };
+    camera = new THREE.PerspectiveCamera();
+    scene = new THREE.Scene();
+    initializationFailed = false;
+    constructor(container: HTMLElement) {
+      const canvas = document.createElement('canvas');
+      container.appendChild(canvas);
+      this.renderer = { domElement: canvas, setClearColor: () => {} };
+      return withAbsorb(this);
+    }
+    addSurface(_surface: unknown, handle: string) {
+      log.added.push(handle);
+    }
+    removeSurface(handle: string) {
+      log.removed.push(handle);
+    }
+    setViewpoint() {}
+    centerCamera() {}
+    getCameraState() {
+      return { position: [0, 0, 100], target: [0, 0, 0], quaternion: [0, 0, 0, 1] };
+    }
+    setCameraState() {}
+    fitToView() {
+      return true;
+    }
+    resize() {}
+    render() {}
+    requestRender() {}
+    startRenderLoop() {}
+    dispose() {}
+  }
+
+  function meshOf(vertices: Float32Array, faces: Uint32Array) {
+    const buffer = new THREE.BufferGeometry();
+    buffer.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertices), 3));
+    buffer.setIndex(new THREE.BufferAttribute(new Uint32Array(faces), 1));
+    return new THREE.Mesh(buffer, new THREE.MeshBasicMaterial());
+  }
+
+  class FakeSurface {
+    mesh: InstanceType<typeof THREE.Mesh>;
+    constructor(geometry: { vertices: Float32Array; faces: Uint32Array }) {
+      log.plainSurfaces += 1;
+      this.mesh = meshOf(geometry.vertices, geometry.faces);
+      return withAbsorb(this);
+    }
+    getCurvatureLayer() {
+      return null;
+    }
+  }
+
+  class FakeSurfaceSet {
+    faces: Uint32Array;
+    variants: Record<string, Float32Array> = {};
+    vertexCount: number;
+    defaultVariant: string;
+    constructor(config: {
+      faces: Uint32Array;
+      defaultVariant: string;
+      variants: Record<string, Float32Array>;
+    }) {
+      this.faces = config.faces;
+      this.defaultVariant = config.defaultVariant;
+      for (const [name, positions] of Object.entries(config.variants)) {
+        this.variants[name] = new Float32Array(positions);
+      }
+      this.vertexCount = this.variants[config.defaultVariant].length / 3;
+    }
+  }
+
+  class FakeVariantSurface {
+    mesh: InstanceType<typeof THREE.Mesh>;
+    surfaceSet: FakeSurfaceSet;
+    currentVariantName: string;
+    listeners = new Map<string, Array<() => void>>();
+    constructor(set: FakeSurfaceSet) {
+      this.surfaceSet = set;
+      this.currentVariantName = set.defaultVariant;
+      this.mesh = meshOf(set.variants[set.defaultVariant], set.faces);
+      log.variantSurfaces.push(this);
+      return withAbsorb(this);
+    }
+    currentVariant() {
+      return this.currentVariantName;
+    }
+    setVariant(name: string, options: { animate?: boolean; duration?: number } = {}) {
+      if (name === this.currentVariantName) return;
+      log.setVariant.push({ name, animate: options.animate, duration: options.duration });
+      this.currentVariantName = name;
+      (this.listeners.get('variant:changed') ?? []).forEach((listener) => listener());
+    }
+    on(event: string, listener: () => void) {
+      this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
+      return () => {};
+    }
+    getCurvatureLayer() {
+      return null;
+    }
+  }
+
+  return {
+    NeuroSurfaceViewer: FakeViewer,
+    SurfaceGeometry: class {
+      vertices: Float32Array;
+      faces: Uint32Array;
+      constructor(vertices: Float32Array, faces: Uint32Array) {
+        this.vertices = vertices;
+        this.faces = faces;
+      }
+    },
+    MultiLayerNeuroSurface: FakeSurface,
+    VariantSurface: FakeVariantSurface,
+    SurfaceSet: FakeSurfaceSet,
+    LaplacianSmoothing: {},
+    THREE,
+    normalizeCurvature: () => new Float32Array(),
+  };
+});
+
+import { NeuroSurfaceCanvas } from '@brainflow/visualization/surface';
+
+const FACES = new Uint32Array([0, 1, 2]);
+const PIAL = new Float32Array([-40, 0, 0, -20, 10, 0, -30, 0, 10]);
+const WHITE = new Float32Array([-38, 0, 0, -22, 9, 0, -30, 0, 9]);
+const INFLATED = new Float32Array([-60, 0, 0, -6, 30, 0, -30, 0, 30]);
+
+function display(
+  variant: string,
+  variants: Record<string, Float32Array> = { pial: PIAL, white: WHITE, inflated: INFLATED },
+): SurfaceRenderable {
+  return {
+    handle: 'lh',
+    visible: true,
+    geometry: { vertices: variants[variant], faces: FACES, hemisphere: 'left' },
+    layers: [],
+    variants,
+    variant,
+  };
+}
+
+function canvas(surface: SurfaceRenderable, morphDurationMs?: number) {
+  return (
+    <NeuroSurfaceCanvas
+      surfaces={[surface]}
+      width={200}
+      height={100}
+      morphDurationMs={morphDurationMs}
+    />
+  );
+}
+
+describe('NeuroSurfaceCanvas geometry morph', () => {
+  beforeEach(() => {
+    log.added = [];
+    log.removed = [];
+    log.setVariant = [];
+    log.variantSurfaces = [];
+    log.plainSurfaces = 0;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 200,
+      height: 100,
+      top: 0,
+      left: 0,
+      right: 200,
+      bottom: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+  });
+
+  it('mounts a family once and morphs between its geometries', async () => {
+    const view = render(canvas(display('pial')));
+    await act(async () => {});
+    expect(log.added).toEqual(['lh']);
+    expect(log.variantSurfaces).toHaveLength(1);
+    expect(log.plainSurfaces).toBe(0);
+
+    view.rerender(canvas(display('inflated')));
+    await act(async () => {});
+    view.rerender(canvas(display('white')));
+    await act(async () => {});
+
+    expect(log.added).toEqual(['lh']);
+    expect(log.removed).toEqual([]);
+    expect(log.setVariant.map((call) => call.name)).toEqual(['inflated', 'white']);
+    expect(log.setVariant[0]).toMatchObject({ animate: true, duration: 600 });
+  });
+
+  it('switches at once with a zero morph duration', async () => {
+    const view = render(canvas(display('pial'), 0));
+    await act(async () => {});
+    view.rerender(canvas(display('inflated'), 0));
+    await act(async () => {});
+    expect(log.setVariant).toEqual([{ name: 'inflated', animate: false, duration: 0 }]);
+  });
+
+  it('adds a newly loaded geometry to the mounted mesh', async () => {
+    const view = render(canvas(display('pial', { pial: PIAL, white: WHITE })));
+    await act(async () => {});
+    view.rerender(canvas(display('pial')));
+    await act(async () => {});
+    expect(log.added).toEqual(['lh']);
+    expect(Object.keys(log.variantSurfaces[0].surfaceSet.variants)).toEqual([
+      'pial',
+      'white',
+      'inflated',
+    ]);
+    view.rerender(canvas(display('inflated')));
+    await act(async () => {});
+    expect(log.setVariant.map((call) => call.name)).toEqual(['inflated']);
+  });
+
+  it('draws a lone mesh as a plain surface and remounts it once it has a family', async () => {
+    const lone: SurfaceRenderable = {
+      handle: 'lh',
+      visible: true,
+      geometry: { vertices: PIAL, faces: FACES, hemisphere: 'left' },
+      layers: [],
+    };
+    const view = render(canvas(lone));
+    await act(async () => {});
+    expect(log.plainSurfaces).toBe(1);
+    view.rerender(canvas(display('pial')));
+    await act(async () => {});
+    expect(log.variantSurfaces).toHaveLength(1);
+    expect(log.added).toEqual(['lh', 'lh']);
+  });
+});

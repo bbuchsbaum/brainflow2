@@ -7,6 +7,7 @@
 
 import { getTransport } from './transport';
 import { sampleVolumeLabels } from '@brainflow/visualization/surface/projection';
+import { anatomicalStandIn } from '@/components/views/surfaceFamilies';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 import { getEventBus } from '@/events/EventBus';
 import type { SurfaceDataLayer } from './SurfaceOverlayService';
@@ -456,6 +457,19 @@ export class VolumeSurfaceProjectionService {
     }
   ): Promise<SurfaceDataLayer> {
     const surfaceStore = useSurfaceStore.getState();
+    // An inflated or spherical mesh is not in the volume's space: sample at
+    // its folded sibling (same vertex numbering). The layer still belongs to
+    // the requested mesh and is drawn on every geometry of it.
+    const requested = surfaceStore.surfaces.get(surfaceId);
+    const standIn = requested
+      ? anatomicalStandIn(requested, surfaceStore.surfaces.values())
+      : undefined;
+    if (requested && !standIn) {
+      throw new Error(
+        `'${requested.name}' is an unfolded mesh: load its white or pial surface to project a volume onto it.`,
+      );
+    }
+    const sampleSurfaceId = standIn?.handle ?? surfaceId;
     const colormap = options?.colormap ?? 'viridis';
     const opacity = options?.opacity ?? 1.0;
     const selectionSurfaceViewId =
@@ -469,7 +483,7 @@ export class VolumeSurfaceProjectionService {
       debugLog('projectAndDisplay', 'Using GPU projection path', { volumeId, surfaceId });
 
       if (options.atlasPalette) {
-        const surface = surfaceStore.surfaces.get(surfaceId);
+        const surface = surfaceStore.surfaces.get(sampleSurfaceId);
         const vertices = surface?.geometry?.vertices;
 
         // Preferred categorical path: CPU-sample the atlas volume at the surface vertices.
@@ -555,7 +569,7 @@ export class VolumeSurfaceProjectionService {
 
         // Fallback categorical path: use backend sampler pipeline (requires no UI vertices).
         const sampler = await this.createSampler(
-          surfaceId,
+          sampleSurfaceId,
           volumeId,
           options.pialSurfaceId,
           options.params
@@ -736,7 +750,7 @@ export class VolumeSurfaceProjectionService {
     // CPU path: Compute per-vertex values on backend
     const result = await this.projectVolumeToSurface(
       volumeId,
-      surfaceId,
+      sampleSurfaceId,
       options?.pialSurfaceId,
       options?.params,
       options?.timepoint
