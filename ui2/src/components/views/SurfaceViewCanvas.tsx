@@ -6,6 +6,7 @@
  */
 
 import { resolveCursorAnatomy } from './surfaceLink';
+import type { SurfaceDisplay } from './surfaceFamilies';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LoadedSurface } from '@/stores/surfaceStore';
 import {
@@ -99,9 +100,14 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
   const handleSurfacePick = useCallback((world: [number, number, number], picked?: { handle: string; vertex: number }) => {
     if (!world.every(Number.isFinite)) return;
     markActive();
-    useSurfaceStore.getState().setPickedVertex(picked ? { surfaceId: picked.handle, vertex: picked.vertex, world } : null);
+    // A geometry family draws under its first handle: credit the mesh shown.
+    const shown = picked
+      ? (renderSurfaces as SurfaceDisplay[] | undefined)?.find((item) => item.handle === picked.handle)
+          ?.shownHandle ?? picked.handle
+      : null;
+    useSurfaceStore.getState().setPickedVertex(picked && shown ? { surfaceId: shown, vertex: picked.vertex, world } : null);
     void useViewStateStore.getState().setCrosshair(world, true);
-  }, [markActive]);
+  }, [markActive, renderSurfaces]);
 
   const surfacesToRender = useMemo(() => {
     const candidateSurfaces = renderSurfaces ?? [surface];

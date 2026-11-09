@@ -23,6 +23,12 @@ export interface SurfaceRenderableLayer {
   volumeData?: ArrayBuffer;
   volumeDims?: [number, number, number];
   affineMatrix?: Float32Array;
+  /**
+   * Anatomical positions, in the drawn mesh's vertex order, to sample a
+   * volume layer at instead of the drawn positions: set while an inflated or
+   * spherical embedding is shown (surfview's ribbon projection, one sample).
+   */
+  samplingPositions?: Float32Array;
 }
 
 export interface SurfaceRenderable {
@@ -38,6 +44,15 @@ export interface SurfaceRenderable {
    * computed from the matching folded mesh. Null/absent: plain base colour.
    */
   curvature?: Float32Array | null;
+  /**
+   * Same-topology embeddings of this mesh (pial, white, inflated, sphere…)
+   * keyed by name, sharing `geometry.faces`. With `variant` set,
+   * `geometry.vertices` is `variants[variant]`, and a new `variant` morphs
+   * the drawn mesh (surfview `VariantSurface`) instead of rebuilding it.
+   */
+  variants?: Readonly<Record<string, Float32Array>>;
+  /** The embedding drawn; see `variants`. */
+  variant?: string;
 }
 
 export interface SurfaceLightingSettings {
@@ -122,6 +137,12 @@ export interface RenderableLayerSpec {
   volumeData?: ArrayBuffer;
   volumeDims?: [number, number, number];
   affineMatrix?: Float32Array;
+  /**
+   * Anatomical positions, in the drawn mesh's vertex order, to sample a
+   * volume layer at instead of the drawn positions: set while an inflated or
+   * spherical embedding is shown (surfview's ribbon projection, one sample).
+   */
+  samplingPositions?: Float32Array;
 }
 
 export interface SurfaceReconciliationPlan {
@@ -267,6 +288,11 @@ export interface NeuroSurfaceCanvasProps {
   onExporterChange?: (exporter: SurfaceCanvasExporter | null) => void;
   /** The camera's screen basis whenever it changes (orientation glyph, D5). */
   onCameraChange?: (basis: SurfaceCameraBasis) => void;
+  /**
+   * Length of the morph when a surface's `variant` changes (ms). 0 switches
+   * at once. Default 600.
+   */
+  morphDurationMs?: number;
   /**
    * Bump to re-apply `viewpoint` even when its value is unchanged (the preset
    * pressed again after an orbit). The viewpoint is also re-applied after the

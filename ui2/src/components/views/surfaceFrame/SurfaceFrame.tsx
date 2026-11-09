@@ -6,6 +6,8 @@
  *   lh.sensorimotor.func.gii", with the vertex count as a mono disclosure
  *   that opens faces and the mesh path. Replaces the boxed info card.
  * - Camera presets (top-right): L M D V A P, the slice frame's corner slot.
+ * - Geometry (under the presets): Pial / White / Inflated… when the scene
+ *   holds several geometries of a hemisphere; a choice morphs the mesh.
  * - Colorbar (right edge): the visible data overlay's colormap, window,
  *   threshold and statistic caption, the slice panes' ViewportColorbar.
  *
@@ -25,6 +27,15 @@ import { shortLayerLabel } from '../viewportFrame/frameFormat';
 import { OrientationGizmo } from './OrientationGizmo';
 import { useSurfaceCameraStore } from '@/stores/surfaceCameraStore';
 import { resolvePresetHemispheres, surfaceHemisphere } from '@brainflow/visualization/surface/hemisphere';
+import {
+  anatomicalStandIn,
+  geometryChoices,
+  geometryLabel,
+  type SurfaceDisplay,
+} from '../surfaceFamilies';
+import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
+import { surfaceGroupKey } from '@/utils/surfaceIdentity';
+import { surfaceGeometryType } from '../surfaceLink';
 
 // Full words where they fit ("L" means left elsewhere in the app); in a
 // narrow pane single letters, the full word in the tooltip and accessible
@@ -55,6 +66,17 @@ export interface SurfaceFrameProps {
   /** Surfaces actually drawn in the view; the header names both hemispheres when both show. */
   renderSurfaces?: LoadedSurface[];
 }
+
+/** The drawn display standing for `surface` (its family's mesh), if any. */
+function drawnDisplayFor(
+  surface: LoadedSurface,
+  renderSurfaces: readonly SurfaceDisplay[] | undefined,
+): SurfaceDisplay | undefined {
+  return renderSurfaces?.find(
+    (item) => item.handle === surface.handle || item.memberHandles?.includes(surface.handle),
+  );
+}
+
 
 function lateralHemisphereOf(surface: LoadedSurface): 'left' | 'right' | null {
   const token = String(surface.metadata.hemisphere ?? surface.geometry.hemisphere ?? '').toLowerCase();
@@ -97,6 +119,9 @@ export function SurfaceFrame({
     getSurfaceViewpointForId(s.surfaceViewViewpoints, surfaceViewId),
   );
   const setViewpoint = useSurfaceStore((s) => s.setViewpoint);
+  const surfaces = useSurfaceStore((s) => s.surfaces);
+  const sceneKey = surfaceGroupKey(surface.metadata.path);
+  const surfaceSet = useSurfaceStore((s) => (sceneKey ? s.surfaceSets.get(sceneKey) : undefined));
   const reapplyViewpoint = useSurfaceStore((s) => s.reapplyViewpoint);
   const [open, setOpen] = useState(false);
   const narrow = width < SURFACE_FRAME_NARROW_PX;
@@ -129,11 +154,43 @@ export function SurfaceFrame({
   }, [narrow]);
   const headerMaxWidth = Math.max(80, width - presetsWidth - FRAME_GAP_PX - 12);
   const bottomBand = Math.max(120, Math.round(height * 0.3));
-  const colorbar = useMemo(() => surfaceColorbarLayer(surface), [surface]);
+  // The drawn mesh's geometry and overlays (a family carries the overlays of
+  // every geometry), not only the selected file's.
+  const displays = renderSurfaces as SurfaceDisplay[] | undefined;
+  const drawn = drawnDisplayFor(surface, displays);
+  const colorbar = useMemo(() => surfaceColorbarLayer(drawn ?? surface), [drawn, surface]);
   const overlayName = colorbar?.name ?? null;
-  const parts = ['Surface', sceneHemisphereLabel(surface, renderSurfaces, viewpoint), surface.metadata.surfaceType].filter(
+  const drawnGeometry = drawn?.variant ?? surfaceGeometryType(surface) ?? surface.metadata.surfaceType;
+  const parts = ['Surface', sceneHemisphereLabel(surface, renderSurfaces, viewpoint), drawnGeometry].filter(
     Boolean,
   ) as string[];
+  // Geometries drawn or on offer (its set on disk / from its template).
+  const choices = useMemo(() => {
+    const loadedPaths = new Set([...surfaces.values()].map((s) => s.metadata.path));
+    return geometryChoices(displays ?? [surface], surfaceSet ?? [], loadedPaths);
+  }, [displays, surface, surfaceSet, surfaces]);
+  const geometryOptions = useMemo(
+    () =>
+      choices.map(({ geometry, toLoad, compute }) => ({
+        value: geometry,
+        label: geometryLabel(geometry),
+        title: compute
+          ? `Compute an inflated surface from the folded one and show it`
+          : toLoad.length > 0
+            ? `Load and show the ${geometry.replace('_', ' ')} surface`
+            : `Show the ${geometry.replace('_', ' ')} surface`,
+      })),
+    [choices],
+  );
+  const showGeometry = choices.length > 1 && !!surfaceViewId;
+  // The mesh drawn for the selected surface's hemisphere (the view may show
+  // another geometry of it): the details name that file.
+  const shownSurface = (drawn?.shownHandle ? surfaces.get(drawn.shownHandle) : undefined) ?? surface;
+  // Members of the set not loaded yet, both hemispheres (the full set).
+  const unloadedSet = useMemo(() => {
+    const loadedPaths = new Set([...surfaces.values()].map((s) => s.metadata.path));
+    return (surfaceSet ?? []).filter((member) => !loadedPaths.has(member.path));
+  }, [surfaceSet, surfaces]);
 
   return (
     <div className="pointer-events-none absolute inset-0" data-testid="surface-frame">
@@ -150,8 +207,8 @@ export function SurfaceFrame({
               {shortLayerLabel(overlayName)}
             </span>
           ) : (
-            <span className="min-w-0 truncate text-bf-text-muted" title={surface.name}>
-              {shortLayerLabel(surface.name)}
+            <span className="min-w-0 truncate text-bf-text-muted" title={shownSurface.name}>
+              {shortLayerLabel(shownSurface.name)}
             </span>
           )}
           <button
@@ -168,14 +225,25 @@ export function SurfaceFrame({
         {open ? (
           <dl className="grid grid-cols-[auto_1fr] gap-x-2 pb-0.5 font-mono text-bf-2xs text-bf-text-muted">
             <dt className="font-sans">Mesh</dt>
-            <dd className="truncate" title={surface.metadata.path}>
-              {surface.name}
+            <dd className="truncate" title={shownSurface.metadata.path}>
+              {shownSurface.name}
             </dd>
             <dt className="font-sans">Vertices</dt>
             <dd>{surface.metadata.vertexCount.toLocaleString()}</dd>
             <dt className="font-sans">Faces</dt>
             <dd>{surface.metadata.faceCount.toLocaleString()}</dd>
           </dl>
+        ) : null}
+        {open && unloadedSet.length > 0 ? (
+          <button
+            type="button"
+            className="pointer-events-auto mb-0.5 self-start rounded-bf-xs text-bf-2xs text-bf-text-secondary underline-offset-2 hover:text-bf-text-primary hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring"
+            onClick={() => void getSurfaceLoadingService().loadSurfaceSetMembers(unloadedSet)}
+            data-testid="surface-frame-load-set"
+            title={unloadedSet.map((m) => m.path.split('/').pop()).join('\n')}
+          >
+            Load the full set ({unloadedSet.length} more)
+          </button>
         ) : null}
       </div>
 
@@ -203,6 +271,33 @@ export function SurfaceFrame({
           onReselect={() => reapplyViewpoint(surfaceViewId)}
           data-testid="surface-camera-presets"
         />
+        {showGeometry ? (
+          <div className="mt-1 flex justify-end">
+            <SegmentedControl
+              aria-label="Geometry"
+              options={geometryOptions}
+              value={drawn?.variant ?? ''}
+              onValueChange={(g) => {
+                const choice = choices.find((c) => c.geometry === g);
+                // Computed inflation starts from each drawn hemisphere's folded mesh.
+                const inflateFrom = choice?.compute
+                  ? (displays ?? [surface])
+                      .map((d) => surfaces.get((d as SurfaceDisplay).shownHandle ?? d.handle))
+                      .map((s) => (s ? anatomicalStandIn(s, surfaces.values()) : null))
+                      .filter((s): s is LoadedSurface => !!s)
+                      .map((s) => s.handle)
+                  : [];
+                void getSurfaceLoadingService().showSurfaceGeometry(
+                  surfaceViewId!,
+                  g,
+                  choice?.toLoad,
+                  inflateFrom,
+                );
+              }}
+              data-testid="surface-geometry-switch"
+            />
+          </div>
+        ) : null}
       </div>
 
       {/* Overlay colorbar: right edge, the slice panes' component. */}
@@ -224,7 +319,7 @@ export function SurfaceFrame({
             layer={colorbar}
             width={width}
             height={height}
-            topReserve={topInset + 32}
+            topReserve={topInset + (showGeometry ? 60 : 32)}
             // Top-right under the camera presets, off the mesh.
             corner="top"
           />

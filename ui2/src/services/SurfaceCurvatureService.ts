@@ -63,8 +63,12 @@ export class SurfaceCurvatureService {
       // A file-backed underlay is final; a computed one may improve when a
       // folded mesh appears, so its key includes the candidate meshes.
       if (surface.curvatureSource?.kind === 'file') continue;
-      const folded = anatomicalMeshesFor(surface, all);
-      const key = `${surface.metadata.path}|${folded.length}`;
+      // A template registers its surface before the vertices arrive: wait
+      // for them (examining the empty mesh used to settle it for good, so a
+      // TemplateFlow mesh never got its folding underlay).
+      if (surface.geometry.vertices.length === 0 || surface.geometry.faces.length === 0) continue;
+      const folded = anatomicalMeshesFor(surface, all).filter((v) => v.length > 0);
+      const key = `${surface.metadata.path}|${surface.geometry.vertices.length}|${folded.length}`;
       if (this.examined.get(surface.handle) === key || this.inFlight.has(surface.handle)) continue;
       this.examined.set(surface.handle, key);
       void this.resolve(surface, folded);

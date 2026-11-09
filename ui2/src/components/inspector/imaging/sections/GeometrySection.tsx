@@ -12,6 +12,7 @@ import {
 import { useResolvedActiveSurfaceViewId } from '@/hooks/useResolvedActiveSurfaceViewId';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/shadcn/popover';
 import { SurfaceGeometryControls } from '@/components/panels/SurfaceGeometryControls';
+import { isAnatomical, surfaceGeometryType } from '@/components/views/surfaceLink';
 import {
   LIGHTING_PRESETS,
   MATERIAL_PRESETS,
@@ -53,11 +54,19 @@ function GeometrySectionBody({ surfaceId }: { surfaceId: string | null }) {
   const curvatureSource = useSurfaceStore((s) =>
     surfaceId ? (s.surfaces.get(surfaceId)?.curvatureSource ?? null) : null,
   );
+  // A folded mesh (white, pial…) computes its own sulcal depth on load; only
+  // an unfolded one alone has nothing to compute it from.
+  const folded = useSurfaceStore((s) => {
+    const surface = surfaceId ? s.surfaces.get(surfaceId) : undefined;
+    return surface ? isAnatomical(surface) || !surfaceGeometryType(surface) : false;
+  });
   const curvatureHint = !curvatureSource
-    ? 'Needs a sulc / curv file next to the mesh, or a matching white or pial surface'
+    ? folded
+      ? 'Computing sulcal depth from the mesh…'
+      : 'Load the white or pial surface of this mesh (or a sulc / curv file next to it)'
     : curvatureSource.kind === 'file'
       ? `From ${curvatureSource.path.split(/[\\/]/).pop()}`
-      : 'Sulcal depth from the matching folded surface';
+      : 'Sulcal depth computed from the folded surface';
   // Read from a representative view; writes broadcast to all (kept in sync).
   const readId = useResolvedActiveSurfaceViewId() ?? DEFAULT_SURFACE_VIEW_ID;
 

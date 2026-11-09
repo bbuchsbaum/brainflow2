@@ -194,13 +194,24 @@ describe('collectRenderSurfaces', () => {
       expect(result.map((item) => item.handle)).toEqual(['pial-lh', 'pial-rh']);
     });
 
-    it('stays pinned to its group even when the active anchor is in another group', () => {
-      // Globally-active surface is white, but this tab is pinned to pial.
+    it('shows the geometry selected within its scene', () => {
+      // Pial and white of one template share a scene: the selection picks the geometry.
       const result = collectRenderSurfaces(
         mixedGroups(),
         'white-lh',
         'templateflow://fsaverage_pial',
       );
+      expect(result.map((item) => item.handle)).toEqual(['white-lh', 'white-rh']);
+    });
+
+    it('stays pinned to its group even when the active anchor is in another group', () => {
+      const surfaces = mixedGroups();
+      surfaces.set(
+        'fs5-lh',
+        createSurface('fs5-lh', 'templateflow://fsaverage5_pial_left', 'left', 'pial'),
+      );
+      // Globally-active surface is another template; this tab is pinned to fsaverage.
+      const result = collectRenderSurfaces(surfaces, 'fs5-lh', 'templateflow://fsaverage_pial');
       expect(result.map((item) => item.handle)).toEqual(['pial-lh', 'pial-rh']);
     });
 
@@ -209,7 +220,7 @@ describe('collectRenderSurfaces', () => {
       // Tab pinned to a key no loaded surface carries (identity drift).
       const result = collectRenderSurfaces(
         mixedGroups(),
-        'white-lh',
+        'pial-rh',
         'templateflow://fsaverage5_pial',
         'pial-rh',
       );

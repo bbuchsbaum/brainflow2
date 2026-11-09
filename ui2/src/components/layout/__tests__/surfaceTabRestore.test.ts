@@ -64,13 +64,16 @@ describe('surface tab restore', () => {
     );
 
     const tabs = describeSurfaceTabs(root, surfaces);
+    // One scene holds every geometry of the template; keys saved with a
+    // geometry in them (older layouts) name that scene too.
+    const scene = [
+      'templateflow://fsaverage5_pial_left',
+      'templateflow://fsaverage5_pial_right',
+      'templateflow://fsaverage5_white_left',
+    ];
     expect(tabs.map((t) => [t.surfaceViewId, t.title, t.sources.map((s) => s.path)])).toEqual([
-      [
-        'sv-pial',
-        'fsaverage5_pial_left',
-        ['templateflow://fsaverage5_pial_left', 'templateflow://fsaverage5_pial_right'],
-      ],
-      ['sv-white', 'fsaverage5_white_left', ['templateflow://fsaverage5_white_left']],
+      ['sv-pial', 'fsaverage5_pial_left', scene],
+      ['sv-white', 'fsaverage5_white_left', scene],
     ]);
   });
 

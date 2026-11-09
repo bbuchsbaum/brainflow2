@@ -1,6 +1,8 @@
-# Track test data files using Git LFS
-test-data/unit/** filter=lfs diff=lfs merge=lfs -text
-test-data/overlays/** filter=lfs diff=lfs merge=lfs -text
+# Test fixtures are ordinary git blobs: CI does not fetch Git LFS objects and
+# the Rust/UI tests read these files directly. Keep their bytes exact (no
+# line-ending normalisation); do not route them through LFS.
+test-data/unit/** -text
+test-data/overlays/** -text
 
 # Ensure yaml manifest is treated as text
-test-data/refs/datasets.yaml text 
+test-data/refs/datasets.yaml text

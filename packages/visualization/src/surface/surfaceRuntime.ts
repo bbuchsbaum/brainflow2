@@ -25,6 +25,20 @@ function surfaceColormap(name = 'viridis'): string {
   return ['gray', 'grey', 'grays'].includes(name.toLowerCase()) ? 'greys' : name;
 }
 
+/**
+ * Where a volume layer samples: at `samplingPositions` (one-sample ribbon,
+ * the folded mesh standing in for an inflated one) or at the drawn vertices.
+ */
+function anatomicalSampling(spec: RenderableLayerSpec) {
+  const positions = spec.samplingPositions;
+  return positions
+    ? {
+        projectionMode: 'ribbon' as const,
+        ribbon: { pial: positions, white: positions, samples: 1 },
+      }
+    : { projectionMode: 'vertex' as const };
+}
+
 export function buildLayerInstance(
   spec: RenderableLayerSpec,
 ): DataLayer | RGBALayer | VolumeProjectionLayer {
@@ -47,6 +61,7 @@ export function buildLayerInstance(
           range: spec.range,
           threshold: spec.threshold,
           opacity: spec.opacity,
+          ...anatomicalSampling(spec),
         },
       );
     case 'data':
@@ -85,6 +100,7 @@ export function applyLayerUpdate(
         threshold: spec.threshold,
         affineMatrix: spec.affineMatrix,
         opacity: spec.opacity,
+        ...anatomicalSampling(spec),
       });
       return;
     case 'data':

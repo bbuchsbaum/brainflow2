@@ -72,7 +72,7 @@ describe('layoutService.ensureSurfaceView — scene reuse', () => {
     );
     expect(stack.contentItems).toHaveLength(1);
     expect(stack.contentItems[0].container.initialState.groupKey).toBe(
-      'templateflow://fsaverage_pial',
+      'templateflow://fsaverage_{geometry}',
     );
 
     layout.ensureSurfaceView(
@@ -97,7 +97,7 @@ describe('layoutService.ensureSurfaceView — scene reuse', () => {
     expect(stack.contentItems).toHaveLength(2);
   });
 
-  it('keeps distinct geometries in separate tabs', () => {
+  it('puts the geometries of one template in one tab (they morph there)', () => {
     const layout = getLayoutService();
     layout.ensureSurfaceView(
       'surface_template_fsaverage_white_L',
@@ -107,7 +107,35 @@ describe('layoutService.ensureSurfaceView — scene reuse', () => {
       'surface_template_fsaverage_pial_L',
       'templateflow://fsaverage_pial_left',
     );
+    expect(stack.contentItems).toHaveLength(1);
+  });
+
+  it('keeps different templates in separate tabs', () => {
+    const layout = getLayoutService();
+    layout.ensureSurfaceView(
+      'surface_template_fsaverage_pial_L',
+      'templateflow://fsaverage_pial_left',
+    );
+    layout.ensureSurfaceView(
+      'surface_template_fsaverage5_pial_L',
+      'templateflow://fsaverage5_pial_left',
+    );
     expect(stack.contentItems).toHaveLength(2);
+  });
+
+  it('matches a tab saved with a geometry-specific scene key', () => {
+    const layout = getLayoutService();
+    layout.ensureSurfaceView(
+      'surface_template_fsaverage_pial_L',
+      'templateflow://fsaverage_pial_left',
+    );
+    // A layout saved by an earlier version stored the geometry in the key.
+    stack.contentItems[0].container.initialState.groupKey = 'templateflow://fsaverage_pial';
+    layout.ensureSurfaceView(
+      'surface_template_fsaverage_inflated_L',
+      'templateflow://fsaverage_inflated_left',
+    );
+    expect(stack.contentItems).toHaveLength(1);
   });
 
   it('keeps local (ungroupable) surfaces one-tab-per-handle but reuses on reload', () => {

@@ -16,6 +16,16 @@ const scalar = (value: number) => new Float32Array(count).fill(value);
 // The affine maps sphere x coordinates to 0.25 +/- 0.0002 voxels.
 // The two x voxel values are 0 and 1, so linear sampling is approximately 0.25.
 const ramp = new Float32Array([0, 1, 0, 1, 0, 1, 0, 1]);
+// `?morph`: one mesh with two embeddings (a rippled "folded" sphere and a
+// larger smooth "inflated" one) for the geometry-morph check.
+const folded = new Float32Array(vertices);
+for (let i = 0; i < folded.length; i += 3) {
+  const [x, y, z] = [folded[i], folded[i + 1], folded[i + 2]];
+  const k = 1 + 0.12 * Math.sin(8 * Math.atan2(y, x)) * Math.cos(6 * z / 20);
+  folded.set([x * k, y * k, z * k], i);
+}
+const inflated = vertices.map((v) => v * 1.5);
+const morphVariants = { folded, inflated };
 
 
 export function Harness() {
@@ -35,11 +45,15 @@ export function Harness() {
   // The linked-cursor marker at the dorsal pole, i.e. the centre of the dorsal view.
   const [marker, setMarker] = useState(false);
   const [error, setError] = useState('');
+  const [variant, setVariant] = useState<'folded' | 'inflated'>('folded');
   const [exporter, setExporter] = useState<SurfaceCanvasExporter | null>(null);
   const onExporterChange = useCallback((next: SurfaceCanvasExporter | null) => setExporter(() => next), []);
   const onError = useCallback((e: unknown) => setError(String(e)), []);
   const onPick = useCallback((p: [number, number, number]) => setPick(JSON.stringify(p)), []);
   const surfaces = useMemo(() => {
+    if (params.has('morph')) {
+      return [{ handle: 'family', geometry: { vertices: morphVariants[variant], faces, hemisphere: 'left' }, layers: [{ id: 'overlay', values: scalar(value), colormap: 'viridis', range: [0, 1] as [number, number], threshold: [0, 0] as [number, number], opacity }], variants: morphVariants, variant }];
+    }
     if (rampMode !== 'off') {
       // Map the sphere's world x in [-20,20] to voxel x = .25 +/- .0002.
       // The x-ramp volume should therefore match an independent constant .25
@@ -52,7 +66,8 @@ export function Harness() {
       ? [{ id: 'overlay', rgba, opacity }]
       : [{ id: 'overlay', values: scalar(value), colormap: 'viridis', range: [0, 1], threshold: threshold ? [0, 1] : [0, 0], opacity }];
     return [{ handle: 'sphere', geometry: { vertices, faces, hemisphere: 'left' }, layers }];
-  }, [mode, value, threshold, opacity, rampMode, rampColormap]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, value, threshold, opacity, rampMode, rampColormap, variant]);
   // A figure pose with and without interaction markers (native check item 10).
   const capturePose = async (showMarker: boolean) => {
     if (!exporter?.capturePose) return;
@@ -114,10 +129,11 @@ export function Harness() {
     <button onClick={() => setMounted(v => !v)}>mount</button><button onClick={() => setSize(v => v === 400 ? 300 : 400)}>resize</button>
     <button onClick={() => setRampMode('scalar')}>ramp scalar</button><button onClick={() => setRampMode('volume')}>ramp volume</button><button onClick={() => setRampMode('zero')}>ramp zero</button>
     <button onClick={() => setMarker(v => !v)}>marker</button>
+    <button onClick={() => setVariant(v => v === 'folded' ? 'inflated' : 'folded')}>geometry</button>
     <button disabled={!exporter} onClick={exportImage}>export</button>
     <button disabled={!exporter} onClick={() => void capturePose(false)}>pose</button><button disabled={!exporter} onClick={() => void capturePose(true)}>pose with crosshair</button><button onClick={inspectRuntime}>inspect runtime</button>
   </div><div id="viewer" style={{ width: size, height: size }}>{mounted && <NeuroSurfaceCanvas surfaces={surfaces} width={size} height={size} viewpoint='dorsal' projectionSettings={{ useGPUProjection: rampMode === 'volume' }} materialSettings={{ ...DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, surfaceColor: color }} onExporterChange={onExporterChange} onError={onError} onSurfacePick={onPick} markerWorldPosition={marker ? [0, 0, 20] : undefined} />}</div>
-  <output id="runtime"/><output id="pose"/><output id="pixels"/><output id="pick">{pick}</output><output id="error">{error}</output></>;
+  <output id="runtime"/><output id="pose"/><output id="pixels"/><output id="pick">{pick}</output><output id="error">{error}</output><output id="variant">{variant}</output></>;
 }
 
 createRoot(document.getElementById('root')!).render(<Harness />);

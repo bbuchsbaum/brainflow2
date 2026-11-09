@@ -111,6 +111,28 @@ describe('SurfaceCurvatureService (D2: underlay sources)', () => {
     expect(Math.max(...values) - Math.min(...values)).toBeGreaterThan(0.1);
     service.stop();
   });
+
+  it('a template mesh (registered before its vertices) gets sulcal depth once they arrive', async () => {
+    invoke.mockRejectedValue(new Error('not found'));
+    const folded = foldedMesh();
+    const service = new SurfaceCurvatureService();
+    const empty = { vertices: new Float32Array(0), faces: new Uint32Array(0) };
+    const path = 'templateflow://fsaverage_white_left';
+    useSurfaceStore.setState({ surfaces: new Map([['tpl', surface('tpl', 'white', path, empty)]]) });
+    service.start();
+    await new Promise((r) => setTimeout(r, 20));
+    // The loader then fills in the geometry (setSurfaceGeometry).
+    useSurfaceStore.getState().setSurfaceGeometry('tpl', folded);
+    await vi.waitFor(
+      () => expect(useSurfaceStore.getState().surfaces.get('tpl')?.curvature).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    expect(useSurfaceStore.getState().surfaces.get('tpl')!.curvatureSource).toEqual({
+      kind: 'computed',
+      from: 'folded mesh',
+    });
+    service.stop();
+  });
 });
 
 describe('toBytes (review n5)', () => {
