@@ -180,17 +180,11 @@ impl ResidentTextureStore {
         let index = if let Some(&freed_index) = self.free_indices.last() {
             freed_index
         } else {
-            if self
+            if let Some(limit) = self
                 .resident_limit
-                .is_some_and(|limit| self.next_index >= limit)
+                .filter(|&limit| self.next_index >= limit)
             {
-                return Err(RenderLoopError::Internal {
-                    code: 6001,
-                    details: format!(
-                        "Maximum texture limit {} reached",
-                        self.resident_limit.unwrap()
-                    ),
-                });
+                return Err(RenderLoopError::ResidentSlotsFull { limit });
             }
             self.next_index
         };

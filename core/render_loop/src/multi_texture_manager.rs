@@ -614,6 +614,30 @@ mod tests {
         });
     }
 
+    /// The fixed-slot fallback reports exhaustion as its own typed error, so
+    /// the bridge can evict for it as it does for a budget refusal.
+    #[test]
+    fn full_fixed_slots_refuse_with_a_typed_error() {
+        pollster::block_on(async {
+            let (device, queue) = create_test_device().await;
+            let mut manager = MultiTextureManager::new(&device, &queue, 2);
+            let volume = create_test_pattern_volume();
+            for _ in 0..2 {
+                manager
+                    .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                    .expect("a free slot");
+            }
+            let error = manager
+                .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                .expect_err("both slots are taken");
+            assert!(
+                matches!(error, RenderLoopError::ResidentSlotsFull { limit: 2 }),
+                "{error:?}"
+            );
+            assert_eq!(error.to_string(), "Maximum texture limit 2 reached");
+        });
+    }
+
     #[test]
     fn failed_uploads_preserve_free_slots() {
         pollster::block_on(async {
