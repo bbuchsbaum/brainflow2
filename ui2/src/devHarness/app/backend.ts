@@ -740,7 +740,6 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       resident_texture_slots: layers.size,
       cached_image_slots: 0,
     }),
-    reclaim_cached_image_slots: () => ({ reclaimed: 0, free_texture_slots: Math.max(0, 16 - layers.size) }),
     // R5b residency demand: recorded with the backend's stale-epoch rule and
     // reported back; the harness has no budget, so nothing is ever refused.
     set_residency_demand: ({ frameId, demand }: { frameId: string; demand: HarnessFrameDemand }) => {
@@ -768,7 +767,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       residencySeq += 1;
       return {
         seq: residencySeq,
-        owner: 'ui',
+        owner: 'backend',
         budget_bytes: null,
         used_bytes: 0,
         binding_capacity: 13,

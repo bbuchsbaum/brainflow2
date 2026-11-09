@@ -224,12 +224,6 @@ export interface AtlasStats {
   drawTextureCapacity?: number;
 }
 
-/** Result of `reclaim_cached_image_slots`. */
-export interface ReclaimCachedSlotsResult {
-  reclaimed: number;
-  freeTextureSlots: number;
-}
-
 // Default filter for initializing the UI
 export const createDefaultAtlasFilter = (): AtlasFilter => ({
   show_favorites_only: false,

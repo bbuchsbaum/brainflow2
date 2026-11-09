@@ -1,19 +1,18 @@
 /**
- * R5c: when the residency report's owner is `backend`, the UI stops deciding
- * admission and eviction (docs/plans/gpu-residency-r5-plan-2026-11.md §11).
+ * R6: the backend owns admission and eviction; the UI follows its residency
+ * report (docs/plans/gpu-residency-r6-plan-2026-11.md).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResidencyLayerReport, ResidencyReport } from '@brainflow/api';
 import { MockTransport, getTransport } from '@/services/transport';
 import { useLayerStore } from '@/stores/layerStore';
 import {
-  backendOwnsResidency,
+  noteBackendRelease,
+  residencyFreed,
   resetResidencyAlertsForTests,
   useResidencyStore,
 } from '@/stores/residencyStore';
 import { getEventBus } from '@/events/EventBus';
-import { layerEvictionService } from '@/services/LayerEvictionService';
-import { ensureFrontWorkspaceResident } from '@/services/frontWorkspaceResidency';
 import { LayerGpuService } from '@/services/layer/LayerGpuService';
 
 const mock = () => getTransport() as MockTransport;
@@ -24,13 +23,13 @@ const calls = (command: string) =>
 
 let seq = 0;
 const report = (
-  owner: 'ui' | 'backend',
   layers: Partial<ResidencyLayerReport>[] = [],
+  usedBytes = 0,
 ): ResidencyReport => ({
   seq: ++seq,
-  owner,
+  owner: 'backend',
   budget_bytes: 1024,
-  used_bytes: 0,
+  used_bytes: usedBytes,
   binding_capacity: 13,
   undemanded_bytes: 0,
   layers: layers.map((layer) => ({
@@ -61,21 +60,69 @@ describe('backend residency owner', () => {
     mock().clearCallLog();
   });
 
-  it('syncs gpuResident from backend reports, never from a UI-owned one', () => {
+  it('syncs gpuResident from the report', () => {
     withLayers(['a', 'b'], true);
-    useResidencyStore.getState().apply(report('ui', [{ layer_id: 'a', state: 'evicted' }]));
-    expect(backendOwnsResidency()).toBe(false);
-    expect(metadata('a').gpuResident).toBe(true);
-
     useResidencyStore.getState().apply(
-      report('backend', [
+      report([
         { layer_id: 'a', state: 'evicted' },
         { layer_id: 'b', state: 'resident' },
       ]),
     );
-    expect(backendOwnsResidency()).toBe(true);
     expect(metadata('a')).toMatchObject({ gpuResident: false, evicted: true });
     expect(metadata('b').gpuResident).toBe(true);
+  });
+
+  // A layer the backend admits for a frame's demand changes nothing in the
+  // view state: the views that left it out must be told to draw again.
+  it('announces layer.gpu.ready once when the backend admits a layer', () => {
+    withLayers(['a'], false);
+    const ready: string[] = [];
+    const off = getEventBus().on('layer.gpu.ready', ({ layerId }) => ready.push(layerId));
+    const store = useResidencyStore.getState();
+    store.apply(report([{ layer_id: 'a', state: 'evicted' }]));
+    expect(ready).toEqual([]);
+    store.apply(report([{ layer_id: 'a', state: 'resident' }]));
+    store.apply(report([{ layer_id: 'a', state: 'resident' }]));
+    expect(ready).toEqual(['a']);
+    expect(metadata('a')).toMatchObject({ gpuResident: true, evicted: false });
+    off();
+  });
+
+  // A hidden layer is undemanded; the backend evicts it under pressure and
+  // stops listing it. Marked non-resident, a later show asks for it again.
+  it('marks a resident layer the report no longer lists as evicted', () => {
+    withLayers(['a', 'b', 'c'], true);
+    const store = useResidencyStore.getState();
+    // Before the renderer starts the report lists nothing: nothing changes.
+    store.apply({ ...report(), binding_capacity: 0 });
+    expect(metadata('a').gpuResident).toBe(true);
+    // 'b' is listed by the volume texture it shares.
+    store.apply(report([{ layer_id: 'a', state: 'undemanded', frames: [] }, { layer_id: 'vol-b' }]));
+    expect(metadata('a').gpuResident).toBe(true);
+    expect(metadata('b').gpuResident).toBe(true);
+    expect(metadata('c')).toMatchObject({ gpuResident: false, evicted: true });
+  });
+
+  it('marks a watchdog release non-resident, once, and ignores unknown layers', () => {
+    withLayers(['w'], true);
+    noteBackendRelease('w');
+    expect(metadata('w')).toMatchObject({ gpuResident: false, evicted: true });
+    const before = useLayerStore.getState().layerMetadata;
+    noteBackendRelease('w');
+    noteBackendRelease('unknown');
+    expect(useLayerStore.getState().layerMetadata).toBe(before);
+  });
+
+  it('residencyFreed: fewer bytes or fewer resident layers, in a newer report', () => {
+    const full = report([{ layer_id: 'a' }, { layer_id: 'b' }], 512);
+    const fewerBytes = report([{ layer_id: 'a' }, { layer_id: 'b' }], 256);
+    const fewerResident = report([{ layer_id: 'a' }, { layer_id: 'b', state: 'evicted' }], 512);
+    const more = report([{ layer_id: 'a' }, { layer_id: 'b' }, { layer_id: 'c' }], 768);
+    expect(residencyFreed(full, fewerBytes)).toBe(true);
+    expect(residencyFreed(full, fewerResident)).toBe(true);
+    expect(residencyFreed(full, more)).toBe(false);
+    expect(residencyFreed(fewerBytes, full)).toBe(false); // older
+    expect(residencyFreed(null, full)).toBe(false);
   });
 
   it('draw_cap_refusal_alerts_once_per_tab', () => {
@@ -86,7 +133,6 @@ describe('backend residency owner', () => {
     });
     const capped = (ids: string[], frame = 'tab') =>
       report(
-        'backend',
         ids.map((id) => ({
           layer_id: id,
           state: 'refused' as const,
@@ -103,7 +149,7 @@ describe('backend residency owner', () => {
     // the badge shows them, no new alert.
     store.apply(capped(['a', 'b']));
     store.apply(
-      report('backend', [
+      report([
         { layer_id: 'a', state: 'evicted', frames: ['tab'] },
         { layer_id: 'b', state: 'evicted', frames: ['tab'] },
       ]),
@@ -112,31 +158,14 @@ describe('backend residency owner', () => {
     expect(alerts).toHaveLength(1);
 
     // The tab closes; another tab over its cap alerts once, naming both.
-    store.apply(report('backend', []));
+    store.apply(report([]));
     store.apply(capped(['a', 'b'], 'other'));
     expect(alerts).toHaveLength(2);
     expect(alerts[1]).toBe('Layer a and 1 more are not drawn: a view draws at most 13 layers.');
     off();
   });
 
-  it('backend_owner_disables_ui_eviction_and_front_restore', async () => {
-    withLayers(['a', 'b'], true);
-    useResidencyStore.getState().apply(report('backend'));
-
-    await expect(layerEvictionService.makeRoomForUpload('b', { reserve: true })).resolves.toBe(
-      true,
-    );
-    await layerEvictionService.checkAndEvict();
-    await ensureFrontWorkspaceResident(() => true);
-
-    // No eviction, no stats round trip, no restore upload.
-    expect(calls('release_layer_gpu_resources')).toHaveLength(0);
-    expect(calls('get_atlas_stats')).toHaveLength(0);
-    expect(calls('request_layer_gpu_resources')).toHaveLength(0);
-  });
-
-  it('a budget refusal under a backend owner is final: the UI does not retry', async () => {
-    useResidencyStore.getState().apply(report('backend'));
+  it('a budget refusal is final: the UI does not evict or retry', async () => {
     const refusal = {
       GpuBudgetExceeded: { code: 6008, requested_bytes: 128, used_bytes: 256, budget_bytes: 256 },
     };

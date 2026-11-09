@@ -33,9 +33,7 @@ export function useSceneStack(): SceneStackGroups {
   const residency = useResidencyStore((state) => state.report);
   const notDrawn = useMemo(() => {
     const refused = new Map<string, ResidencyRefusal>();
-    // Only a backend owner (R5c) reports refusals the UI acts on.
-    if (residency?.owner !== 'backend') return refused;
-    for (const layer of residency.layers) {
+    for (const layer of residency?.layers ?? []) {
       if (layer.state === 'refused' && layer.refusal) refused.set(layer.layer_id, layer.refusal);
     }
     return refused;

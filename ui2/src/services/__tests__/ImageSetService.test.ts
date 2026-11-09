@@ -18,14 +18,6 @@ const m = vi.hoisted(() => ({
 vi.mock('../apiService', () => ({ getApiService: () => m.api }));
 vi.mock('@/events/EventBus', () => ({ getEventBus: () => m.event }));
 vi.mock('../HistogramService', () => ({ histogramService: m.histogram }));
-vi.mock('../LayerEvictionService', () => ({
-  layerEvictionService: {
-    touchLayer: vi.fn(),
-    checkAndEvict: vi.fn().mockResolvedValue(undefined),
-    makeRoomForUpload: vi.fn().mockResolvedValue(undefined),
-    releaseReservation: vi.fn(),
-  },
-}));
 vi.mock('@/stores/fileBrowserStore', () => ({
   useFileBrowserStore: { getState: () => ({ markFourD: vi.fn() }) },
 }));

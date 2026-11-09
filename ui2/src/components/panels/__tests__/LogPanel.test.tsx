@@ -159,7 +159,7 @@ describe('LogService — EventBus handshake', () => {
     expect(entries[1].message).toMatch(/parse failure/);
   });
 
-  it('records surface load events and atlas evictions', () => {
+  it('records surface load events and atlas pressure', () => {
     bootstrapLogService();
     const bus = getEventBus();
 
@@ -169,11 +169,11 @@ describe('LogService — EventBus handshake', () => {
         filename: 'lh.pial.gii',
         handle: 'srf-abcdef1234567890',
       });
-      bus.emit('atlas.eviction', {
-        layerId: null,
-        stats: null,
+      bus.emit('atlas.pressure', {
+        level: 'warning',
+        stats: null as never,
         timestamp: Date.now(),
-        reason: 'auto',
+        reason: 'low-watermark',
       });
     });
 

@@ -27,10 +27,14 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import type { ViewPlane } from '@/types/coordinates';
 import { buildActiveCrosshairStyle } from '@/utils/crosshairUtils';
 import { getEventBus } from '@/events/EventBus';
+import { residencyFreed, useResidencyStore } from '@/stores/residencyStore';
 import { safeUnlisten } from '@/utils/eventUtils';
 
 /** How long a pane keeps its cached bitmap waiting for its anatomy on return (N29). */
 const ANATOMY_WAIT_MS = 1500;
+
+/** Shortest gap between two retries of a pane refused for want of GPU room. */
+const RETRY_INTERVAL_MS = 1000;
 
 /**
  * Body of a derived Compare pane (B–D): the materialized map itself, held
@@ -39,6 +43,7 @@ const ANATOMY_WAIT_MS = 1500;
  * Studio's workspace and draws only while that workspace is in front. The pane
  * header carries status and provenance; the cache path is never shown (QA F8).
  */
+
 export function StudioDerivedPaneCanvas({
   paneId,
   sourcePath,
@@ -67,17 +72,17 @@ export function StudioDerivedPaneCanvas({
   // re-entering acquires it again (review M1).
   const [map, setMap] = useState<StudioDerivedMap | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  // A map refused for want of a GPU slot is asked for again when slots are
-  // freed (N32): bumping these re-runs the acquiring effects. Returning to
+  // A map refused for want of GPU room is asked for again when the residency
+  // report shows room freed (N32): bumping these re-runs the acquiring effects. Returning to
   // the Studio tab re-acquires too (studioActive).
   const [mapAttempt, setMapAttempt] = useState(0);
   const [anatomyAttempt, setAnatomyAttempt] = useState(0);
   const [, setWaitingForSlots] = useState(false);
   const [, setAnatomyWaiting] = useState(false);
-  // Keep the slots-freed listener live from the initial layout commit.  A
+  // Keep the residency listener live from the initial layout commit.  A
   // rejected promise can update the error DOM before a conditional passive
-  // effect has subscribed; these refs make that event retry the next acquire
-  // rather than losing the only release notification.
+  // effect has subscribed; these refs make that report retry the next acquire
+  // rather than losing the only notice of freed room.
   const waitingForSlotsRef = useRef(false);
   const anatomyWaitingRef = useRef(false);
   useEffect(() => {
@@ -147,16 +152,32 @@ export function StudioDerivedPaneCanvas({
   }, [underlayPath, studioActive, paneId, anatomyAttempt]);
 
   // Subscribe before promise effects can report pressure.  The refs are set
-  // synchronously with the failure, so a capacity event immediately after
+  // synchronously with the failure, so a report that frees room right after
   // the error is not lost waiting for another render's passive effect.
+  // Reports can free a little room every tick (4D ring members cycling), so
+  // a refused pane asks again at most once per RETRY_INTERVAL_MS, and once
+  // more after it when room was freed in between.
   useLayoutEffect(() => {
     if (!studioActive) return;
-    const off = getEventBus().on('gpu.slots.freed', () => {
+    let last = -Infinity;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const retry = () => {
+      timer = null;
+      last = Date.now();
       if (waitingForSlotsRef.current) setMapAttempt((n) => n + 1);
       if (anatomyWaitingRef.current) setAnatomyAttempt((n) => n + 1);
+    };
+    const off = useResidencyStore.subscribe((state, prev) => {
+      if (!residencyFreed(prev.report, state.report)) return;
+      if (!waitingForSlotsRef.current && !anatomyWaitingRef.current) return;
+      if (timer !== null) return;
+      const wait = last + RETRY_INTERVAL_MS - Date.now();
+      if (wait <= 0) retry();
+      else timer = setTimeout(retry, wait);
     });
     return () => {
-      void safeUnlisten(off);
+      off();
+      if (timer !== null) clearTimeout(timer);
     };
   }, [studioActive]);
 

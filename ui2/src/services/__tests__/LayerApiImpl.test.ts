@@ -2,7 +2,6 @@ import { moduleRegistry, type RegisteredLayerKind } from '@/modules/registry';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LayerApiImpl } from '@/services/LayerApiImpl';
 import { expectLandingFrame, forgetLandingFrame } from '@/services/landingFrames';
-import { GpuSlotsFullError } from '@/utils/formatTauriError';
 import { layerFrameBoxes } from '@/services/layerFrameBoxes';
 import { fitViewsToWorldBox, worldBoxFromViews } from '@/utils/worldFrame';
 import { useComparisonStore } from '@/stores/comparisonStore';
@@ -21,7 +20,6 @@ const {
   mockClearVolumeHandle,
   mockHistogramService,
   mockEventBus,
-  mockLayerEvictionService,
 } = vi.hoisted(() => ({
   mockApiService: {
     requestLayerGpuResources: vi.fn(),
@@ -68,12 +66,6 @@ const {
     emit: vi.fn(),
     on: vi.fn(() => () => {}),
   },
-  mockLayerEvictionService: {
-    touchLayer: vi.fn(),
-    checkAndEvict: vi.fn().mockResolvedValue(undefined),
-    makeRoomForUpload: vi.fn().mockResolvedValue(undefined),
-    releaseReservation: vi.fn(),
-  },
 }));
 
 vi.mock('@/services/apiService', () => ({
@@ -110,10 +102,6 @@ vi.mock('@/services/HistogramService', () => ({
 
 vi.mock('@/events/EventBus', () => ({
   getEventBus: () => mockEventBus,
-}));
-
-vi.mock('@/services/LayerEvictionService', () => ({
-  layerEvictionService: mockLayerEvictionService,
 }));
 
 /** Private LayerApiImpl paths the native-round tests drive directly. */
@@ -293,13 +281,10 @@ describe('LayerApiImpl', () => {
     expect(mockApiService.waitForLayerReady).not.toHaveBeenCalled();
     expect(mockHistogramService.computeHistogram).not.toHaveBeenCalled();
     expect(mockLayerStoreState.layerMetadata.get('vol-hidden')?.gpuResident).toBe(false);
-    expect(mockLayerEvictionService.touchLayer).not.toHaveBeenCalled();
-    expect(mockLayerEvictionService.checkAndEvict).not.toHaveBeenCalled();
-    // Metadata only: no texture slot, nothing to make room for.
-    expect(mockLayerEvictionService.makeRoomForUpload).not.toHaveBeenCalled();
   });
 
-  it('checks eviction budget after adding an initially visible layer', async () => {
+  // R6: the backend makes room for the upload; the UI asks once, directly.
+  it('uploads an initially visible layer in one request', async () => {
     const api = new LayerApiImpl();
 
     await api.addLayer({
@@ -310,19 +295,18 @@ describe('LayerApiImpl', () => {
       order: 0,
     });
 
-    expect(mockLayerEvictionService.touchLayer).toHaveBeenCalledWith('vol-visible');
-    expect(mockLayerEvictionService.checkAndEvict).toHaveBeenCalledTimes(1);
-    // Review H3: a slot is freed BEFORE the upload (the backend refuses it
-    // once all are taken), not only checked after.
-    expect(mockLayerEvictionService.makeRoomForUpload).toHaveBeenCalledWith('vol-visible');
-    expect(mockLayerEvictionService.makeRoomForUpload.mock.invocationCallOrder[0]).toBeLessThan(
-      mockApiService.requestLayerGpuResources.mock.invocationCallOrder[0],
+    expect(mockApiService.requestLayerGpuResources).toHaveBeenCalledTimes(1);
+    expect(mockApiService.requestLayerGpuResources).toHaveBeenCalledWith(
+      'vol-visible',
+      'vol-visible',
+      false,
+      expect.objectContaining({ isOperationValid: expect.any(Function) }),
     );
   });
 
-  // Review 1: after a tab switch a frame can allocate an evicted visible layer
-  // on demand before the front-tab re-upload asks. The layer is adopted as
-  // resident: no eviction for it, no failed request, no layer error.
+  // Review 1: after a tab switch a frame admits an evicted visible layer on
+  // demand before the UI's own request. The layer is adopted as resident: no
+  // failed request, no layer error.
   describe('a layer the backend already holds', () => {
     const evictedLayer = () => {
       mockLayerStoreState.getLayer.mockReturnValue({
@@ -335,11 +319,10 @@ describe('LayerApiImpl', () => {
       mockLayerStoreState.layerMetadata.set('layer-1', { gpuResident: false, evicted: true, dimensions: [16, 16, 16] });
     };
 
-    it('is adopted before any eviction or request', async () => {
+    it('is adopted before any request', async () => {
       evictedLayer();
       mockApiService.isLayerGpuResident.mockResolvedValue(true);
       await new LayerApiImpl().loadLayerData('layer-1');
-      expect(mockLayerEvictionService.makeRoomForUpload).not.toHaveBeenCalled();
       expect(mockApiService.requestLayerGpuResources).not.toHaveBeenCalled();
       expect(mockLayerStoreState.layerMetadata.get('layer-1')).toMatchObject({
         gpuResident: true,
@@ -359,7 +342,6 @@ describe('LayerApiImpl', () => {
       });
       await expect(new LayerApiImpl().loadLayerData('layer-1')).resolves.toBeUndefined();
       expect(mockLayerStoreState.layerMetadata.get('layer-1')?.gpuResident).toBe(true);
-      expect(mockLayerEvictionService.releaseReservation).toHaveBeenCalledWith('layer-1');
     });
 
     it('still fails a 1006 the backend does not confirm', async () => {
@@ -402,30 +384,26 @@ describe('LayerApiImpl', () => {
     );
     expect(mockApiService.waitForLayerReady).toHaveBeenCalledWith('layer-1', 500, 20);
     expect(mockLayerStoreState.layerMetadata.get('layer-1')?.gpuResident).toBe(true);
-    expect(mockLayerEvictionService.touchLayer).toHaveBeenCalledWith('layer-1');
-    expect(mockLayerEvictionService.checkAndEvict).toHaveBeenCalledTimes(1);
-    expect(mockLayerEvictionService.makeRoomForUpload).toHaveBeenCalledWith('layer-1', { reserve: true });
-    expect(mockLayerEvictionService.releaseReservation).toHaveBeenCalledWith('layer-1');
-    expect(mockLayerEvictionService.makeRoomForUpload.mock.invocationCallOrder[0]).toBeLessThan(
-      mockApiService.requestLayerGpuResources.mock.invocationCallOrder[0],
-    );
   });
 
-  // QA 2026-10-31 N18: with every slot holding a shown layer, a released
-  // layer's show is refused before the backend is asked (the texture slots
-  // outnumber the render cap, so the upload could succeed and every frame
-  // then fail).
-  it('refuses to re-show a released layer when no GPU slot can be freed', async () => {
+  // R6: the backend refuses a show it cannot make room for (every slot or
+  // byte held by shown or pinned layers); the show fails and nothing is drawn.
+  it('a re-show the backend refuses rejects and leaves the layer non-resident', async () => {
     const api = new LayerApiImpl();
     mockLayerStoreState.getLayer.mockReturnValue({ id: 'layer-1', name: 'toy_t1w', volumeId: 'vol-1', visible: false, type: 'anatomical' });
     mockLayerStoreState.layerMetadata.set('layer-1', { gpuResident: false, evicted: true });
-    mockLayerEvictionService.makeRoomForUpload.mockResolvedValueOnce(false);
-    (mockLayerEvictionService as Record<string, unknown>).gpuTextureSlots = vi.fn().mockResolvedValue(8);
+    mockApiService.requestLayerGpuResources.mockRejectedValueOnce({
+      GpuError: {
+        code: 6024,
+        details:
+          'Could not allocate GPU resources for volume: Maximum texture limit 8 reached. Hide or remove a layer to free a texture slot.',
+      },
+    });
 
-    const show = api.updateLayer('layer-1', { visible: true });
-    await expect(show).rejects.toBeInstanceOf(GpuSlotsFullError);
-    await expect(show).rejects.toThrow('GPU texture slots full (all 8 in use)');
-    expect(mockApiService.requestLayerGpuResources).not.toHaveBeenCalled();
+    await expect(api.updateLayer('layer-1', { visible: true })).rejects.toMatchObject({
+      GpuError: { code: 6024 },
+    });
+    expect(mockApiService.requestLayerGpuResources).toHaveBeenCalledTimes(1);
     expect(mockApiService.patchLayer).not.toHaveBeenCalled();
     expect(mockLayerStoreState.layerMetadata.get('layer-1')?.gpuResident).toBe(false);
   });
@@ -481,8 +459,6 @@ describe('LayerApiImpl', () => {
       evicted: false,
     });
     expect(mockViewStateStoreState.setViewState).not.toHaveBeenCalled();
-    expect(mockLayerEvictionService.touchLayer).toHaveBeenCalledWith('layer-1');
-    expect(mockLayerEvictionService.checkAndEvict).toHaveBeenCalledTimes(1);
   });
 
   it('loadLayerData rejects unknown layer ids', async () => {

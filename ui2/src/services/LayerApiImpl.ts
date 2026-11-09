@@ -30,7 +30,6 @@ import {
   type IntensityRangeOptions,
 } from './IntensityRangeComputer';
 import { getEventBus } from '@/events/EventBus';
-import { layerEvictionService } from './LayerEvictionService';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { useInspectorSelectionStore, focusVolumeLayer } from '@/stores/inspectorSelectionStore';
 import { useComparisonStore } from '@/stores/comparisonStore';
@@ -39,7 +38,7 @@ import { useSeriesStore } from '@/stores/seriesStore';
 import { categoricalTypeFromData, layersOfView, planLayerPlacement, placementOrder } from './layerPlacement';
 import { releaseVolumeCaches } from './volumeCacheRelease';
 import { forgetPreservedDisplay, isLayerDisplayPreserved } from './restoredDisplay';
-import { GpuSlotsFullError, tauriErrorCode } from '@/utils/formatTauriError';
+import { tauriErrorCode } from '@/utils/formatTauriError';
 
 /** Bridge code: the layer already owns GPU resources (request_layer_gpu_resources). */
 const LAYER_ALREADY_RESIDENT = 1006;
@@ -102,11 +101,6 @@ export class LayerApiImpl implements LayerApi {
       gpuResident,
       evicted: gpuResident ? false : Boolean(existingMetadata.evicted),
     };
-  }
-
-  private async reconcileGpuResidency(layerId: string): Promise<void> {
-    layerEvictionService.touchLayer(layerId);
-    await layerEvictionService.checkAndEvict();
   }
 
   /**
@@ -179,11 +173,10 @@ export class LayerApiImpl implements LayerApi {
       return true;
     };
 
-    // A frame draws any visible layer, and allocates one the UI evicted on
-    // demand (a tab switch races the front-tab re-upload). Such a layer is
-    // resident already: adopt it instead of evicting for it and then failing
-    // with "already owns GPU resources", which left it marked non-resident
-    // and its slot unevictable.
+    // A frame admits any layer it demands, so a layer the backend evicted may
+    // be resident again before this request (a tab switch). Adopt it instead
+    // of asking again and failing with "already owns GPU resources", which
+    // left it marked non-resident.
     if (await this.backendHoldsLayer(id)) {
       if (await discardIfRemoved()) return;
       this.adoptResidentLayer(id);
@@ -191,65 +184,51 @@ export class LayerApiImpl implements LayerApi {
     }
     if (removed()) return;
 
-    // Free a texture slot first: the render loop refuses an upload once all
-    // are taken, so evicting afterwards is too late. With every slot holding
-    // a layer shown somewhere, refuse here: the texture slots can outnumber
-    // the render state's layer cap, so the backend may accept the upload and
-    // then fail every frame with one layer too many (QA 2026-10-31 N18).
-    // The slot is reserved until the layer is resident (or fails), so shows
-    // made together (Show all) do not all see the same free slot.
-    const room = await layerEvictionService.makeRoomForUpload(id, { reserve: true });
+    // The backend makes room for the upload under its residency policy, or
+    // refuses it (the caller undoes the show).
+    let gpuInfo;
     try {
+      gpuInfo = await this.apiService.requestLayerGpuResources(id, layer.volumeId, false, {
+        // This predicate belongs to the promotion operation: initial and
+        // Studio uploads may have no layer store entry yet.  It stays valid
+        // only for this removal sequence.
+        isOperationValid: () => !removed(),
+      });
+    } catch (error) {
       if (removed()) return;
-      if (room === false) {
-        throw new GpuSlotsFullError(await layerEvictionService.gpuTextureSlots());
+      // Allocated by a frame between the check above and this request.
+      if (tauriErrorCode(error) === LAYER_ALREADY_RESIDENT && (await this.backendHoldsLayer(id))) {
+        if (await discardIfRemoved()) return;
+        this.adoptResidentLayer(id);
+        return;
       }
-      let gpuInfo;
-      try {
-        gpuInfo = await this.apiService.requestLayerGpuResources(id, layer.volumeId, false, {
-          // This predicate belongs to the promotion operation, not to the
-          // eviction service: initial and Studio uploads may have no layer
-          // store entry yet.  It stays valid only for this removal sequence.
-          isOperationValid: () => !removed(),
-        });
-      } catch (error) {
-        if (removed()) return;
-        // Allocated by a frame between the check above and this request.
-        if (tauriErrorCode(error) === LAYER_ALREADY_RESIDENT && (await this.backendHoldsLayer(id))) {
-          if (await discardIfRemoved()) return;
-          this.adoptResidentLayer(id);
-          return;
-        }
-        throw error;
-      }
-      if (await discardIfRemoved()) return;
-
-      try {
-        const isReady = await this.apiService.waitForLayerReady(id, 500, 20);
-        if (!isReady) {
-          console.warn(`[LayerApiImpl] Backend readiness timed out for promoted layer ${id}`);
-        }
-      } catch (readinessError) {
-        console.warn(
-          `[LayerApiImpl] Readiness probe unavailable for promoted layer ${id}`,
-          readinessError,
-        );
-      }
-      if (await discardIfRemoved()) return;
-
-      const currentMetadata = useLayerStore.getState().getLayerMetadata(id) ?? existingMetadata;
-      const nextMetadata = this.buildLayerMetadata(
-        currentMetadata ?? {},
-        gpuInfo,
-        currentMetadata?.renderProps,
-        true,
-      );
-      useLayerStore.getState().setLayerMetadata(id, nextMetadata);
-      getEventBus().emit('layer.gpu.ready', { layerId: id });
-      this.refineDeferredIntensity(id, layer as Layer);
-    } finally {
-      layerEvictionService.releaseReservation(id);
+      throw error;
     }
+    if (await discardIfRemoved()) return;
+
+    try {
+      const isReady = await this.apiService.waitForLayerReady(id, 500, 20);
+      if (!isReady) {
+        console.warn(`[LayerApiImpl] Backend readiness timed out for promoted layer ${id}`);
+      }
+    } catch (readinessError) {
+      console.warn(
+        `[LayerApiImpl] Readiness probe unavailable for promoted layer ${id}`,
+        readinessError,
+      );
+    }
+    if (await discardIfRemoved()) return;
+
+    const currentMetadata = useLayerStore.getState().getLayerMetadata(id) ?? existingMetadata;
+    const nextMetadata = this.buildLayerMetadata(
+      currentMetadata ?? {},
+      gpuInfo,
+      currentMetadata?.renderProps,
+      true,
+    );
+    useLayerStore.getState().setLayerMetadata(id, nextMetadata);
+    getEventBus().emit('layer.gpu.ready', { layerId: id });
+    this.refineDeferredIntensity(id, layer as Layer);
   }
 
   private toViewLayer(layer: Layer): ViewLayer {
@@ -416,9 +395,6 @@ export class LayerApiImpl implements LayerApi {
     let frameGrid: VoxelGrid | null = null;
 
     try {
-      // A visible layer takes a texture slot: free one before the upload
-      // (the render loop refuses it once every slot is taken).
-      if (!metadataOnly) await layerEvictionService.makeRoomForUpload(newLayer.id);
       const gpuInfo = await this.apiService.requestLayerGpuResources(
         newLayer.id,
         newLayer.volumeId,
@@ -623,12 +599,6 @@ export class LayerApiImpl implements LayerApi {
           err,
         ),
       );
-    }
-
-    if (!metadataOnly) {
-      await this.reconcileGpuResidency(newLayer.id).catch((error) => {
-        console.warn('[LayerApiImpl] Post-load residency reconciliation failed:', error);
-      });
     }
 
     if (context?.replaceLayerId) {
@@ -1048,9 +1018,6 @@ export class LayerApiImpl implements LayerApi {
       if (!current()) return { id, ...updates } as Layer;
       // In the workspace toggled, though another tab may be in front by now.
       this.setViewLayerVisibility(id, updates.visible ?? true, options.workspaceId);
-      if (updates.visible) {
-        await this.reconcileGpuResidency(id);
-      }
     }
 
     // Return the updated layer (frontend manages the actual state)
@@ -1134,7 +1101,6 @@ export class LayerApiImpl implements LayerApi {
 
     layerDebugLog('Layer data request for:', id);
     await this.ensureGpuResidentForLayer(id);
-    await this.reconcileGpuResidency(id);
   }
 }
 

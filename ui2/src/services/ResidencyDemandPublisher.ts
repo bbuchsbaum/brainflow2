@@ -16,8 +16,8 @@
  * editable label, a segmentation document's images, a borrowed Studio
  * underlay) carry their pin; hidden pinned layers go in `held`.
  *
- * The UI still evicts (R5b records demand only). It never names slots,
- * bindings or texture indices. Each frame's epoch increases with every
+ * The backend admits and evicts from this demand (R6). The UI never names
+ * slots, bindings or texture indices. Each frame's epoch increases with every
  * message, so a late message never overrides a newer one.
  */
 

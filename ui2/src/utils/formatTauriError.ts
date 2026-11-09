@@ -127,7 +127,6 @@ const SLOTS_FULL = /maximum (?:texture limit|layer count)(?: (\d+))? (?:reached|
  * count when it names one (else 0): null when it is another error.
  */
 export function gpuTextureSlotsFullLimit(error: unknown): number | null {
-  if (error instanceof GpuSlotsFullError) return error.limit;
   const match = SLOTS_FULL.exec(formatTauriError(error));
   if (!match) return null;
   return match[1] ? Number(match[1]) : 0;
@@ -140,22 +139,8 @@ export function gpuTextureSlotsFullMessage(limit: number): string {
 }
 
 /**
- * A refusal raised before the backend is asked: the layer would need a GPU
- * slot and none can be freed (QA 2026-10-31 N18, re-showing a released layer
- * while every slot holds a visible one). Its message is the slots-full text.
- */
-export class GpuSlotsFullError extends Error {
-  readonly limit: number;
-  constructor(limit: number) {
-    super(gpuTextureSlotsFullMessage(limit));
-    this.name = 'GpuSlotsFullError';
-    this.limit = limit;
-  }
-}
-
-/**
- * What a show refused by the per-view draw cap tells the user: the frame
- * draws at most `cap` layers, whatever the GPU holds (one view, not the app).
+ * What a show refused by the per-view row cap tells the user, where the UI
+ * checks it itself (the browser host, which has no residency report).
  */
 export function drawCapMessage(cap: number): string {
   return `Only ${cap} layers can be drawn in one view. Hide a layer in this view, then show this one.`;

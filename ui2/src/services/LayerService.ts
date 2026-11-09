@@ -10,14 +10,17 @@ import {
   gpuTextureSlotsFullMessage,
   toError,
 } from '@/utils/formatTauriError';
-import { layerEvictionService } from './LayerEvictionService';
 import { noteUserVisibility } from '@/services/series/visibilityIntent';
 import type { EventBus } from '@/events/EventBus';
 import type { ViewState } from '@/types/viewState';
 import type { Layer, LayerRender } from '@/types/layers';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { useResidencyStore } from '@/stores/residencyStore';
 import { getSceneHistory } from './SceneHistoryService';
+
+/** Layer rows one view draws (the render state's cap), for hosts that send no residency report. */
+const UNREPORTED_DRAW_LAYER_CAP = 16;
 
 export interface LayerLoadContext {
   workspaceId: string;
@@ -194,18 +197,19 @@ export class LayerService {
     const front = target === views.activeWorkspaceKey;
     // A show made while undo / redo replays a step is not a new history step.
     const recorded = !getSceneHistory().isReplaying();
-    // One view draws at most the draw cap's layers. The cap is per view, not
-    // a residency budget: other tabs' layers do not count (gpu-residency plan).
-    if (visible) {
+    // On desktop the backend refuses a layer past a view's cap (`draw_cap`),
+    // badges its row and alerts once per tab (residencyStore). A host with
+    // no residency report (the browser host) refuses nothing and would fail
+    // every frame past the render state's row cap: refuse the show here.
+    if (visible && useResidencyStore.getState().report === null) {
       const viewState = views.getWorkspaceViewState?.(target) ?? views.viewState;
       const drawn = (viewState?.layers ?? []).filter((layer) => layer.visible && layer.id !== id);
       const alreadyShown = viewState?.layers?.some((layer) => layer.id === id && layer.visible);
-      const cap = layerEvictionService.drawLayerCap();
-      if (!alreadyShown && drawn.length >= cap) {
+      if (!alreadyShown && drawn.length >= UNREPORTED_DRAW_LAYER_CAP) {
         const name = useLayerStore.getState().getLayer(id)?.name ?? id;
         this.eventBus.emit('ui.notification', {
           type: 'error',
-          message: `Cannot show ${name}: ${drawCapMessage(cap)}`,
+          message: `Cannot show ${name}: ${drawCapMessage(UNREPORTED_DRAW_LAYER_CAP)}`,
           subject: name,
           alert: true,
           logSource: 'layer',

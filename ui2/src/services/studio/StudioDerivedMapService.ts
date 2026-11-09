@@ -29,7 +29,6 @@ import {
   formatTauriError,
   gpuBudgetExceeded,
   gpuBudgetExceededMessage,
-  GpuSlotsFullError,
   tauriErrorCode,
 } from '@/utils/formatTauriError';
 
@@ -106,7 +105,6 @@ export function isGpuTextureSlotsFull(error: unknown): boolean {
   // A request larger than the whole budget cannot be helped by a later slot
   // release.  It remains a friendly budget refusal, but is not retryable.
   if (budget) return budget.requestedBytes <= budget.budgetBytes;
-  if (error instanceof GpuSlotsFullError) return true;
   return /maximum texture limit \d+ reached/i.test(formatTauriError(error));
 }
 
@@ -128,18 +126,9 @@ export class StudioDerivedMapService {
   private readonly listeners = new Set<() => void>();
 
   private readonly backend: () => Backend;
-  /**
-   * Frees GPU room before a map takes a texture slot (LRU layer eviction);
-   * rejects with GpuSlotsFullError when no slot can be freed.
-   */
-  private readonly makeRoom: () => Promise<void>;
 
-  constructor(
-    backend: () => Backend = defaultBackend,
-    makeRoom: () => Promise<void> = () => Promise.resolve(),
-  ) {
+  constructor(backend: () => Backend = defaultBackend) {
     this.backend = backend;
-    this.makeRoom = makeRoom;
   }
 
   /** Hold the map at `sourcePath`, loading it if needed. */
@@ -293,13 +282,7 @@ export class StudioDerivedMapService {
     const layerId = `studio-derived-${this.nextId++}:${handle.id}`;
     let info: GpuInfo;
     try {
-      // This map is already counted (liveCount): evict a hidden layer if the
-      // budget is over, and refuse when none can go, as a layer's show is
-      // refused (QA 2026-10-31 N18 review). An eviction that fails otherwise
-      // still lets the backend decide.
-      await this.makeRoom().catch((error: unknown) => {
-        if (error instanceof GpuSlotsFullError) throw error;
-      });
+      // The backend makes room (or refuses) under its own residency policy.
       info = await backend.requestLayerGpuResources(layerId, handle.id, false, { isOperationValid });
     } catch (error) {
       await this.unload({ layerId, volumeId: handle.id }).catch(() => undefined);
@@ -384,16 +367,6 @@ function defaultBackend(): Backend {
 let instance: StudioDerivedMapService | null = null;
 
 export function getStudioDerivedMapService(): StudioDerivedMapService {
-  if (!instance)
-    instance = new StudioDerivedMapService(
-      defaultBackend,
-      () =>
-        import('@/services/LayerEvictionService').then(async (m) => {
-          const eviction = m.layerEvictionService;
-          if (!(await eviction.makeRoomForUpload(undefined, { counted: true }))) {
-            throw new GpuSlotsFullError(await eviction.gpuTextureSlots());
-          }
-        }),
-    );
+  if (!instance) instance = new StudioDerivedMapService(defaultBackend);
   return instance;
 }
