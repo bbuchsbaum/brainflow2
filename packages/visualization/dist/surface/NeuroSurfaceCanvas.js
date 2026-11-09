@@ -35,6 +35,27 @@ function setCenteredViewpoint(viewer, viewpoint, hemisphere) {
     }
     return viewer.fitToView ? viewer.fitToView({ padding: VIEW_FIT_PADDING }) : true;
 }
+/** Box centre and half-diagonal of xyz arrays (null when empty). */
+function boundsOf(arrays) {
+    const min = [Infinity, Infinity, Infinity];
+    const max = [-Infinity, -Infinity, -Infinity];
+    for (const a of arrays) {
+        for (let i = 0; i + 2 < a.length; i += 3) {
+            for (let k = 0; k < 3; k++) {
+                const v = a[i + k];
+                if (v < min[k])
+                    min[k] = v;
+                if (v > max[k])
+                    max[k] = v;
+            }
+        }
+    }
+    if (!Number.isFinite(min[0]))
+        return null;
+    const center = min.map((v, k) => (v + max[k]) / 2);
+    const radius = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2;
+    return radius > 0 ? { center, radius } : null;
+}
 /** Default length of a geometry morph (pial -> inflated), ms. */
 const DEFAULT_MORPH_DURATION_MS = 600;
 const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
@@ -177,6 +198,67 @@ function captureCamera(viewer) {
     const state = pose ? { ...pose, up: viewer?.camera?.up?.toArray(), zoom: viewer?.camera?.zoom ?? 1 } : null;
     return isSurfaceCameraState(state) ? state : null;
 }
+/**
+ * Follow a geometry morph for its duration: the camera keeps the scene framed
+ * as it grows or shrinks (target shifted with the scene's centre, distance /
+ * zoom scaled with its size, view direction kept), and the morphing meshes'
+ * normals are refreshed so the shading follows the shape (surfview
+ * recomputes them only when the morph ends). Returns a cancel function.
+ */
+function startMorphDriver(viewer, meshes, from, to, durationMs) {
+    const camera = viewer.camera;
+    const pose = viewer.getCameraState?.();
+    const scale = from && to ? to.radius / from.radius : 1;
+    const shift = from && to ? to.center.map((v, k) => v - from.center[k]) : [0, 0, 0];
+    const moveCamera = !!pose && !!viewer.setCameraState && !!camera &&
+        (Math.abs(scale - 1) > 0.03 || Math.hypot(shift[0], shift[1], shift[2]) > 0.02 * (from?.radius ?? 1));
+    const zoom0 = camera?.zoom ?? 1;
+    const up = camera?.up?.toArray?.();
+    const orthographic = !!camera?.isOrthographicCamera;
+    const placeCamera = (e) => {
+        if (!moveCamera || !pose)
+            return;
+        const k = 1 + (scale - 1) * e;
+        const target = pose.target.map((v, i) => v + shift[i] * e);
+        const offset = pose.position.map((v, i) => v - pose.target[i]);
+        const position = target.map((v, i) => v + offset[i] * (orthographic ? 1 : k));
+        viewer.setCameraState({
+            ...pose,
+            target,
+            position,
+            up: up ?? [0, 1, 0],
+            zoom: orthographic ? zoom0 / k : zoom0,
+        });
+    };
+    if (durationMs <= 0) {
+        placeCamera(1);
+        viewer.requestRender();
+        return () => { };
+    }
+    let frame = 0;
+    let tick = 0;
+    let cancelled = false;
+    const start = performance.now();
+    const step = (now) => {
+        if (cancelled)
+            return;
+        const t = Math.min(1, (now - start) / durationMs);
+        placeCamera(easeInOutCubic(t));
+        // Every other frame: a 160k-vertex mesh costs a few ms per refresh.
+        if (t < 1 && tick++ % 2 === 0) {
+            for (const surface of meshes)
+                surface.mesh?.geometry?.computeVertexNormals();
+        }
+        viewer.requestRender();
+        if (t < 1)
+            frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => {
+        cancelled = true;
+        cancelAnimationFrame(frame);
+    };
+}
 const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', viewHemisphere, showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, cursorAnatomy, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerSurfaceHandles, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onCameraChange, initialCameraState, onCameraStateChange, viewpointNonce, onError, onWarning, onSurfacePick, morphDurationMs = DEFAULT_MORPH_DURATION_MS, }) => {
     const containerRef = useRef(null);
     const viewerRef = useRef(null);
@@ -187,6 +269,8 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
     // and the listener on its morph's end.
     const variantSourcesRef = useRef(new Map());
     const variantListenersRef = useRef(new Map());
+    // The running morph's frame loop (camera and normals follow the shape).
+    const morphDriverRef = useRef(null);
     // Bumped when a morph ends: the linked-cursor marker re-reads the mesh.
     const [geometryEpoch, setGeometryEpoch] = useState(0);
     const morphDurationRef = useRef(morphDurationMs);
@@ -412,6 +496,8 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 viewerRef.current = null;
                 viewer.dispose();
             }
+            morphDriverRef.current?.();
+            morphDriverRef.current = null;
             variantListenersRef.current.forEach((unsubscribe) => unsubscribe());
             variantListenersRef.current.clear();
             variantSourcesRef.current.clear();
@@ -571,15 +657,8 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 variantListenersRef.current.set(handle, variantSurface.on('variant:changed', () => {
                     // Bounds (picking and fitting test them first) follow the new shape.
                     const meshGeometry = variantSurface.mesh?.geometry;
-                    const before = meshGeometry?.boundingSphere?.radius ?? 0;
                     meshGeometry?.computeBoundingBox();
                     meshGeometry?.computeBoundingSphere();
-                    const after = meshGeometry?.boundingSphere?.radius ?? 0;
-                    // A much larger (inflated) or smaller shape: refit the view along
-                    // the current direction so it is neither clipped nor tiny.
-                    if (before > 0 && after > 0 && (after > before * 1.1 || after < before * 0.75)) {
-                        viewerRef.current?.fitToView?.({ padding: VIEW_FIT_PADDING });
-                    }
                     const original = originalGeometryRef.current.get(handle);
                     if (original && smoothingRef.current > 0) {
                         applySmoothingToRenderedSurface(variantSurface, original, smoothingRef.current);
@@ -610,6 +689,15 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 applySmoothingToRenderedSurface(renderedSurface, original, displaySettings.smoothing);
             }
         };
+        // Meshes switching geometry this pass, for the camera / normals loop.
+        const morphing = [];
+        let morphAnimated = false;
+        const shapesBefore = new Map();
+        for (const [handle, input] of renderedSurfaceInputsRef.current) {
+            if (renderedSurfacesRef.current.get(handle)?.mesh?.visible !== false) {
+                shapesBefore.set(handle, input.geometry.vertices);
+            }
+        }
         try {
             let changed = false;
             let structuralChange = false;
@@ -661,12 +749,15 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                         if (item.variant === variantSurface.currentVariant()) {
                             variantSurface.currentVariantName = '';
                         }
+                        const animate = duration > 0 && smoothingRef.current === 0;
                         variantSurface.setVariant(item.variant, {
                             // Smoothing re-runs on the final shape: no morph of a smoothed mesh.
-                            animate: duration > 0 && smoothingRef.current === 0,
+                            animate,
                             duration,
                             ease: easeInOutCubic,
                         });
+                        morphing.push(variantSurface);
+                        morphAnimated ||= animate;
                         changed = true;
                     }
                 }
@@ -707,6 +798,16 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                 renderedSurfaceInputsRef.current.set(item.handle, item);
             }
             lastUseGPUProjectionRef.current = useGPUCompositing;
+            if (morphing.length > 0 && hasCenteredCamera.current) {
+                const shapesAfter = [];
+                for (const [handle, input] of renderedSurfaceInputsRef.current) {
+                    if (renderedSurfacesRef.current.get(handle)?.mesh?.visible !== false) {
+                        shapesAfter.push(input.geometry.vertices);
+                    }
+                }
+                morphDriverRef.current?.();
+                morphDriverRef.current = startMorphDriver(viewer, morphing, boundsOf([...shapesBefore.values()]), boundsOf(shapesAfter), morphAnimated ? Math.max(0, morphDurationRef.current) : 0);
+            }
             // A remounted mesh starts visible; re-apply the preset's hidden side.
             if (structuralChange) {
                 applyPresetVisibility(renderedSurfacesRef.current, renderedSurfaceInputsRef.current, hiddenHemisphereRef.current);

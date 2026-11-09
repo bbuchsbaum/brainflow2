@@ -12,7 +12,8 @@ import { Loader2, AlertCircle, X } from 'lucide-react';
 import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
 import { useResolvedSurfaceViewState } from '@/hooks/useSurfaceSelectionContext';
 import { collectRenderSurfaces } from './surfaceRenderSurfaces';
-import { buildSurfaceDisplays } from './surfaceFamilies';
+import { buildSurfaceDisplays, sceneTitle } from './surfaceFamilies';
+import { getLayoutService } from '@/services/layoutService';
 import { addLogEntry } from '@/stores/logStore';
 
 export interface SurfaceViewPanelProps {
@@ -213,6 +214,21 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
     () => buildSurfaceDisplays(chosenSurfaces, surfaces, viewGeometry),
     [chosenSurfaces, surfaces, viewGeometry],
   );
+
+  // The tab names the meshes drawn (a geometry switch renames it).
+  const drawnTitle = useMemo(
+    () =>
+      sceneTitle(
+        renderSurfaces.map(
+          (display) => (display.shownHandle ? surfaces.get(display.shownHandle) : display)?.name ?? '',
+        ),
+      ),
+    [renderSurfaces, surfaces],
+  );
+  useEffect(() => {
+    if (!surfaceHandle || !drawnTitle) return;
+    getLayoutService().setSurfaceViewTitle(resolvedSurfaceViewId, drawnTitle);
+  }, [drawnTitle, resolvedSurfaceViewId, surfaceHandle]);
 
   // A mounted canvas with nothing to draw is the black-tab signature; record it
   // once per occurrence so a tester can tell it from a GPU/context failure.

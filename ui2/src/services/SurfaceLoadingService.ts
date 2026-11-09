@@ -15,6 +15,7 @@ import { getLayoutService } from './layoutService';
 import { formatTauriError, toError, loadFailureMessage } from '@/utils/formatTauriError';
 import { normalizeSurfaceHemisphere, surfaceGroupKey } from '@/utils/surfaceIdentity';
 import { getFilesystemService } from './filesystem/FilesystemService';
+import { getSurfaceInflationService } from './SurfaceInflationService';
 import {
   directoryOf,
   surfaceSetFromListing,
@@ -682,9 +683,15 @@ export class SurfaceLoadingService {
     surfaceViewId: string,
     geometry: string,
     toLoad: readonly SurfaceSetMember[] = [],
+    /** Folded meshes to compute an inflated embedding from (none on offer). */
+    inflateFrom: readonly string[] = [],
   ): Promise<void> {
     useSurfaceStore.getState().setSurfaceViewGeometry(surfaceViewId, geometry);
     if (toLoad.length > 0) await this.loadSurfaceSetMembers(toLoad);
+    if (inflateFrom.length > 0) {
+      const inflation = getSurfaceInflationService();
+      await Promise.all(inflateFrom.map((handle) => inflation.ensureInflated(handle)));
+    }
   }
 
   private async loadSurfaceFromPath(path: string): Promise<LoadedSurface> {

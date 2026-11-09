@@ -27,7 +27,12 @@ import { shortLayerLabel } from '../viewportFrame/frameFormat';
 import { OrientationGizmo } from './OrientationGizmo';
 import { useSurfaceCameraStore } from '@/stores/surfaceCameraStore';
 import { resolvePresetHemispheres, surfaceHemisphere } from '@brainflow/visualization/surface/hemisphere';
-import { geometryChoices, geometryLabel, type SurfaceDisplay } from '../surfaceFamilies';
+import {
+  anatomicalStandIn,
+  geometryChoices,
+  geometryLabel,
+  type SurfaceDisplay,
+} from '../surfaceFamilies';
 import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
 import { surfaceGroupKey } from '@/utils/surfaceIdentity';
 import { surfaceGeometryType } from '../surfaceLink';
@@ -166,11 +171,12 @@ export function SurfaceFrame({
   }, [displays, surface, surfaceSet, surfaces]);
   const geometryOptions = useMemo(
     () =>
-      choices.map(({ geometry, toLoad }) => ({
+      choices.map(({ geometry, toLoad, compute }) => ({
         value: geometry,
         label: geometryLabel(geometry),
-        title:
-          toLoad.length > 0
+        title: compute
+          ? `Compute an inflated surface from the folded one and show it`
+          : toLoad.length > 0
             ? `Load and show the ${geometry.replace('_', ' ')} surface`
             : `Show the ${geometry.replace('_', ' ')} surface`,
       })),
@@ -271,13 +277,23 @@ export function SurfaceFrame({
               aria-label="Geometry"
               options={geometryOptions}
               value={drawn?.variant ?? ''}
-              onValueChange={(g) =>
+              onValueChange={(g) => {
+                const choice = choices.find((c) => c.geometry === g);
+                // Computed inflation starts from each drawn hemisphere's folded mesh.
+                const inflateFrom = choice?.compute
+                  ? (displays ?? [surface])
+                      .map((d) => surfaces.get((d as SurfaceDisplay).shownHandle ?? d.handle))
+                      .map((s) => (s ? anatomicalStandIn(s, surfaces.values()) : null))
+                      .filter((s): s is LoadedSurface => !!s)
+                      .map((s) => s.handle)
+                  : [];
                 void getSurfaceLoadingService().showSurfaceGeometry(
                   surfaceViewId!,
                   g,
-                  choices.find((c) => c.geometry === g)?.toLoad,
-                )
-              }
+                  choice?.toLoad,
+                  inflateFrom,
+                );
+              }}
               data-testid="surface-geometry-switch"
             />
           </div>

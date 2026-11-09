@@ -93,6 +93,12 @@ export interface LoadedSurface {
    */
   curvature?: Float32Array | null;
   curvatureSource?: { kind: 'file'; path: string } | { kind: 'computed'; from: string } | null;
+  /**
+   * Embeddings computed in the app from this (folded) mesh, by geometry
+   * name: an inflated mesh for a template that ships none. Same vertex
+   * numbering; drawn as further geometries of its family.
+   */
+  computedVariants?: Record<string, Float32Array>;
 }
 
 export interface SurfaceLightingSettings {
@@ -337,6 +343,8 @@ interface SurfaceState {
   setSurfaceVisibility: (surfaceId: string, visible: boolean) => void;
   removeSurface: (surfaceId: string) => void;
   setViewpoint: (viewpoint: string, surfaceViewId?: string) => void;
+  /** Attach an embedding computed from a mesh (see LoadedSurface.computedVariants). */
+  setSurfaceComputedVariant: (handle: string, name: string, vertices: Float32Array) => void;
   /** Attach (or clear) a surface's folding underlay values. */
   setSurfaceCurvature: (
     handle: string,
@@ -816,6 +824,19 @@ export const useSurfaceStore = create<SurfaceState>()(
           ),
           surfaceViewOwners: withEntry(state.surfaceViewOwners, surfaceViewId, undefined),
         }));
+      },
+
+      setSurfaceComputedVariant: (handle, name, vertices) => {
+        set((state) => {
+          const surface = state.surfaces.get(handle);
+          if (!surface || surface.computedVariants?.[name] === vertices) return state;
+          const surfaces = new Map(state.surfaces);
+          surfaces.set(handle, {
+            ...surface,
+            computedVariants: { ...surface.computedVariants, [name]: vertices },
+          });
+          return { surfaces };
+        });
       },
 
       setSurfaceCurvature: (handle, curvature, source) => {

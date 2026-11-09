@@ -22,6 +22,7 @@ import type { LoadedSurface, SurfaceDataLayer } from '@/stores/surfaceStore';
 import type { SurfaceSetMember } from '@/services/surfaceSetDiscovery';
 import { sampleVolumeLinear } from '@brainflow/visualization/surface/projection';
 import {
+  ANATOMICAL_TYPES,
   anatomyKey,
   isAnatomical,
   sameTopology,
@@ -269,7 +270,8 @@ export function buildSurfaceDisplays(
   return chosen.map((candidate) => {
     const family = surfaceFamily(candidate, loaded);
     const hemisphere = lateral(candidate);
-    if (family.length < 2) {
+    const computed = family.some((member) => member.computedVariants);
+    if (family.length < 2 && !computed) {
       if (!hemisphere || !bothHemispheres || isAnatomical(candidate) || !hasGeometry(candidate)) {
         return candidate;
       }
@@ -282,30 +284,45 @@ export function buildSurfaceDisplays(
     }
 
     const typeOf = (member: LoadedSurface) => surfaceGeometryType(member) ?? member.handle;
-    const shown =
-      (geometry ? family.find((member) => typeOf(member) === geometry) : undefined) ?? candidate;
     const base = family[0];
     const reference =
       family.find((member) => typeOf(member) === 'white') ??
       family.find((member) => typeOf(member) === 'pial') ??
       family.find(isAnatomical);
-
-    const variants: Record<string, Float32Array> = {};
-    for (const member of family) {
-      let vertices = member.geometry.vertices;
-      if (hemisphere && !isAnatomical(member)) {
-        const medialX = reference
+    const medialX =
+      !hemisphere
+        ? null
+        : reference
           ? xExtent(reference.geometry.vertices)[hemisphere === 'left' ? 1 : 0]
           : bothHemispheres
             ? hemisphere === 'left'
               ? -MIDLINE_GAP_MM / 2
               : MIDLINE_GAP_MM / 2
             : null;
-        if (medialX !== null) vertices = alignMedialEdge(vertices, hemisphere, medialX);
-      }
-      variants[typeOf(member)] = vertices;
+    const place = (name: string, vertices: Float32Array) =>
+      hemisphere && medialX !== null && !ANATOMICAL_TYPES.has(name)
+        ? alignMedialEdge(vertices, hemisphere, medialX)
+        : vertices;
+
+    // Loaded geometries, then embeddings computed from a member (an inflated
+    // mesh for a template without one) where no loaded mesh has that name.
+    const variants: Record<string, Float32Array> = {};
+    const owners: Record<string, LoadedSurface> = {};
+    for (const member of family) {
+      const name = typeOf(member);
+      variants[name] = place(name, member.geometry.vertices);
+      owners[name] = member;
     }
-    const variant = typeOf(shown);
+    for (const member of family) {
+      for (const [name, vertices] of Object.entries(member.computedVariants ?? {})) {
+        if (name in variants || vertices.length !== member.geometry.vertices.length) continue;
+        variants[name] = place(name, vertices);
+        owners[name] = member;
+      }
+    }
+    const variant =
+      geometry && variants[geometry] ? geometry : typeOf(candidate);
+    const shown = owners[variant] ?? candidate;
 
     return {
       ...shown,
@@ -314,13 +331,15 @@ export function buildSurfaceDisplays(
       visible: candidate.visible,
       geometry: {
         ...shown.geometry,
+        // A computed embedding is named by its geometry, not its source's.
+        surfaceType: variant as LoadedSurface['geometry']['surfaceType'],
         vertices: variants[variant],
         // One face array for the family: the viewer morphs instead of rebuilding.
         faces: base.geometry.faces,
         hemisphere: shown.geometry.hemisphere ?? base.geometry.hemisphere,
       },
       layers:
-        reference && !isAnatomical(shown)
+        reference && !ANATOMICAL_TYPES.has(variant)
           ? anatomicalLayers(familyLayers(shown, family), reference.geometry.vertices)
           : familyLayers(shown, family),
       curvature: familyCurvature(shown, family),
@@ -337,6 +356,8 @@ export interface GeometryChoice {
   geometry: string;
   /** Meshes to load first (the scene does not hold this geometry for every drawn hemisphere). */
   toLoad: SurfaceSetMember[];
+  /** Not on offer anywhere: computed in the app from the folded mesh (inflated). */
+  compute?: boolean;
 }
 
 /**
@@ -363,9 +384,19 @@ export function geometryChoices(
     pending.push(member);
     choices.set(member.geometry, pending);
   }
-  return [...choices.entries()]
-    .map(([geometry, toLoad]) => ({ geometry, toLoad }))
-    .sort((a, b) => geometryRank(a.geometry) - geometryRank(b.geometry) || a.geometry.localeCompare(b.geometry));
+  const result: GeometryChoice[] = [...choices.entries()].map(([geometry, toLoad]) => ({
+    geometry,
+    toLoad,
+  }));
+  // No inflated mesh loaded or on offer (TemplateFlow fsaverage): offer one
+  // computed from the folded mesh.
+  const folded = displays.some((display) =>
+    Object.keys(display.variants ?? { [surfaceGeometryType(display) ?? '']: null }).some((name) =>
+      ANATOMICAL_TYPES.has(name),
+    ),
+  );
+  if (folded && !choices.has('inflated')) result.push({ geometry: 'inflated', toLoad: [], compute: true });
+  return result.sort((a, b) => geometryRank(a.geometry) - geometryRank(b.geometry) || a.geometry.localeCompare(b.geometry));
 }
 
 /**
@@ -386,4 +417,25 @@ export function anatomicalStandIn(
     family.find(isAnatomical) ??
     null
   );
+}
+
+/**
+ * A tab title naming the meshes a scene draws: the shown file, or for two
+ * hemispheres of one name both at once ("lh+rh.inflated.gii",
+ * "sub-01_hemi-LR_pial.surf.gii", "fsaverage white (both)").
+ */
+export function sceneTitle(names: readonly string[]): string {
+  if (names.length < 2) return names[0] ?? '';
+  const [a, b] = names;
+  const pairs: Array<[RegExp, RegExp, string]> = [
+    [/^lh[.]/i, /^rh[.]/i, 'lh+rh.'],
+    [/hemi-L(?=_|[.])/, /hemi-R(?=_|[.])/, 'hemi-LR'],
+    [/[(]left[)]$/, /[(]right[)]$/, '(both)'],
+  ];
+  for (const [left, right, both] of pairs) {
+    if (left.test(a) && right.test(b) && a.replace(left, both) === b.replace(right, both)) {
+      return a.replace(left, both);
+    }
+  }
+  return `${a} + ${b}`;
 }

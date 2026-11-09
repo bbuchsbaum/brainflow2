@@ -247,6 +247,8 @@ export interface LayoutService {
   /** Remove every tab of a side panel; the layout keeps the rest of its stack. */
   removePanel(panelType: string): void;
   setPanelTitle(panelType: string, title: string): void;
+  /** Retitle the surface tab hosting a surface view to name the scene it draws. */
+  setSurfaceViewTitle(surfaceViewId: string, title: string): void;
   /**
    * Tell the service which workspace-scoped panel belongs on screen. A layout
    * reload drops it (it never persists), so it is added again afterwards.
@@ -731,6 +733,25 @@ class LayoutServiceImpl implements LayoutService {
         item.remove();
       } catch (error) {
         console.warn(`[LayoutService] Failed to remove ${panelType}:`, error);
+      }
+    }
+  }
+
+  /**
+   * Retitle the surface tab hosting `surfaceViewId` (its id, or its handle
+   * for tabs without one) to name the scene it draws.
+   */
+  setSurfaceViewTitle(surfaceViewId: string, title: string): void {
+    const layout = this.layoutRef;
+    if (!layout || !title) return;
+    for (const item of findComponentItemsByType(layout.rootItem, 'surfaceView')) {
+      const state = getComponentState(item);
+      const id = typeof state.surfaceViewId === 'string' ? state.surfaceViewId : state.surfaceHandle;
+      if (id !== surfaceViewId || item.title === title) continue;
+      try {
+        item.setTitle(title);
+      } catch (error) {
+        console.warn('[LayoutService] Failed to retitle surface tab:', error);
       }
     }
   }

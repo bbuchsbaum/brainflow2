@@ -15,6 +15,7 @@ const log = vi.hoisted(() => ({
   setVariant: [] as Array<{ name: string; animate?: boolean; duration?: number }>,
   variantSurfaces: [] as Array<{ surfaceSet: { variants: Record<string, Float32Array> } }>,
   plainSurfaces: 0,
+  cameraStates: [] as Array<{ position: number[]; target: number[] }>,
 }));
 
 vi.mock('neurosurface', async () => {
@@ -55,7 +56,9 @@ vi.mock('neurosurface', async () => {
     getCameraState() {
       return { position: [0, 0, 100], target: [0, 0, 0], quaternion: [0, 0, 0, 1] };
     }
-    setCameraState() {}
+    setCameraState(state: { position: number[]; target: number[] }) {
+      log.cameraStates.push({ position: [...state.position], target: [...state.target] });
+    }
     fitToView() {
       return true;
     }
@@ -192,6 +195,7 @@ describe('NeuroSurfaceCanvas geometry morph', () => {
     log.setVariant = [];
     log.variantSurfaces = [];
     log.plainSurfaces = 0;
+    log.cameraStates = [];
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
       width: 200,
       height: 100,
@@ -261,5 +265,20 @@ describe('NeuroSurfaceCanvas geometry morph', () => {
     await act(async () => {});
     expect(log.variantSurfaces).toHaveLength(1);
     expect(log.added).toEqual(['lh', 'lh']);
+  });
+
+  it('keeps the scene framed as it grows: camera distance scales with the shape', async () => {
+    const view = render(canvas(display('pial'), 0));
+    await act(async () => {});
+    log.cameraStates = [];
+    view.rerender(canvas(display('inflated'), 0));
+    await act(async () => {});
+    const last = log.cameraStates.at(-1)!;
+    // The fake viewer's pose: camera 100 mm from the target.
+    const distance = Math.hypot(...last.position.map((v, i) => v - last.target[i]));
+    // Pial spans x -40..-20 (half-diagonal ~ 15); inflated -60..-6 (~32).
+    expect(distance).toBeGreaterThan(150);
+    // The target follows the scene's centre (pial x -30, inflated x -33).
+    expect(last.target[0]).toBeLessThan(0);
   });
 });

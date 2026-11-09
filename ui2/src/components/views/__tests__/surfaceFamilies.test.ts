@@ -6,6 +6,7 @@ import {
   buildSurfaceDisplays,
   familyGeometries,
   geometryChoices,
+  sceneTitle,
   familyOverlays,
   surfaceFamily,
 } from '../surfaceFamilies';
@@ -222,5 +223,43 @@ describe('overlays on unfolded geometries', () => {
     expect(sampled.volumeData).toBeUndefined();
     // White vertices x = -38, -22, -6  ->  voxel x 2, 18, 34.
     expect(Array.from(sampled.values)).toEqual([2, 18, 34]);
+  });
+});
+
+describe('computed inflated geometry', () => {
+  it('is offered for a folded mesh with no inflated one, and drawn once computed', () => {
+    const white = mesh('w', 'templateflow://fsaverage_white_left', 'left', 'white', [-38, -22, -6]);
+    const all = new Map([[white.handle, white]]);
+    const [plain] = buildSurfaceDisplays([white], all);
+    expect(plain).toBe(white);
+    const choices = geometryChoices([plain], [], new Set());
+    expect(choices.map((c) => [c.geometry, !!c.compute])).toEqual([
+      ['white', false],
+      ['inflated', true],
+    ]);
+
+    const inflatedVertices = new Float32Array([-60, 0, 0, -30, 10, 0, -10, 0, 10]);
+    all.set('w', { ...white, computedVariants: { inflated: inflatedVertices } });
+    const [display] = buildSurfaceDisplays([all.get('w')!], all, 'inflated');
+    expect(display.variant).toBe('inflated');
+    expect(Object.keys(display.variants!)).toEqual(['white', 'inflated']);
+    expect(display.geometry.surfaceType).toBe('inflated');
+    // Aligned with the folded mesh's medial edge (-6).
+    expect(Math.max(display.geometry.vertices[0], display.geometry.vertices[3], display.geometry.vertices[6])).toBeCloseTo(-6);
+    expect(geometryChoices([display], [], new Set()).every((c) => !c.compute)).toBe(true);
+  });
+});
+
+describe('sceneTitle', () => {
+  it('names both hemispheres of one name at once', () => {
+    expect(sceneTitle(['lh.inflated.gii', 'rh.inflated.gii'])).toBe('lh+rh.inflated.gii');
+    expect(sceneTitle(['sub-01_hemi-L_pial.surf.gii', 'sub-01_hemi-R_pial.surf.gii'])).toBe(
+      'sub-01_hemi-LR_pial.surf.gii',
+    );
+    expect(sceneTitle(['fsaverage white (left)', 'fsaverage white (right)'])).toBe(
+      'fsaverage white (both)',
+    );
+    expect(sceneTitle(['lh.pial.gii', 'rh.white.gii'])).toBe('lh.pial.gii + rh.white.gii');
+    expect(sceneTitle(['lh.pial.gii'])).toBe('lh.pial.gii');
   });
 });
