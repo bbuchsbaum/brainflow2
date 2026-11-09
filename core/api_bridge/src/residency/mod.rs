@@ -3,8 +3,8 @@
 //! path. Moved out of `lib.rs` (R1 of
 //! `docs/plans/gpu-residency-implementation-2026-11.md`). `demand` and `policy`
 //! hold the R5 backend policy (pure). `manager` records the UI's demand and
-//! reports residency; `shadow` compares the UI's evictions with the policy
-//! (R5b: the UI still owns eviction).
+//! reports residency; `admit` executes the policy: the backend owns admission
+//! and eviction.
 //!
 //! Lock order (outermost first); a path may skip levels but never go back up:
 //! 1. `BridgeState::volume_operations`
@@ -38,12 +38,13 @@ mod policy;
 mod release;
 mod ring;
 mod ring_pool;
-mod shadow;
 mod skips;
 mod watchdog;
 
-pub(crate) use admit::{admit, AdmitTarget};
+pub(crate) use admit::{admit, capacity_shortfall, AdmitTarget};
 pub(crate) use config::application_residency_config;
+#[cfg(test)]
+pub(crate) use demand::{FrameId, LedgerOutcome};
 pub(crate) use layer_slots::drawn_render_layer;
 pub use layer_slots::LayerSlotMap;
 pub(crate) use lease::{release_superseded_lease, LayerLease};
@@ -68,7 +69,6 @@ pub(crate) use ring::{
     RESIDENT_RING_MAX_SLOTS, RESIDENT_RING_PREFETCH_RADIUS,
 };
 pub(crate) use ring_pool::{pool_demand, ring_growth, trim_front_rings, RingGrowth};
-pub(crate) use shadow::{check_draw_cap, note_reclaim, note_release_for_upload, note_request};
 pub(crate) use skips::{clear_allocation_failed_skips, note_render_skip, RenderSkip};
 #[cfg(test)]
 pub(crate) use watchdog::layer_watchdog_sweep;

@@ -174,6 +174,11 @@ pub enum RenderLoopError {
         used_bytes: u64,
         budget_bytes: u64,
     },
+    /// The fixed-slot fallback (no byte budget) has no free texture slot: the
+    /// count counterpart of [`Self::GpuBudgetExceeded`]. Typed so the owner of
+    /// residency can tell it apart and evict for it, not fail the upload.
+    #[error("Maximum texture limit {limit} reached")]
+    ResidentSlotsFull { limit: u32 },
 }
 
 /// Logical resident payload accounting. This is an application admission

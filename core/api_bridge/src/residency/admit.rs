@@ -1,14 +1,14 @@
-//! The residency executor (R5c; plan §11): under `BRAINFLOW_BACKEND_RESIDENCY`
-//! the backend owns admission and eviction. One pass holds `volume_operations`
-//! throughout and plans from a fresh snapshot; the residency lock is held only
-//! while planning.
+//! The residency executor (R5c; plan §11): the backend owns admission and
+//! eviction. One pass holds `volume_operations` throughout and plans from a
+//! fresh snapshot; the residency lock is held only while planning.
 //!
 //! **Lazy eviction.** The plan sizes textures not yet uploaded by an upper
 //! bound (an f32 volume often fits R16Float), so its eviction list can be
 //! longer than needed. The executor follows the plan's order but evicts only
-//! when an upload is actually refused: it tries the upload, and on a budget
-//! refusal evicts the next victim (the plan's, then the other allowed
-//! candidates) and tries again. The renderer's budget check decides.
+//! when an upload is actually refused: it tries the upload, and on a capacity
+//! refusal (bytes, or a texture slot in the fixed-slot fallback) evicts the
+//! next victim (the plan's, then the other allowed candidates) and tries
+//! again. The renderer's capacity check decides.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -25,15 +25,16 @@ use crate::*;
 pub(crate) enum AdmitTarget {
     /// Every Front frame's drawable layers: evict for them and upload them.
     Fronts,
-    /// Room for one layer the UI is requesting, refused short of
-    /// `needed_bytes`: evict the policy's next victim for it, at most one,
-    /// and none unless the allowed victims together could free that much.
-    /// The caller's request uploads the layer and asks again while it is
-    /// still refused.
+    /// Room for one layer the UI is requesting, refused short of `needed`
+    /// (in the capacity's units: bytes, or slots in the fixed-slot
+    /// fallback): evict the policy's next victim for it, at most one, and
+    /// none unless the allowed victims together could free that much. The
+    /// caller's request uploads the layer and asks again while it is still
+    /// refused.
     RoomFor {
         layer_id: String,
         volume_id: String,
-        needed_bytes: u64,
+        needed: u64,
     },
 }
 
@@ -79,12 +80,11 @@ async fn requests_for(
                 .filter(|(_, demand)| demand.priority == Priority::Front)
                 .flat_map(|(_, demand)| demand.layers.iter().map(|layer| layer.layer_id.clone()))
                 .collect();
-            let before = residency.shadow.refusals.len();
+            let before = residency.refusals.len();
             residency
-                .shadow
                 .refusals
                 .retain(|layer_id, _| listed.contains(layer_id));
-            if residency.shadow.refusals.len() != before {
+            if residency.refusals.len() != before {
                 residency.changed();
             }
             residency
@@ -155,10 +155,10 @@ async fn record(state: &BridgeState, refused: &[(String, Refusal)], admitted: &[
     let mut residency = state.residency.state.lock().await;
     let mut changed = false;
     for (layer_id, reason) in refused {
-        changed |= residency.shadow.refusals.insert(layer_id.clone(), *reason) != Some(*reason);
+        changed |= residency.refusals.insert(layer_id.clone(), *reason) != Some(*reason);
     }
     for layer_id in admitted {
-        changed |= residency.shadow.refusals.remove(layer_id).is_some();
+        changed |= residency.refusals.remove(layer_id).is_some();
     }
     if changed {
         residency.changed();
@@ -191,9 +191,21 @@ async fn evict(state: &BridgeState, victim: &VictimKind) -> bool {
     }
 }
 
-/// Bytes an upload refused with `GpuBudgetExceeded` still needs freed.
-fn shortfall(requested: u64, used: u64, budget: u64) -> u64 {
-    requested.saturating_sub(budget.saturating_sub(used))
+/// What an upload refused for capacity still needs freed, in the units the
+/// policy plans in (see `snapshot`): the bytes a `GpuBudgetExceeded` refusal
+/// lacks, or one texture slot when the fixed-slot fallback is full. None for
+/// any other failure, which no eviction can fix.
+pub(crate) fn capacity_shortfall(error: &BridgeError) -> Option<u64> {
+    match error {
+        BridgeError::GpuBudgetExceeded {
+            requested_bytes,
+            used_bytes,
+            budget_bytes,
+            ..
+        } => Some(requested_bytes.saturating_sub(budget_bytes.saturating_sub(*used_bytes))),
+        error if is_gpu_slots_full(error) => Some(1),
+        _ => None,
+    }
 }
 
 /// Evict the next victim toward freeing `needed`. Every victim is checked
@@ -253,7 +265,7 @@ pub(crate) async fn admit_held(state: &BridgeState, target: &AdmitTarget) -> Adm
             return outcome;
         };
 
-        if let AdmitTarget::RoomFor { needed_bytes, .. } = target {
+        if let AdmitTarget::RoomFor { needed, .. } = target {
             // A refusal the policy is sure of (draw cap, a missing volume)
             // gains nothing from room.
             let size_only = planned
@@ -261,7 +273,7 @@ pub(crate) async fn admit_held(state: &BridgeState, target: &AdmitTarget) -> Adm
                 .refuse
                 .iter()
                 .all(|refused| sized_by_estimate(refused.reason));
-            if size_only && evict_next(state, &mut planned, *needed_bytes).await {
+            if size_only && evict_next(state, &mut planned, *needed).await {
                 outcome.evicted += 1;
             }
             continue;
@@ -296,25 +308,23 @@ pub(crate) async fn admit_held(state: &BridgeState, target: &AdmitTarget) -> Adm
                         admitted.push(layer_id);
                         break;
                     }
-                    Err(BridgeError::GpuBudgetExceeded {
-                        requested_bytes,
-                        used_bytes,
-                        budget_bytes,
-                        ..
-                    }) => {
-                        let needed = shortfall(requested_bytes, used_bytes, budget_bytes);
-                        if evict_next(state, &mut planned, needed).await {
-                            outcome.evicted += 1;
-                            continue;
+                    Err(error) => match capacity_shortfall(&error) {
+                        // Out of room (bytes, or the fixed-slot fallback's
+                        // slots): evict the next victim and try again.
+                        Some(needed) => {
+                            if evict_next(state, &mut planned, needed).await {
+                                outcome.evicted += 1;
+                                continue;
+                            }
+                            refused.push((layer_id, if_full));
+                            break;
                         }
-                        refused.push((layer_id, if_full));
-                        break;
-                    }
-                    Err(error) => {
-                        warn!("Residency: upload of '{layer_id}' failed: {error:?}");
-                        refused.push((layer_id, Refusal::UploadFailed));
-                        break;
-                    }
+                        None => {
+                            warn!("Residency: upload of '{layer_id}' failed: {error:?}");
+                            refused.push((layer_id, Refusal::UploadFailed));
+                            break;
+                        }
+                    },
                 }
             }
         }

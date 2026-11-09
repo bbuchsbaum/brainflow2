@@ -1,4 +1,4 @@
-//! R5d: under the backend owner (`BRAINFLOW_BACKEND_RESIDENCY`), a 4D ring
+//! R5d: with a byte budget, a 4D ring
 //! draws its cached members from the global byte pool instead of a fixed
 //! six-member cap (plan §3, R5d).
 //!
@@ -185,12 +185,8 @@ pub(crate) fn trim_front_rings(
 }
 
 /// Free the cached members of every ring only Background frames demand
-/// (see [`behind_layers`]), keeping each displayed member. Backend owner
-/// only. Returns how many members it freed.
+/// (see [`behind_layers`]), keeping each displayed member. Returns how many members it freed.
 pub(crate) async fn shrink_background_rings(state: &BridgeState) -> usize {
-    if !state.residency.backend_owner() {
-        return 0;
-    }
     let behind = behind_layers(&state.residency.state.lock().await.ledger);
     if behind.is_empty() {
         return 0;

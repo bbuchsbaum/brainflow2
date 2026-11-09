@@ -25,9 +25,9 @@ pub(crate) async fn note_render_skip(
         debug!("Layer {} still skipped: {}", layer_id, detail);
     } else {
         warn!("Layer {} skipped: {}", layer_id, detail);
-        // A backend owner (R5c) makes room on its next tick; the render path
-        // itself never evicts.
-        if reason == RenderSkip::AllocationFailed && bridge_state.residency.backend_owner() {
+        // The residency tick makes room (R5c); the render path itself never
+        // evicts.
+        if reason == RenderSkip::AllocationFailed {
             bridge_state.residency.want_admission();
         }
     }

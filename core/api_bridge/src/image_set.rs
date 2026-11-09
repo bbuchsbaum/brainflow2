@@ -330,6 +330,10 @@ impl ResidentRing {
                     budget_bytes,
                     ..
                 }) if requested_bytes <= budget_bytes && !self.slots.is_empty() => {}
+                // The fixed-slot fallback is full: likewise, reuse a slot this
+                // ring owns rather than fail the shown member.
+                Err(error)
+                    if crate::gpu_upload::is_gpu_slots_full(&error) && !self.slots.is_empty() => {}
                 Err(error) => return Err(error),
             }
         }
@@ -384,6 +388,9 @@ impl ResidentRing {
                     Ok(index) => index,
                     // Prefetch is optional; pressure must not disrupt the shown member.
                     Err(BridgeError::GpuBudgetExceeded { .. }) => return Ok(admitted),
+                    Err(error) if crate::gpu_upload::is_gpu_slots_full(&error) => {
+                        return Ok(admitted)
+                    }
                     Err(error) => return Err(error),
                 };
                 self.tick += 1;
@@ -1088,6 +1095,21 @@ mod tests {
                 used_bytes: 1,
                 budget_bytes: 1,
             }),
+            ..Default::default()
+        };
+        assert_eq!(ring.ensure_resident(1, &mut exec).unwrap().texture_index, 0);
+        assert_eq!(exec.admit_reuse, [(0, 1)]);
+        assert!(!ring.is_resident(0));
+        assert_eq!(ring.prefetch(1, 1, 3, &mut exec).unwrap(), 0);
+        assert_eq!(ring.slot_of(1), Some(0));
+        assert_eq!(ring.resident_len(), 1);
+    }
+
+    #[test]
+    fn full_fixed_slots_reuse_owned_slot_and_stop_optional_prefetch() {
+        let mut ring = new_ring(4);
+        let mut exec = FakeExecutor {
+            admission_error: Some(crate::gpu_upload::gpu_slots_full_error(4)),
             ..Default::default()
         };
         assert_eq!(ring.ensure_resident(1, &mut exec).unwrap().texture_index, 0);

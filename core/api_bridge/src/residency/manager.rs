@@ -2,9 +2,9 @@
 //! declares for each frame, a snapshot of the bridge as [`ResidencyFacts`], and
 //! the residency report with its `residency-changed` event.
 //!
-//! The UI still owns admission and eviction (the report's `owner` is `ui`).
-//! The ledger only records demand; [`super::shadow`] compares the UI's choices
-//! with what the policy would have done.
+//! The backend owns admission and eviction (R5c; unconditional since R6): the
+//! ledger's demand drives [`super::admit`], and the report's `owner` is
+//! always `backend`.
 //!
 //! Locking: `BridgeState::residency` sits after the `RenderLoopService` and
 //! nothing else is acquired while it is held, so it can be taken under the
@@ -18,7 +18,6 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::admit::{admit, AdmitTarget};
-use super::config::backend_residency_enabled;
 use super::demand::{
     DemandLedger, DemandedLayer, Epoch, FrameDemand, FrameId, LedgerOutcome, Millis, PinReason,
     Priority,
@@ -28,7 +27,6 @@ use super::policy::{
     TextureBackend,
 };
 use super::ring_pool::shrink_background_rings;
-use super::shadow::ShadowLedger;
 use crate::*;
 
 /// How often the report is checked for changes: events are coalesced to this.
@@ -177,12 +175,9 @@ pub struct ResidencyReport {
 pub(crate) struct Residency {
     origin: Instant,
     pub(crate) state: Mutex<ResidencyState>,
-    /// A frame failed to allocate a layer's texture: the backend owner (R5c)
-    /// runs an admission on its next tick.
+    /// A frame failed to allocate a layer's texture: the manager runs an
+    /// admission on its next tick.
     admission_wanted: std::sync::atomic::AtomicBool,
-    /// Whether the backend owns admission and eviction (R5c): the
-    /// `BRAINFLOW_BACKEND_RESIDENCY` flag, per bridge so tests can set it.
-    backend_owner: std::sync::atomic::AtomicBool,
     /// Texture bytes a volume's upload really took, kept after eviction. The
     /// per-type estimate is an upper bound (an f32 volume often fits
     /// R16Float); planning a re-upload with it refuses or evicts too much.
@@ -202,7 +197,9 @@ pub(crate) struct ResidencyState {
     settle: u8,
     /// The last report sent, numbered 0, so an unchanged rebuild sends nothing.
     last_body: Option<ResidencyReport>,
-    pub(crate) shadow: ShadowLedger,
+    /// The last typed refusal per layer, for the report: recorded by the
+    /// executor, cleared when the layer is admitted or no front tab lists it.
+    pub(crate) refusals: HashMap<String, Refusal>,
 }
 
 impl Residency {
@@ -216,26 +213,11 @@ impl Residency {
                 reported: None,
                 settle: 0,
                 last_body: None,
-                shadow: ShadowLedger::default(),
+                refusals: HashMap::new(),
             }),
             admission_wanted: std::sync::atomic::AtomicBool::new(false),
-            backend_owner: std::sync::atomic::AtomicBool::new(backend_residency_enabled()),
             texture_bytes: std::sync::Mutex::new(HashMap::new()),
         }
-    }
-
-    /// Whether the backend owns admission and eviction (R5c).
-    pub(crate) fn backend_owner(&self) -> bool {
-        self.backend_owner
-            .load(std::sync::atomic::Ordering::Acquire)
-    }
-
-    /// Make the backend the owner, or not: tests, which cannot set the flag
-    /// per bridge through the environment.
-    #[cfg(test)]
-    pub(crate) fn set_backend_owner(&self, owner: bool) {
-        self.backend_owner
-            .store(owner, std::sync::atomic::Ordering::Release);
     }
 
     /// Texture bytes earlier uploads took, by volume id (R5d's headroom).
@@ -246,13 +228,10 @@ impl Residency {
             .unwrap_or_default()
     }
 
-    /// Who owns eviction, for the report.
+    /// Who owns eviction, for the report: always the backend. The field
+    /// stays on the wire until the UI stops reading it (R6c).
     pub(crate) fn owner(&self) -> ResidencyOwner {
-        if self.backend_owner() {
-            ResidencyOwner::Backend
-        } else {
-            ResidencyOwner::Ui
-        }
+        ResidencyOwner::Backend
     }
 
     /// Ask for an admission on the next residency tick (R5c).
@@ -297,10 +276,6 @@ impl ResidencyState {
     /// Something the report shows changed outside the texture store.
     pub(crate) fn changed(&mut self) {
         self.revision += 1;
-    }
-
-    pub(crate) fn revision(&self) -> u64 {
-        self.revision
     }
 
     /// Record a frame's demand. A Front frame is in front now; a Background
@@ -452,13 +427,8 @@ pub(crate) async fn snapshot(
         );
     }
 
-    // Sizes seen on earlier uploads beat the per-type estimate (R5c only:
-    // with the flag off, planning is R5b's).
-    if let Some(known) = residency
-        .backend_owner()
-        .then(|| residency.texture_bytes.lock().ok())
-        .flatten()
-    {
+    // Sizes seen on earlier uploads beat the per-type estimate.
+    if let Ok(known) = residency.texture_bytes.lock() {
         for (volume_id, &bytes) in known.iter() {
             if let Some(estimate) = volume_bytes.get_mut(volume_id) {
                 *estimate = bytes;
@@ -634,10 +604,10 @@ pub(crate) async fn set_residency_demand_with(
             .await
             .set_demand(FrameId::new(frame_id), demand, now);
     let applied = outcome == LedgerOutcome::Applied;
-    // The backend owner (R5c) admits for the new demand before answering, so
-    // a tab switch uploads the new front tab's layers without a UI pass. A
-    // ring the switch moved behind gives back its cached members first (R5d).
-    if applied && state.residency.backend_owner() {
+    // The backend admits for the new demand before answering, so a tab
+    // switch uploads the new front tab's layers without a UI pass. A ring the
+    // switch moved behind gives back its cached members first (R5d).
+    if applied {
         shrink_background_rings(state).await;
         admit(state, AdmitTarget::Fronts).await;
     }
@@ -658,10 +628,10 @@ pub(crate) async fn clear_residency_demand_with(
         .await
         .clear_demand(&FrameId::new(frame_id), epoch);
     let applied = outcome == LedgerOutcome::Applied;
-    // Under the owner, rings only behind tabs now keep just their displayed
-    // members (R5d), and the next tick admits for the fronts: a layer skipped
-    // for want of room is drawn once the room is there.
-    if applied && state.residency.backend_owner() {
+    // Rings only behind tabs now keep just their displayed members (R5d),
+    // and the next tick admits for the fronts: a layer skipped for want of
+    // room is drawn once the room is there.
+    if applied {
         shrink_background_rings(state).await;
         state.residency.want_admission();
     }
@@ -717,7 +687,7 @@ async fn report(state: &BridgeState, wait: bool, only_if_changed: bool) -> Optio
         state.residency.owner(),
         &snap,
         &residency.ledger,
-        &residency.shadow.refusals,
+        &residency.refusals,
     );
     if only_if_changed && residency.last_body.as_ref() == Some(&report) {
         return None;
@@ -750,19 +720,13 @@ pub(crate) async fn residency_state_report(state: &BridgeState) -> BridgeResult<
     })
 }
 
-/// One tick of the `residency-changed` emitter: a report when residency or
-/// demand changed since the last one, and open shadow episodes that ran out
-/// of time are closed.
+/// One tick of the `residency-changed` emitter: an admission when a frame
+/// asked for one, then a report when residency or demand changed since the
+/// last one.
 pub(crate) async fn residency_tick(state: &BridgeState) -> Option<ResidencyReport> {
-    let now = state.residency.now();
-    {
-        let mut residency = state.residency.state.lock().await;
-        let residency = &mut *residency;
-        residency.shadow.expire(&residency.ledger, now);
-    }
     // A frame could not allocate a layer's texture: make room for the front
     // tabs (R5c). The render path never evicts; this is where it is decided.
-    if state.residency.backend_owner() && state.residency.take_admission_request() {
+    if state.residency.take_admission_request() {
         admit(state, AdmitTarget::Fronts).await;
     }
     report(state, false, true).await

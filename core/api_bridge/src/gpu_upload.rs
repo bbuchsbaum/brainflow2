@@ -13,31 +13,24 @@ pub(crate) async fn request_layer_gpu_resources_with_upload_hook(
     let uploads = !metadata_only.unwrap_or(false);
     let LayerSpec::Volume(spec) = &layer_spec;
     let ids = (spec.id.clone(), spec.source_resource_id.clone());
-    let backend_owner = uploads && bridge_state.residency.backend_owner();
-    // A backend owner (R5c) resolves a budget refusal itself, so the request
-    // may run again (its hook only with the first).
-    let retry_spec = backend_owner.then(|| layer_spec.clone());
+    // The backend resolves a budget refusal itself (R5c), so the request may
+    // run again (its hook only with the first).
+    let retry_spec = uploads.then(|| layer_spec.clone());
     let mut result =
         request_layer_gpu_resources_locked(layer_spec, metadata_only, bridge_state, after_upload)
             .await;
     if let Some(spec) = retry_spec {
         // Evict the policy's next victim and ask again, one at a time, until
-        // the upload fits or nothing more may go. The skip marks stay until
-        // the upload ends, so no frame takes the room first.
-        while let Err(BridgeError::GpuBudgetExceeded {
-            requested_bytes,
-            used_bytes,
-            budget_bytes,
-            ..
-        }) = result
-        {
+        // the upload fits or nothing more may go: on a budget refusal, or on
+        // full texture slots in the fixed-slot fallback. The skip marks stay
+        // until the upload ends, so no frame takes the room first.
+        while let Some(needed) = result.as_ref().err().and_then(capacity_shortfall) {
             let room = admit(
                 bridge_state,
                 AdmitTarget::RoomFor {
                     layer_id: ids.0.clone(),
                     volume_id: ids.1.clone(),
-                    needed_bytes: requested_bytes
-                        .saturating_sub(budget_bytes.saturating_sub(used_bytes)),
+                    needed,
                 },
             )
             .await;
@@ -53,19 +46,12 @@ pub(crate) async fn request_layer_gpu_resources_with_upload_hook(
             .await;
         }
     }
-    // Under a backend owner a request that succeeds clears the layer's
-    // recorded refusal (`note_request` does that otherwise).
-    if backend_owner && result.is_ok() {
+    // A request that succeeds clears the layer's recorded refusal.
+    if uploads && result.is_ok() {
         let mut residency = bridge_state.residency.state.lock().await;
-        if residency.shadow.refusals.remove(&ids.0).is_some() {
+        if residency.refusals.remove(&ids.0).is_some() {
             residency.changed();
         }
-    }
-    // Shadow comparison (R5b): a typed refusal opens an episode, the outcome
-    // of the layer's later request closes it. A backend owner has no UI
-    // evictions to compare.
-    if uploads && !backend_owner {
-        note_request(bridge_state, &ids.0, &ids.1, &result).await;
     }
     // The UI made room for this upload without letting frames retry starved
     // layers (`release_layer_gpu_resources_with(.., for_upload)`, reclaims):
@@ -911,12 +897,11 @@ pub(crate) async fn try_resident_swap(
         return Ok(None);
     }
 
-    // Under the backend owner with a byte budget, the ring draws from the
-    // global pool (R5d): no fixed member cap, growth bounded by headroom and
-    // the ring's share of the slack. Demand is read before the ring lock.
-    let pool = if bridge_state.residency.backend_owner()
-        && service.residency_metrics().budget_bytes.is_some()
-    {
+    // With a byte budget, the ring draws from the global pool (R5d): no
+    // fixed member cap, growth bounded by headroom and the ring's share of
+    // the slack. Demand is read before the ring lock. The fixed-slot
+    // fallback keeps the fixed member cap.
+    let pool = if service.residency_metrics().budget_bytes.is_some() {
         Some(pool_demand(bridge_state, service).await)
     } else {
         None
@@ -1210,8 +1195,30 @@ pub(crate) fn upload_layer_volume(
     Ok((slot, world_to_voxel))
 }
 
-/// Preserve authoritative admission pressure across IPC; other renderer errors
-/// retain their existing user-facing conversion.
+/// The code of [`gpu_slots_full_error`]: every texture slot of the fixed-slot
+/// fallback is taken. Its own code, so the executor can tell it from other
+/// allocation failures (6001) and evict for it.
+pub(crate) const GPU_SLOTS_FULL_CODE: u16 = 6024;
+
+/// The fixed-slot fallback has no free texture slot. The text keeps the
+/// renderer's "Maximum texture limit N reached", which the UI recognises.
+pub(crate) fn gpu_slots_full_error(limit: u32) -> BridgeError {
+    BridgeError::GpuError {
+        code: GPU_SLOTS_FULL_CODE,
+        details: format!(
+            "Could not allocate GPU resources for volume: Maximum texture limit {limit} reached. Hide or remove a layer to free a texture slot."
+        ),
+    }
+}
+
+/// Whether `error` is [`gpu_slots_full_error`].
+pub(crate) fn is_gpu_slots_full(error: &BridgeError) -> bool {
+    matches!(error, BridgeError::GpuError { code, .. } if *code == GPU_SLOTS_FULL_CODE)
+}
+
+/// Preserve authoritative admission pressure across IPC (bytes, or the
+/// fixed-slot fallback's slots); other renderer errors retain their existing
+/// user-facing conversion.
 pub(crate) fn renderer_gpu_error(
     layer_id: &str,
     error: render_loop::RenderLoopError,
@@ -1227,6 +1234,7 @@ pub(crate) fn renderer_gpu_error(
             used_bytes,
             budget_bytes,
         },
+        render_loop::RenderLoopError::ResidentSlotsFull { limit } => gpu_slots_full_error(limit),
         error => gpu_allocation_error(layer_id, &error.to_string()),
     }
 }
