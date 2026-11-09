@@ -69,8 +69,8 @@ importers:
         specifier: 0.185.4
         version: 0.185.4
       neurosurface:
-        specifier: npm:surfview@3.1.0
-        version: /surfview@3.1.0(react-dom@19.1.0)(react@19.1.0)(three@0.185.1)
+        specifier: npm:surfview@3.3.0
+        version: /surfview@3.3.0(react-dom@19.1.0)(react@19.1.0)(three@0.185.1)
       react:
         specifier: 19.1.0
         version: 19.1.0
@@ -189,8 +189,8 @@ importers:
         specifier: 5.1.16
         version: 5.1.16
       neurosurface:
-        specifier: npm:surfview@3.1.0
-        version: /surfview@3.1.0(react-dom@19.1.0)(react@19.1.0)(three@0.185.1)
+        specifier: npm:surfview@3.3.0
+        version: /surfview@3.3.0(react-dom@19.1.0)(react@19.1.0)(three@0.185.1)
       react:
         specifier: 19.1.0
         version: 19.1.0
@@ -5205,8 +5205,8 @@ packages:
     resolution: {integrity: sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==}
     engines: {node: '>= 0.4'}
 
-  /surfview@3.1.0(react-dom@19.1.0)(react@19.1.0)(three@0.185.1):
-    resolution: {integrity: sha512-yNZZaLqLOlbkmZQz3XeLp59Zhpc51lWmzlbTdE4JKzJbZ4anzevKUIxzABV1bOpWbCBq63sJBmsJygHTtcEfvA==}
+  /surfview@3.3.0(react-dom@19.1.0)(react@19.1.0)(three@0.185.1):
+    resolution: {integrity: sha512-AcqpuOItknFZMmsdfYgkb9LoCLgYzIgnEL2e2gKGbWiX5IhwD9FW9hqKdWlWhI8+mQgGfN+wSd4iDKiBaNCbEg==}
     engines: {node: '>=22'}
     peerDependencies:
       react: ^18.0.0

@@ -138,50 +138,23 @@ function variantNamesOf(item: SurfaceRenderable): string[] | null {
  * Bring a mounted VariantSurface's embeddings in line with `item.variants`
  * (a geometry loaded or unloaded since it was mounted). SurfaceSet keeps
  * its own copies; `sources` remembers which input each copy came from.
+ * surfview refuses to remove the default, shown and pending variants.
  */
-/**
- * VariantSurface API added in surfview 3.3 (targetVariant, add/removeVariant,
- * interpolated normals and both-shape bounds during a switch). On earlier
- * versions the canvas works around their absence; with them it steps aside.
- */
-interface VariantSurfaceUpstream {
-  targetVariant(): string;
-  addVariant(name: string, positions: Float32Array): void;
-  removeVariant(name: string): boolean;
-}
-
-export function hasUpstreamVariantApi(
-  surface: unknown,
-): surface is VariantSurface & VariantSurfaceUpstream {
-  const candidate = surface as Partial<VariantSurfaceUpstream> | null;
-  return (
-    typeof candidate?.targetVariant === 'function' &&
-    typeof candidate.addVariant === 'function' &&
-    typeof candidate.removeVariant === 'function'
-  );
-}
-
 function syncVariants(
   surface: VariantSurface,
   item: SurfaceRenderable,
   sources: Map<string, Float32Array>,
 ): void {
-  const set = surface.surfaceSet;
   const wanted = item.variants ?? {};
-  const upstream = hasUpstreamVariantApi(surface);
   for (const [name, positions] of Object.entries(wanted)) {
-    if (positions.length !== set.vertexCount * 3 || sources.get(name) === positions) continue;
-    if (upstream) surface.addVariant(name, positions);
-    else set.variants[name] = new Float32Array(positions);
+    if (positions.length !== surface.surfaceSet.vertexCount * 3 || sources.get(name) === positions) {
+      continue;
+    }
+    surface.addVariant(name, positions);
     sources.set(name, positions);
   }
-  for (const name of Object.keys(set.variants)) {
-    if (name in wanted) continue;
-    // Upstream refuses the default, shown and pending variants itself.
-    const removed = upstream
-      ? surface.removeVariant(name)
-      : name !== surface.currentVariant() && name !== set.defaultVariant && delete set.variants[name];
-    if (removed) sources.delete(name);
+  for (const name of surface.variantNames()) {
+    if (!(name in wanted) && surface.removeVariant(name)) sources.delete(name);
   }
 }
 
@@ -319,18 +292,22 @@ function captureCamera(viewer: NeuroSurfaceViewerInstance | null): SurfaceCamera
 }
 
 /**
- * Follow a geometry morph for its duration: the camera keeps the scene framed
- * as it grows or shrinks (target shifted with the scene's centre, distance /
- * zoom scaled with its size, view direction kept), and the morphing meshes'
- * normals are refreshed so the shading follows the shape (surfview
- * recomputes them only when the morph ends). Returns a cancel function.
+ * Keep the scene framed while a geometry morph runs: the camera target moves
+ * with the scene's centre and its distance (or zoom) scales with its size,
+ * the view direction kept. It follows surfview's own `variant:animating`
+ * frames of the first morphing mesh (all switch together), so camera and
+ * shape never drift apart. Returns a cancel function.
  */
+type SceneBounds = { center: number[]; radius: number };
+
 function startMorphDriver(
   viewer: NeuroSurfaceViewerInstance,
-  meshes: readonly MultiLayerNeuroSurface[],
-  from: { center: number[]; radius: number } | null,
-  to: { center: number[]; radius: number } | null,
-  durationMs: number,
+  leader: VariantSurface | undefined,
+  from: SceneBounds | null,
+  to: SceneBounds | null,
+  animated: boolean,
+  /** The bounds the camera frames after each step (a later switch scales from these). */
+  onFramed: (bounds: SceneBounds | null) => void,
 ): () => void {
   const camera = viewer.camera;
   const pose = viewer.getCameraState?.();
@@ -339,14 +316,17 @@ function startMorphDriver(
   const moveCamera =
     !!pose && !!viewer.setCameraState && !!camera &&
     (Math.abs(scale - 1) > 0.03 || Math.hypot(shift[0], shift[1], shift[2]) > 0.02 * (from?.radius ?? 1));
+  if (!moveCamera || !pose) {
+    onFramed(to);
+    return () => {};
+  }
   const zoom0 = camera?.zoom ?? 1;
   const up = camera?.up?.toArray?.();
   const orthographic = !!camera?.isOrthographicCamera;
 
-  const placeCamera = (e: number) => {
-    if (!moveCamera || !pose) return;
-    const k = 1 + (scale - 1) * e;
-    const target = pose.target.map((v, i) => v + shift[i] * e) as [number, number, number];
+  const placeCamera = (weight: number) => {
+    const k = 1 + (scale - 1) * weight;
+    const target = pose.target.map((v, i) => v + shift[i] * weight) as [number, number, number];
     const offset = pose.position.map((v, i) => v - pose.target[i]);
     const position = target.map((v, i) => v + offset[i] * (orthographic ? 1 : k)) as [
       number,
@@ -360,36 +340,28 @@ function startMorphDriver(
       up: up ?? [0, 1, 0],
       zoom: orthographic ? zoom0 / k : zoom0,
     } as SurfaceCameraState);
+    viewer.requestRender();
+    if (from) {
+      onFramed({
+        center: from.center.map((v, i) => v + shift[i] * weight),
+        radius: from.radius * k,
+      });
+    }
   };
 
-  if (durationMs <= 0) {
+  if (!animated || !leader) {
     placeCamera(1);
-    viewer.requestRender();
     return () => {};
   }
-
-  let frame = 0;
-  let tick = 0;
-  let cancelled = false;
-  const start = performance.now();
-  const step = (now: number) => {
-    if (cancelled) return;
-    const t = Math.min(1, (now - start) / durationMs);
-    placeCamera(easeInOutCubic(t));
-    // Every other frame: a 160k-vertex mesh costs a few ms per refresh.
-    // surfview 3.3+ interpolates normals itself during a switch.
-    if (t < 1 && tick++ % 2 === 0) {
-      for (const surface of meshes) {
-        if (!hasUpstreamVariantApi(surface)) surface.mesh?.geometry?.computeVertexNormals();
-      }
-    }
-    viewer.requestRender();
-    if (t < 1) frame = requestAnimationFrame(step);
-  };
-  frame = requestAnimationFrame(step);
+  const offFrame = leader.on('variant:animating', ({ weight }: { weight: number }) => placeCamera(weight));
+  const offEnd = leader.on('variant:changed', () => {
+    placeCamera(1);
+    offFrame();
+    offEnd();
+  });
   return () => {
-    cancelled = true;
-    cancelAnimationFrame(frame);
+    offFrame();
+    offEnd();
   };
 }
 
@@ -437,6 +409,9 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
   const variantListenersRef = useRef<Map<string, () => void>>(new Map());
   // The running morph's frame loop (camera and normals follow the shape).
   const morphDriverRef = useRef<(() => void) | null>(null);
+  // The scene bounds the camera currently frames, as the last morph left it
+  // (mid-way when a switch was reversed): the next switch scales from these.
+  const framedBoundsRef = useRef<SceneBounds | null>(null);
   // Bumped when a morph ends: the linked-cursor marker re-reads the mesh.
   const [geometryEpoch, setGeometryEpoch] = useState(0);
   const morphDurationRef = useRef(morphDurationMs);
@@ -865,10 +840,8 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
         variantListenersRef.current.set(
           handle,
           variantSurface.on('variant:changed', () => {
-            // Bounds (picking and fitting test them first) follow the new shape.
-            const meshGeometry = variantSurface.mesh?.geometry;
-            meshGeometry?.computeBoundingBox();
-            meshGeometry?.computeBoundingSphere();
+            // surfview recomputes normals and bounds; smoothing and the
+            // cursor marker follow the settled shape here.
             const original = originalGeometryRef.current.get(handle);
             if (original && smoothingRef.current > 0) {
               applySmoothingToRenderedSurface(variantSurface, original, smoothingRef.current);
@@ -902,12 +875,6 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
         showCurvatureRef.current,
       );
       viewer.addSurface(renderedSurface, item.handle);
-      // A morph passes through shapes outside any one embedding's bounds
-      // (surfview 3.3+ keeps the bounds around both shapes itself).
-      if (variantNames && renderedSurface.mesh) {
-        if (!hasUpstreamVariantApi(renderedSurface)) renderedSurface.mesh.frustumCulled = false;
-        renderedSurface.mesh.geometry?.computeBoundingSphere();
-      }
 
       renderedSurfacesRef.current.set(item.handle, renderedSurface);
       renderedSurfaceInputsRef.current.set(item.handle, item);
@@ -919,7 +886,7 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
     };
 
     // Meshes switching geometry this pass, for the camera / normals loop.
-    const morphing: MultiLayerNeuroSurface[] = [];
+    const morphing: VariantSurface[] = [];
     let morphAnimated = false;
     const shapesBefore = new Map<string, Float32Array>();
     for (const [handle, input] of renderedSurfaceInputsRef.current) {
@@ -981,15 +948,6 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
               faces: originalGeometryRef.current.get(item.handle)?.faces ?? new Uint32Array(item.geometry.faces),
             });
             const duration = Math.max(0, morphDurationRef.current);
-            // Before surfview 3.3 the variant is named only when a morph
-            // ends and a switch to that name is ignored: a switch back during
-            // a morph would be dropped. Clear the name so it runs.
-            if (
-              !hasUpstreamVariantApi(variantSurface) &&
-              item.variant === variantSurface.currentVariant()
-            ) {
-              (variantSurface as unknown as { currentVariantName: string }).currentVariantName = '';
-            }
             const animate = duration > 0 && smoothingRef.current === 0;
             variantSurface.setVariant(item.variant!, {
               // Smoothing re-runs on the final shape: no morph of a smoothed mesh.
@@ -1060,15 +1018,20 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
         morphDriverRef.current?.();
         morphDriverRef.current = startMorphDriver(
           viewer,
-          morphing,
-          boundsOf([...shapesBefore.values()]),
+          morphing[0],
+          framedBoundsRef.current ?? boundsOf([...shapesBefore.values()]),
           boundsOf(shapesAfter),
-          morphAnimated ? Math.max(0, morphDurationRef.current) : 0,
+          morphAnimated,
+          (bounds) => {
+            framedBoundsRef.current = bounds;
+          },
         );
       }
 
       // A remounted mesh starts visible; re-apply the preset's hidden side.
       if (structuralChange) {
+        // Meshes came or went: the next morph frames from what is drawn.
+        framedBoundsRef.current = null;
         applyPresetVisibility(
           renderedSurfacesRef.current,
           renderedSurfaceInputsRef.current,
@@ -1153,6 +1116,7 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
       applied.viewpoint !== viewpoint ||
       applied.nonce !== viewpointNonce ||
       (applied.hidden !== null && hiddenHemisphere !== null && applied.hidden !== hiddenHemisphere);
+    if (refit) framedBoundsRef.current = null;
     if (refit && !setCenteredViewpoint(viewer, viewpoint, presetHemisphereRef.current)) {
       warn(`Preset "${viewpoint}" found no visible mesh bounds to fit`);
     }

@@ -17,8 +17,9 @@ const log = vi.hoisted(() => ({
   plainSurfaces: 0,
   cameraStates: [] as Array<{ position: number[]; target: number[] }>,
   /** Fake surfview >= 3.3 (targetVariant, add/removeVariant); else 3.1/3.2. */
-  upstream: false,
   upstreamAdded: [] as string[],
+  /** Animated switches waiting to run their frames (weights) and settle. */
+  morphs: [] as Array<(weights: number[], settle?: boolean) => void>,
 }));
 
 vi.mock('neurosurface', async () => {
@@ -56,10 +57,13 @@ vi.mock('neurosurface', async () => {
     }
     setViewpoint() {}
     centerCamera() {}
+    // Starts 100 mm from the origin; keeps whatever pose it is given.
+    pose = { position: [0, 0, 100], target: [0, 0, 0], quaternion: [0, 0, 0, 1] };
     getCameraState() {
-      return { position: [0, 0, 100], target: [0, 0, 0], quaternion: [0, 0, 0, 1] };
+      return { ...this.pose, position: [...this.pose.position], target: [...this.pose.target] };
     }
     setCameraState(state: { position: number[]; target: number[] }) {
+      this.pose = { ...this.pose, position: [...state.position], target: [...state.target] };
       log.cameraStates.push({ position: [...state.position], target: [...state.target] });
     }
     fitToView() {
@@ -110,47 +114,66 @@ vi.mock('neurosurface', async () => {
     }
   }
 
+  /** surfview 3.3's VariantSurface: animated switches emit frames when the test runs them. */
   class FakeVariantSurface {
     mesh: InstanceType<typeof THREE.Mesh>;
     surfaceSet: FakeSurfaceSet;
     currentVariantName: string;
-    listeners = new Map<string, Array<() => void>>();
-    // Present only on the upstream (>= 3.3) fake; undefined, not absorbed, otherwise.
-    targetVariant?: () => string;
-    addVariant?: (name: string, positions: Float32Array) => void;
-    removeVariant?: (name: string) => boolean;
+    pendingVariantName: string | null = null;
+    listeners = new Map<string, Array<(payload?: unknown) => void>>();
     constructor(set: FakeSurfaceSet) {
       this.surfaceSet = set;
       this.currentVariantName = set.defaultVariant;
       this.mesh = meshOf(set.variants[set.defaultVariant], set.faces);
-      if (log.upstream) {
-        this.targetVariant = () => this.currentVariantName;
-        this.addVariant = (name, positions) => {
-          log.upstreamAdded.push(name);
-          set.variants[name] = new Float32Array(positions);
-        };
-        this.removeVariant = (name) => delete set.variants[name];
-      } else {
-        // Own properties, so the catch-all proxy does not answer for them.
-        this.targetVariant = undefined;
-        this.addVariant = undefined;
-        this.removeVariant = undefined;
-      }
       log.variantSurfaces.push(this);
       return withAbsorb(this);
     }
     currentVariant() {
       return this.currentVariantName;
     }
-    setVariant(name: string, options: { animate?: boolean; duration?: number } = {}) {
-      if (name === this.currentVariantName) return;
-      log.setVariant.push({ name, animate: options.animate, duration: options.duration });
-      this.currentVariantName = name;
-      (this.listeners.get('variant:changed') ?? []).forEach((listener) => listener());
+    targetVariant() {
+      return this.pendingVariantName ?? this.currentVariantName;
     }
-    on(event: string, listener: () => void) {
+    variantNames() {
+      return Object.keys(this.surfaceSet.variants);
+    }
+    addVariant(name: string, positions: Float32Array) {
+      log.upstreamAdded.push(name);
+      this.surfaceSet.variants[name] = new Float32Array(positions);
+    }
+    removeVariant(name: string) {
+      if (name === this.currentVariantName || name === this.pendingVariantName) return false;
+      if (name === this.surfaceSet.defaultVariant) return false;
+      return delete this.surfaceSet.variants[name];
+    }
+    private emit(event: string, payload?: unknown) {
+      (this.listeners.get(event) ?? []).forEach((listener) => listener(payload));
+    }
+    setVariant(name: string, options: { animate?: boolean; duration?: number } = {}) {
+      if (name === this.targetVariant()) return;
+      log.setVariant.push({ name, animate: options.animate, duration: options.duration });
+      const settle = () => {
+        this.pendingVariantName = null;
+        this.currentVariantName = name;
+        this.emit('variant:changed', { surface: this, variant: name });
+      };
+      if (!options.animate) {
+        settle();
+        return;
+      }
+      this.pendingVariantName = name;
+      log.morphs.push((weights: number[], finish = true) => {
+        for (const weight of weights) {
+          this.emit('variant:animating', { surface: this, variant: name, progress: weight, weight });
+        }
+        if (finish) settle();
+      });
+    }
+    on(event: string, listener: (payload?: unknown) => void) {
       this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
-      return () => {};
+      return () => {
+        this.listeners.set(event, (this.listeners.get(event) ?? []).filter((l) => l !== listener));
+      };
     }
     getCurvatureLayer() {
       return null;
@@ -216,8 +239,8 @@ describe('NeuroSurfaceCanvas geometry morph', () => {
     log.variantSurfaces = [];
     log.plainSurfaces = 0;
     log.cameraStates = [];
-    log.upstream = false;
     log.upstreamAdded = [];
+    log.morphs = [];
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
       width: 200,
       height: 100,
@@ -304,13 +327,47 @@ describe('NeuroSurfaceCanvas geometry morph', () => {
     expect(last.target[0]).toBeLessThan(0);
   });
 
-  it('adds geometries through the upstream API when surfview has it', async () => {
-    log.upstream = true;
+  it('adds geometries through surfview\'s addVariant', async () => {
     const view = render(canvas(display('pial', { pial: PIAL, white: WHITE })));
     await act(async () => {});
     view.rerender(canvas(display('pial')));
     await act(async () => {});
     expect(log.upstreamAdded).toEqual(['inflated']);
-    expect(Object.keys(log.variantSurfaces[0].surfaceSet.variants)).toContain('inflated');
+  });
+
+  it('moves the camera with surfview\'s morph frames, not its own clock', async () => {
+    const view = render(canvas(display('pial')));
+    await act(async () => {});
+    log.cameraStates = [];
+    view.rerender(canvas(display('inflated')));
+    await act(async () => {});
+    // Nothing moves until surfview reports a frame.
+    expect(log.cameraStates).toEqual([]);
+    const distanceOf = (state: { position: number[]; target: number[] }) =>
+      Math.hypot(...state.position.map((v, i) => v - state.target[i]));
+    act(() => log.morphs[0]([0.5]));
+    // One camera pose per surfview frame: the halfway frame, then the settle.
+    expect(log.cameraStates).toHaveLength(2);
+    const [half, settled] = log.cameraStates.map(distanceOf);
+    // The fake viewer's camera starts 100 mm out; inflated is ~2x the pial scene.
+    expect(half).toBeGreaterThan(100);
+    expect(settled).toBeGreaterThan(half);
+    expect(half).toBeCloseTo((100 + settled) / 2, 6);
+  });
+
+  it('returns the camera to where it was when a switch is reversed half-way', async () => {
+    const view = render(canvas(display('pial')));
+    await act(async () => {});
+    log.cameraStates = [];
+    view.rerender(canvas(display('inflated')));
+    await act(async () => {});
+    act(() => log.morphs[0]([0.5], false)); // half-way, still running
+    view.rerender(canvas(display('pial')));
+    await act(async () => {});
+    act(() => log.morphs[1]([0.5, 1]));
+    const last = log.cameraStates.at(-1)!;
+    const distance = Math.hypot(...last.position.map((v, i) => v - last.target[i]));
+    // The fake viewer started 100 mm out on the pial scene.
+    expect(distance).toBeCloseTo(100, 6);
   });
 });
