@@ -240,6 +240,36 @@ describe('StudioDerivedPaneCanvas (review H1/M1/M2/M4)', () => {
     expect(api.loadFile.mock.calls.length).toBe(before + 1);
   });
 
+  // 4D ring members cycling free a little room every tick: a refused pane
+  // asks again at most once a second, and once more after a burst.
+  it('retries a refused pane at most once per second when room keeps being freed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      api.requestLayerGpuResources.mockRejectedValue({
+        GpuError: { code: 6024, details: 'Maximum texture limit 13 reached' },
+      });
+      render(<StudioDerivedPaneCanvas paneId="zscore" sourcePath="/c/storm.nii.gz" label="Z" workspaceId={STUDIO} />);
+      expect(await screen.findByText(/GPU texture slots full/)).toBeInTheDocument();
+      const before = api.requestLayerGpuResources.mock.calls.length;
+      freeRoom();
+      await waitFor(() => expect(api.requestLayerGpuResources.mock.calls.length).toBe(before + 1));
+      await waitFor(() => expect(screen.getByText(/GPU texture slots full/)).toBeInTheDocument());
+      freeRoom();
+      freeRoom();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      expect(api.requestLayerGpuResources.mock.calls.length).toBe(before + 1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      await waitFor(() => expect(api.requestLayerGpuResources.mock.calls.length).toBe(before + 2));
+    } finally {
+      api.requestLayerGpuResources.mockReset();
+      vi.useRealTimers();
+    }
+  });
+
   it('shows an oversized byte-budget refusal but does not retry it when room is freed', async () => {
     const budget = 512 * 1024 * 1024;
     api.requestLayerGpuResources.mockRejectedValueOnce({

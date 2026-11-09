@@ -88,6 +88,21 @@ describe('backend residency owner', () => {
     off();
   });
 
+  // A hidden layer is undemanded; the backend evicts it under pressure and
+  // stops listing it. Marked non-resident, a later show asks for it again.
+  it('marks a resident layer the report no longer lists as evicted', () => {
+    withLayers(['a', 'b', 'c'], true);
+    const store = useResidencyStore.getState();
+    // Before the renderer starts the report lists nothing: nothing changes.
+    store.apply({ ...report(), binding_capacity: 0 });
+    expect(metadata('a').gpuResident).toBe(true);
+    // 'b' is listed by the volume texture it shares.
+    store.apply(report([{ layer_id: 'a', state: 'undemanded', frames: [] }, { layer_id: 'vol-b' }]));
+    expect(metadata('a').gpuResident).toBe(true);
+    expect(metadata('b').gpuResident).toBe(true);
+    expect(metadata('c')).toMatchObject({ gpuResident: false, evicted: true });
+  });
+
   it('marks a watchdog release non-resident, once, and ignores unknown layers', () => {
     withLayers(['w'], true);
     noteBackendRelease('w');

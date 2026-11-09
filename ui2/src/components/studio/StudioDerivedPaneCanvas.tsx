@@ -33,6 +33,9 @@ import { safeUnlisten } from '@/utils/eventUtils';
 /** How long a pane keeps its cached bitmap waiting for its anatomy on return (N29). */
 const ANATOMY_WAIT_MS = 1500;
 
+/** Shortest gap between two retries of a pane refused for want of GPU room. */
+const RETRY_INTERVAL_MS = 1000;
+
 /**
  * Body of a derived Compare pane (B–D): the materialized map itself, held
  * through StudioDerivedMapService (never a workspace layer) and drawn by its
@@ -40,6 +43,7 @@ const ANATOMY_WAIT_MS = 1500;
  * Studio's workspace and draws only while that workspace is in front. The pane
  * header carries status and provenance; the cache path is never shown (QA F8).
  */
+
 export function StudioDerivedPaneCanvas({
   paneId,
   sourcePath,
@@ -150,13 +154,31 @@ export function StudioDerivedPaneCanvas({
   // Subscribe before promise effects can report pressure.  The refs are set
   // synchronously with the failure, so a report that frees room right after
   // the error is not lost waiting for another render's passive effect.
+  // Reports can free a little room every tick (4D ring members cycling), so
+  // a refused pane asks again at most once per RETRY_INTERVAL_MS, and once
+  // more after it when room was freed in between.
   useLayoutEffect(() => {
     if (!studioActive) return;
-    return useResidencyStore.subscribe((state, prev) => {
-      if (!residencyFreed(prev.report, state.report)) return;
+    let last = -Infinity;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const retry = () => {
+      timer = null;
+      last = Date.now();
       if (waitingForSlotsRef.current) setMapAttempt((n) => n + 1);
       if (anatomyWaitingRef.current) setAnatomyAttempt((n) => n + 1);
+    };
+    const off = useResidencyStore.subscribe((state, prev) => {
+      if (!residencyFreed(prev.report, state.report)) return;
+      if (!waitingForSlotsRef.current && !anatomyWaitingRef.current) return;
+      if (timer !== null) return;
+      const wait = last + RETRY_INTERVAL_MS - Date.now();
+      if (wait <= 0) retry();
+      else timer = setTimeout(retry, wait);
     });
+    return () => {
+      off();
+      if (timer !== null) clearTimeout(timer);
+    };
   }, [studioActive]);
 
   // A borrowed workspace underlay whose layer was removed: load the template

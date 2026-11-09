@@ -8,6 +8,8 @@ import { getEventBus } from '@/events/EventBus';
 import type { Layer, LayerRender } from '@/types/layers';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { useResidencyStore } from '@/stores/residencyStore';
+import type { ResidencyReport } from '@brainflow/api';
 import { getSceneHistory, setLayerVisibleByUser } from '../SceneHistoryService';
 
 /** The backend's refusal when no texture slot can be freed (6024, R6a). */
@@ -249,9 +251,11 @@ describe('LayerService', () => {
 
   // QA 2026-10-31 N18: a show the GPU refuses is undone and explained, so
   // no layer stays "visible" without GPU resources.
-  // R6: the per-view draw cap is the backend's. A show past it is asked for
-  // like any other; the backend refuses the extra layer (`draw_cap`), badges
-  // its row and alerts once per tab (residencyStore).
+  // R6: on desktop the per-view draw cap is the backend's. A show past it is
+  // asked for like any other; the backend refuses the extra layer
+  // (`draw_cap`), badges its row and alerts once per tab (residencyStore).
+  // A host with no residency report (the browser host) refuses nothing, so
+  // the UI refuses a show past the row cap itself.
   describe('a show past the per-view draw cap', () => {
     const seed = (visible: number) => {
       const layers = Array.from({ length: visible }, (_, i) => ({
@@ -271,7 +275,33 @@ describe('LayerService', () => {
       });
     };
 
-    it('asks the backend for a show past the binding capacity', () => {
+    afterEach(() => useResidencyStore.setState({ report: null }));
+
+    it('without a residency report, refuses a 17th visible layer and says why in full', () => {
+      seed(16);
+      layerService.toggleVisibility('extra', true);
+      expect(mockApi.updateLayer).not.toHaveBeenCalled();
+      expect(useLayerStore.getState().getLayer('extra')?.visible).toBe(false);
+      expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification', {
+        type: 'error',
+        message:
+          'Cannot show sub-01_bold.nii.gz: Only 16 layers can be drawn in one view. Hide a layer in this view, then show this one.',
+        subject: 'sub-01_bold.nii.gz',
+        alert: true,
+        logSource: 'layer',
+      });
+    });
+
+    it('without a residency report, lets the 16th visible layer through', () => {
+      seed(15);
+      layerService.toggleVisibility('extra', true);
+      expect(mockApi.updateLayer).toHaveBeenCalled();
+    });
+
+    it('with a residency report, asks the backend for a show past the binding capacity', () => {
+      useResidencyStore.setState({
+        report: { seq: 1, owner: 'backend', budget_bytes: null, used_bytes: 0, binding_capacity: 13, undemanded_bytes: 0, layers: [] } as unknown as ResidencyReport,
+      });
       seed(16);
       layerService.toggleVisibility('extra', true);
       expect(mockApi.updateLayer).toHaveBeenCalled();

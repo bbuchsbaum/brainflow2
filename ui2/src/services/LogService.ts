@@ -5,7 +5,7 @@
  * to a single, human-readable log entry. The Activity panel already
  * tracks fine-grained loading state, so the log focuses on
  * **terminal events** (load complete, load error, surface added,
- * services initialized, atlas eviction) rather than progress ticks.
+ * services initialized, atlas pressure) rather than progress ticks.
  *
  * Idempotent: `bootstrapLogService()` returns a teardown function and
  * is safe to call once at app startup. Tests should call the returned
@@ -150,17 +150,6 @@ export function bootstrapLogService(): Unsubscribe {
     }),
   );
 
-  unsubs.push(
-    bus.on('atlas.eviction', ({ layerId, reason, message }) => {
-      addLogEntry({
-        level: 'warn',
-        source: 'atlas',
-        message:
-          message ??
-          `Atlas eviction (${reason})${layerId ? ` — layer ${layerId.slice(0, 8)}` : ''}`,
-      });
-    }),
-  );
   unsubs.push(
     bus.on('atlas.pressure', ({ level, reason }) => {
       if (level === 'recovered') return; // Don't spam recovery events.

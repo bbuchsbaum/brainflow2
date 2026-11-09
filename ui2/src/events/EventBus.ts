@@ -124,13 +124,6 @@ export interface EventMap {
     timestamp: number;
     reason: 'low-watermark' | 'full-event' | 'recovered';
   };
-  'atlas.eviction': {
-    layerId: string | null;
-    stats: AtlasStats | null;
-    timestamp: number;
-    reason: 'auto' | 'manual';
-    message?: string;
-  };
 
   // Time navigation events
   'time.changed': {

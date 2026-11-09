@@ -51,7 +51,7 @@ export interface VolumeMetadata {
   loadedAt?: string; // ISO timestamp when volume was loaded
   renderProps?: LayerRender; // Initial/default render properties
   gpuResident?: boolean; // Whether this layer currently has full GPU resources
-  evicted?: boolean; // Whether residency was dropped by the eviction service
+  evicted?: boolean; // Whether the backend dropped its residency (eviction, watchdog)
 }
 
 // Declare global interface for store

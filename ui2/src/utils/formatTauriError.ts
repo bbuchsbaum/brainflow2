@@ -138,6 +138,14 @@ export function gpuTextureSlotsFullMessage(limit: number): string {
   return `GPU texture slots full${count}. Hide or remove a layer, then load again.`;
 }
 
+/**
+ * What a show refused by the per-view row cap tells the user, where the UI
+ * checks it itself (the browser host, which has no residency report).
+ */
+export function drawCapMessage(cap: number): string {
+  return `Only ${cap} layers can be drawn in one view. Hide a layer in this view, then show this one.`;
+}
+
 const SLOTS_FULL_SENTENCE = /GPU texture slots full(?: \(all \d+ in use\))?\. Hide or remove a layer, then load again\./;
 
 /**

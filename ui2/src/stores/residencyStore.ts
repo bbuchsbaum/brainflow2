@@ -87,7 +87,9 @@ function syncLayers(report: ResidencyReport): void {
   // New alerts, by tab and reason, with the layers they name.
   const fresh = new Map<string, { refusal: ResidencyRefusal; names: string[] }>();
   const frames = new Set<string>();
+  const listed = new Set<string>();
   for (const entry of report.layers) {
+    listed.add(entry.layer_id);
     for (const frame of entry.frames) frames.add(frame);
     const layer = layers.getLayer(entry.layer_id);
     if (!layer) continue;
@@ -111,6 +113,18 @@ function syncLayers(report: ResidencyReport): void {
       const group = fresh.get(key) ?? { refusal: entry.refusal, names: [] };
       group.names.push(layer.name ?? entry.layer_id);
       fresh.set(key, group);
+    }
+  }
+  // A layer the report no longer lists (by its id, or the volume texture it
+  // shares) holds nothing: the backend evicted it while nothing demanded it
+  // (hidden). Mark it, so a show asks for it again and the redraw follows
+  // its admission. A report from before the renderer starts lists nothing.
+  if (report.binding_capacity > 0) {
+    for (const layer of layers.layers) {
+      if (listed.has(layer.id) || listed.has(layer.volumeId)) continue;
+      const metadata = layers.getLayerMetadata(layer.id);
+      if (metadata?.gpuResident !== true) continue;
+      layers.setLayerMetadata(layer.id, { ...metadata, gpuResident: false, evicted: true });
     }
   }
   // Forget the pairs of tabs that closed.

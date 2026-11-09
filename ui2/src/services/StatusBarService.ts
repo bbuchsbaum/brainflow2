@@ -442,16 +442,6 @@ export class StatusBarService {
     );
     this.unsubscribers.push(unsubscribeAtlasPressure);
 
-    const unsubscribeAtlasEviction = eventBus.on(
-      "atlas.eviction",
-      ({ stats }) => {
-        if (isCurrentInit() && stats) {
-          updateAtlasSlot(stats, "warning");
-        }
-      },
-    );
-    this.unsubscribers.push(unsubscribeAtlasEviction);
-
     // Subscribe to FPS updates with throttling
     const unsubscribeFps = eventBus.on("render.fps", (data: any) => {
       if (data.fps !== undefined && isCurrentInit()) {
