@@ -22,6 +22,7 @@
       "api-bridge:allow-remote-mount-respond-auth",
       "api-bridge:allow-remote-mount-unmount",
       "api-bridge:allow-list-remote-mount-profiles",
+      "api-bridge:allow-list-ssh-config-hosts",
       "api-bridge:allow-remove-remote-mount-profile",
   
      

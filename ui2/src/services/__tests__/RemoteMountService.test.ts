@@ -3,7 +3,11 @@ import { setTransport } from '@/services/transport';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import {
   buildRemoteMountMountOptions,
+  findProfileForTarget,
+  listSshConfigHosts,
   mountConnectedRemoteDirectory,
+  reconnectRemoteProfilesOnLaunch,
+  type RemoteMountProfile,
   mountRemoteFromStartupSpec,
   type ConnectedRemoteMount,
 } from '../RemoteMountService';
@@ -78,7 +82,6 @@ describe('RemoteMountService', () => {
             user: 'brad',
             remote_path: '/scratch/brad',
             save_profile: false,
-            remember_password: false,
           },
         });
         return Promise.resolve({
@@ -137,7 +140,6 @@ describe('RemoteMountService', () => {
             verify_host_key: true,
             accept_unknown_host_keys: false,
             known_hosts_path: undefined,
-            remember_password: false,
             save_profile: false,
             profile_name: 'trillium',
           },
@@ -197,7 +199,6 @@ describe('RemoteMountService', () => {
             verify_host_key: true,
             accept_unknown_host_keys: false,
             known_hosts_path: undefined,
-            remember_password: false,
             save_profile: false,
             profile_name: 'secure-key',
           },
@@ -254,5 +255,73 @@ describe('RemoteMountService', () => {
     );
 
     expect(mountDirectoryMock).not.toHaveBeenCalled();
+  });
+
+  describe('repeat connections', () => {
+    const profile = (overrides: Partial<RemoteMountProfile>): RemoteMountProfile => ({
+      id: 'p',
+      name: 'p',
+      host: 'login.example.org',
+      port: 22,
+      user: 'alice',
+      remote_path: '/data',
+      auth_method: 'agent',
+      key_path: null,
+      verify_host_key: true,
+      accept_unknown_host_keys: false,
+      known_hosts_path: null,
+      has_password: false,
+      has_key_passphrase: false,
+      updated_at_ms: BigInt(0) as unknown as bigint,
+      reconnect_on_launch: false,
+      ...overrides,
+    });
+
+    it('finds the saved profile for a remote folder', () => {
+      const profiles = [
+        profile({ id: 'other-port', port: 2222 }),
+        profile({ id: 'match', host: 'Login.Example.org' }),
+      ];
+      expect(
+        findProfileForTarget(profiles, { host: 'login.example.org', user: 'alice', remotePath: 'data/' })?.id
+      ).toBe('match');
+      expect(findProfileForTarget(profiles, { host: 'login.example.org', remotePath: '/elsewhere' })).toBeNull();
+      expect(findProfileForTarget(profiles, { host: 'login.example.org', user: 'bob', remotePath: '/data' })).toBeNull();
+    });
+
+    it('treats a missing ssh config command as no aliases', async () => {
+      setTransport({ invoke: vi.fn().mockRejectedValue(new Error('denied')) } as BackendTransportLike);
+      await expect(listSshConfigHosts()).resolves.toEqual([]);
+    });
+
+    it('reconnects only profiles marked for launch and reports the ones needing a prompt', async () => {
+      const invokeMock = vi.fn().mockImplementation((cmd: string, args?: any) => {
+        if (cmd === 'list_remote_mount_profiles') {
+          return Promise.resolve([
+            profile({ id: 'auto', name: 'auto', reconnect_on_launch: true }),
+            profile({ id: 'manual', name: 'manual', remote_path: '/manual' }),
+            profile({ id: 'duo', name: 'duo', remote_path: '/duo', auth_method: 'keyboard_interactive', reconnect_on_launch: true }),
+          ]);
+        }
+        if (cmd === 'remote_mount_connect') {
+          // Launch reconnects never change the keychain or the profile.
+          expect(args.request.remember_password).toBeUndefined();
+          expect(args.request.save_profile).toBe(false);
+          if (args.request.remote_path === '/duo') {
+            return Promise.resolve({ status: 'need_auth', challenge: {} });
+          }
+          return Promise.resolve({ status: 'connected', mount: CONNECTED_MOUNT });
+        }
+        return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+      });
+      setTransport({ invoke: invokeMock } as BackendTransportLike);
+
+      const result = await reconnectRemoteProfilesOnLaunch();
+
+      expect(result.mounted).toEqual(['auto']);
+      expect(result.needsAttention).toEqual([{ name: 'duo', reason: 'it needs an interactive sign-in' }]);
+      expect(invokeMock).toHaveBeenCalledTimes(3);
+      expect(mountDirectoryMock).toHaveBeenCalledTimes(1);
+    });
   });
 });

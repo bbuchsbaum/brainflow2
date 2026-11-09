@@ -7,9 +7,13 @@ import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import { getFileLoadingService } from '@/services/FileLoadingService';
-import { mountRemoteFromStartupSpec, type StartupRemoteMountSpec } from '@/services/RemoteMountService';
+import {
+  mountRemoteFromStartupSpec,
+  reconnectRemoteProfilesOnLaunch,
+  type StartupRemoteMountSpec,
+} from '@/services/RemoteMountService';
 import { getEventBus } from '@/events/EventBus';
-import { getTransport } from '@/services/transport';
+import { getTransport, getHostCapabilities } from '@/services/transport';
 import { formatTauriError } from '@/utils/formatTauriError';
 import { areServicesInitialized } from './useServicesInit';
 import type { MountSource } from '@/types/filesystem';
@@ -39,6 +43,27 @@ interface RemoteMountRecoveryEvent {
   origin_label: string;
   attempt: number;
   reason: string;
+}
+
+// Once per app session, not per hook mount (StrictMode/remounts).
+let launchReconnectStarted = false;
+
+/** Remount saved remote folders marked "Reconnect when Brainflow starts". */
+async function reconnectRemoteFoldersOnLaunch(): Promise<void> {
+  if (launchReconnectStarted || !getHostCapabilities().remoteMounts) {
+    return;
+  }
+  launchReconnectStarted = true;
+  const { mounted, needsAttention } = await reconnectRemoteProfilesOnLaunch();
+  if (mounted.length > 0) {
+    console.info('Reconnected remote folders at launch:', mounted);
+  }
+  for (const { name, reason } of needsAttention) {
+    getEventBus().emit('ui.notification', {
+      type: 'warning',
+      message: `Did not reconnect ${name} at launch: ${reason}. Open it from Recents to sign in.`,
+    });
+  }
 }
 
 function isTauriRuntime(): boolean {
@@ -81,6 +106,10 @@ export function useMountListener() {
       try {
         await getTransport().invoke<number>('flush_startup_actions');
         startupActionsFlushed = true;
+        // After command-line mounts, so one naming the same folder is reused.
+        void reconnectRemoteFoldersOnLaunch().catch((error) =>
+          console.error('Reconnecting remote folders at launch failed:', error)
+        );
       } catch (error) {
         console.error('Failed to flush startup actions:', error);
       } finally {

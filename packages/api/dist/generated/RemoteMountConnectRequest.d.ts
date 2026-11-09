@@ -16,4 +16,9 @@ export type RemoteMountConnectRequest = {
     remember_password: boolean | null;
     save_profile: boolean | null;
     profile_name: string | null;
+    /**
+     * Saved with the profile: reconnect this folder when Brainflow starts.
+     * `None` keeps the profile's current setting.
+     */
+    reconnect_on_launch: boolean | null;
 };

@@ -328,6 +328,7 @@ async fn remote_transfer_real_sftp_success_cancel_stall_and_retry() {
         display_name: "fixture".into(),
         origin_label: "fixture".into(),
         host: "127.0.0.1".into(),
+        connect_host: "127.0.0.1".into(),
         port: server.addr.port(),
         user: "fixture".into(),
         client: client.clone(),
@@ -425,6 +426,7 @@ async fn remote_headers_stream_only_the_start_of_gzipped_files() {
         display_name: "fixture".into(),
         origin_label: "fixture".into(),
         host: "127.0.0.1".into(),
+        connect_host: "127.0.0.1".into(),
         port: server.addr.port(),
         user: "fixture".into(),
         client: client.clone(),
@@ -515,6 +517,7 @@ async fn optional_remote_files_tolerate_only_absence() {
         display_name: "fixture".into(),
         origin_label: "fixture".into(),
         host: "127.0.0.1".into(),
+        connect_host: "127.0.0.1".into(),
         port: server.addr.port(),
         user: "fixture".into(),
         client: client.clone(),
@@ -557,5 +560,112 @@ async fn optional_remote_files_tolerate_only_absence() {
 
     server.shutdown.shutdown("done".into());
     let _ = server.join.await;
+    drop(cleanup);
+}
+
+/// A second folder on a host that is already mounted reuses the live, signed-in
+/// session (no second password or 2FA prompt); the same folder is handed back
+/// as-is; another account or a closed session never borrows it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn remote_mounts_share_a_live_session_per_endpoint() {
+    let server = spawn_sftp_server(
+        PrivateKey::random(&mut rand::rng(), russh::keys::Algorithm::Ed25519).unwrap(),
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicUsize::new(0)),
+    )
+    .await;
+    let port = server.addr.port();
+    let config = ConnectConfig::new(server.addr.ip().to_string(), "fixture")
+        .port(port)
+        .auth(AuthMethod::Password("ephemeral-test-only".into()))
+        .connect_timeout(Duration::from_secs(5))
+        .operation_timeout(Duration::from_secs(5))
+        .retry_count(0)
+        .skip_host_key_verification();
+    let client = Arc::new(RemoteClient::connect(config).await.unwrap());
+    let root = std::env::temp_dir().join(format!("brainflow-share-test-{}", uuid::Uuid::new_v4()));
+    let local_root = root.join(crate::remote_cache::identity(
+        "127.0.0.1",
+        port,
+        "fixture",
+        "/data",
+    ));
+    std::fs::create_dir_all(&local_root).unwrap();
+    let cleanup = super::Staging(root.clone());
+
+    let state = crate::BridgeState::default().unwrap();
+    state.remote_mounts.lock().await.insert(
+        "first".into(),
+        crate::RemoteMountEntry {
+            mount_id: "first".into(),
+            local_root,
+            remote_root: "/data".into(),
+            display_name: "fixture".into(),
+            origin_label: "fixture".into(),
+            host: "127.0.0.1".into(),
+            connect_host: "127.0.0.1".into(),
+            port,
+            user: "fixture".into(),
+            client: client.clone(),
+            op_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
+            transfers: Arc::new(super::Control::default()),
+            progress: Arc::new(|_| {}),
+        },
+    );
+
+    let no_config = remotely::ssh::SshConfig::default();
+    let request = |user: &str, path: &str| {
+        crate::normalize_remote_mount_request(
+            bridge_types::RemoteMountConnectRequest {
+                host: "127.0.0.1".into(),
+                port: Some(port),
+                user: user.into(),
+                remote_path: path.into(),
+                auth_method: Some("password".into()),
+                password: None,
+                key_path: None,
+                key_passphrase: None,
+                verify_host_key: None,
+                accept_unknown_host_keys: None,
+                known_hosts_path: None,
+                remember_password: None,
+                save_profile: None,
+                profile_name: None,
+                reconnect_on_launch: None,
+            },
+            &no_config,
+        )
+        .unwrap()
+    };
+
+    let same = request("fixture", "/data/");
+    let info = crate::live_remote_mount_for_request(&state, &same)
+        .await
+        .expect("the mounted folder is returned without a login");
+    assert_eq!(info.mount_id, "first");
+
+    let other_folder = request("fixture", "/other");
+    assert!(crate::live_remote_mount_for_request(&state, &other_folder)
+        .await
+        .is_none());
+    let shared = crate::shared_remote_client_for_request(&state, &other_folder)
+        .await
+        .expect("same endpoint shares the session");
+    assert!(Arc::ptr_eq(&shared, &client));
+
+    let other_user = request("someone-else", "/other");
+    assert!(crate::shared_remote_client_for_request(&state, &other_user)
+        .await
+        .is_none());
+
+    client.close().await.unwrap();
+    assert!(
+        crate::shared_remote_client_for_request(&state, &other_folder)
+            .await
+            .is_none()
+    );
+    assert!(crate::live_remote_mount_for_request(&state, &same)
+        .await
+        .is_none());
     drop(cleanup);
 }

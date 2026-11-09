@@ -140,6 +140,7 @@ export * from './SliceIndex';
 export * from './SliceInfo';
 export * from './SliceOrientation';
 export * from './SpatialFieldSetSummary';
+export * from './SshConfigHost';
 export * from './StatisticInfo';
 export * from './StatisticKind';
 export * from './StudioAlignmentClass';

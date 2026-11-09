@@ -33,10 +33,10 @@ use bridge_types::{
     GpuTextureFormat, LayerPatch, Loader, NiftiHeaderInfo, PeekVolumeMetadata, RemoteAuthChallenge,
     RemoteAuthPrompt, RemoteHostKeyChallenge, RemoteMountConnectRequest, RemoteMountConnectResult,
     RemoteMountInfo, RemoteMountOrigin, RemoteMountProfile, SliceAxisMeta, SliceInfo,
-    StudioDiscoveryDesignValue, StudioDiscoveryPromotionRequest, StudioDiscoveryPromotionResult,
-    StudioFolderOntologyPreviewRequest, StudioFolderOntologySummary, StudioImportCandidate,
-    StudioImportPreviewRequest, TextureCoordinates, TreePayload, VolumeHandleInfo,
-    VolumeLayerGpuInfo, VolumeSendable,
+    SshConfigHost, StudioDiscoveryDesignValue, StudioDiscoveryPromotionRequest,
+    StudioDiscoveryPromotionResult, StudioFolderOntologyPreviewRequest,
+    StudioFolderOntologySummary, StudioImportCandidate, StudioImportPreviewRequest,
+    TextureCoordinates, TreePayload, VolumeHandleInfo, VolumeLayerGpuInfo, VolumeSendable,
 };
 use colormap::colormap_by_name;
 // Import NiftiLoader for registration
@@ -62,7 +62,7 @@ use nalgebra::{Affine3, Matrix4}; // Removed unused Vector4
 use neuro_types::{ViewOrientation, ViewRectMm, VolumeMetadata};
 use remotely::ssh::{
     AuthMethod as RemoteAuthMethod, ConnectConfig as RemoteConnectConfig,
-    ConnectOutcome as RemoteConnectOutcome, HostKeyDisposition,
+    ConnectOutcome as RemoteConnectOutcome, HostKeyDisposition, SshConfig,
 };
 use remotely::{Connector, FilesystemProbeOptions, PendingAuth, PendingHostKey, RemoteClient};
 use tokio::runtime::Handle;
@@ -1168,7 +1168,11 @@ const REMOTE_FS_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
 struct NormalizedRemoteMountRequest {
+    /// What the user typed: a host name or a `~/.ssh/config` alias. Profiles,
+    /// keychain entries and the cache identity are keyed on it.
     host: String,
+    /// Where the SSH connection goes (`HostName` from `~/.ssh/config`, else `host`).
+    connect_host: String,
     port: u16,
     user: String,
     remote_path: String,
@@ -1176,12 +1180,20 @@ struct NormalizedRemoteMountRequest {
     password: Option<String>,
     key_path: Option<String>,
     key_passphrase: Option<String>,
+    /// First existing `IdentityFile` from `~/.ssh/config`, used for key auth
+    /// when no key path was given.
+    config_identity: Option<PathBuf>,
+    /// `ProxyJump` from `~/.ssh/config`; only used to explain a failed connect.
+    proxy_jump: Option<String>,
     verify_host_key: bool,
     accept_unknown_host_keys: bool,
     known_hosts_path: Option<PathBuf>,
-    remember_password: bool,
+    /// `Some(true)` stores the secret in the keychain, `Some(false)` removes
+    /// it, `None` leaves the keychain as it is (reconnects from a profile).
+    remember_password: Option<bool>,
     save_profile: bool,
     profile_name: Option<String>,
+    reconnect_on_launch: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -1211,6 +1223,9 @@ struct RemoteMountEntry {
     display_name: String,
     origin_label: String,
     host: String,
+    /// The SSH endpoint actually dialled; mounts with the same
+    /// `(connect_host, port, user)` share one authenticated session.
+    connect_host: String,
     port: u16,
     user: String,
     client: Arc<RemoteClient>,
@@ -1733,9 +1748,9 @@ fn remote_probe_options(request: &NormalizedRemoteMountRequest) -> FilesystemPro
 
 fn normalize_remote_mount_request(
     request: RemoteMountConnectRequest,
+    ssh_config: &SshConfig,
 ) -> BridgeResult<NormalizedRemoteMountRequest> {
     let host = request.host.trim().to_string();
-    let user = request.user.trim().to_string();
     let remote_path = sanitize_remote_path(&request.remote_path);
     let key_path = normalize_key_path(request.key_path.as_deref());
     let key_passphrase =
@@ -1749,12 +1764,31 @@ fn normalize_remote_mount_request(
             details: "host is required".to_string(),
         });
     }
+
+    // A host the user keeps in ~/.ssh/config connects the way `ssh <alias>`
+    // would: its HostName, User, Port and IdentityFile fill in what the form
+    // left at its default.
+    let resolved = ssh_config.resolve(&host);
+    let mut user = request.user.trim().to_string();
+    if user.is_empty() {
+        user = resolved.user.clone().unwrap_or_default();
+    }
     if user.is_empty() {
         return Err(BridgeError::Input {
             code: 8206,
             details: "user is required".to_string(),
         });
     }
+    let port = match request.port {
+        Some(port) if port != 22 => port,
+        _ => resolved.port.unwrap_or(22),
+    };
+    let connect_host = resolved.host_name.clone().unwrap_or_else(|| host.clone());
+    let config_identity = resolved
+        .identity_files
+        .iter()
+        .find(|path| path.is_file())
+        .cloned();
 
     let auth_method = request
         .auth_method
@@ -1770,20 +1804,32 @@ fn normalize_remote_mount_request(
 
     Ok(NormalizedRemoteMountRequest {
         host,
-        port: request.port.unwrap_or(22),
+        connect_host,
+        port,
         user,
         remote_path,
         auth_method,
         password: request.password,
         key_path,
         key_passphrase,
+        config_identity,
+        proxy_jump: resolved.proxy_jump,
         verify_host_key: request.verify_host_key.unwrap_or(true),
         accept_unknown_host_keys: request.accept_unknown_host_keys.unwrap_or(false),
         known_hosts_path: request.known_hosts_path.map(PathBuf::from),
-        remember_password: request.remember_password.unwrap_or(false),
+        remember_password: request.remember_password,
         save_profile: request.save_profile.unwrap_or(false),
         profile_name: request.profile_name,
+        reconnect_on_launch: request.reconnect_on_launch,
     })
+}
+
+/// `~/.ssh/config`, read off the async runtime. Missing or unreadable files
+/// read as empty, as they do for OpenSSH.
+async fn load_user_ssh_config() -> SshConfig {
+    tokio::task::spawn_blocking(SshConfig::load_default)
+        .await
+        .unwrap_or_default()
 }
 
 fn select_remote_auth(request: &NormalizedRemoteMountRequest) -> BridgeResult<RemoteAuthMethod> {
@@ -1816,6 +1862,11 @@ fn select_remote_auth(request: &NormalizedRemoteMountRequest) -> BridgeResult<Re
             if let Some(key_path) = request.key_path.as_ref() {
                 Ok(RemoteAuthMethod::KeyFile {
                     source: remotely::ssh::KeySource::File(PathBuf::from(key_path)),
+                    passphrase,
+                })
+            } else if let Some(identity) = request.config_identity.as_ref() {
+                Ok(RemoteAuthMethod::KeyFile {
+                    source: remotely::ssh::KeySource::File(identity.clone()),
                     passphrase,
                 })
             } else {
@@ -1912,6 +1963,10 @@ async fn upsert_remote_profile(
 ) -> BridgeResult<()> {
     let mut profiles = load_remote_profiles().await?;
     let profile_id = profile_id_for_request(request);
+    let previous_reconnect = profiles
+        .iter()
+        .find(|candidate| candidate.id == profile_id)
+        .is_some_and(|profile| profile.reconnect_on_launch);
     let name = request
         .profile_name
         .clone()
@@ -1943,6 +1998,7 @@ async fn upsert_remote_profile(
         has_password,
         has_key_passphrase,
         updated_at_ms: now_unix_ms(),
+        reconnect_on_launch: request.reconnect_on_launch.unwrap_or(previous_reconnect),
     };
 
     if let Some(existing) = profiles
@@ -2250,7 +2306,8 @@ async fn materialize_remote_file_if_needed(state: &BridgeState, path: &Path) -> 
 async fn finalize_remote_mount<R: Runtime>(
     state: &BridgeState,
     request: NormalizedRemoteMountRequest,
-    client: RemoteClient,
+    client: Arc<RemoteClient>,
+    shared: bool,
     app: tauri::AppHandle<R>,
 ) -> BridgeResult<RemoteMountConnectResult> {
     let mount_id = uuid::Uuid::new_v4().to_string();
@@ -2276,10 +2333,13 @@ async fn finalize_remote_mount<R: Runtime>(
         if let Some(existing) = mounts.values().find(|mount| mount.local_root == local_root) {
             let info = remote_mount_info_from_entry(existing);
             drop(mounts);
-            client
-                .close()
-                .await
-                .map_err(|e| map_remotely_error(e, 8229))?;
+            // A session borrowed from another mount stays open for it.
+            if !shared {
+                client
+                    .close()
+                    .await
+                    .map_err(|e| map_remotely_error(e, 8229))?;
+            }
             return Ok(RemoteMountConnectResult::Connected { mount: info });
         }
     }
@@ -2294,17 +2354,19 @@ async fn finalize_remote_mount<R: Runtime>(
         })?;
 
     if request.auth_method == "password" {
-        if request.remember_password {
-            if let Some(password) = request.password.as_ref() {
-                write_cached_password(&request.host, request.port, &request.user, password)?;
+        match request.remember_password {
+            Some(true) => {
+                if let Some(password) = request.password.as_ref() {
+                    write_cached_password(&request.host, request.port, &request.user, password)?;
+                }
             }
-        } else {
-            delete_cached_password(&request.host, request.port, &request.user);
+            Some(false) => delete_cached_password(&request.host, request.port, &request.user),
+            None => {}
         }
     }
 
-    if request.auth_method == "key_file" {
-        if request.remember_password {
+    if request.auth_method == "key_file" && request.remember_password.is_some() {
+        if request.remember_password == Some(true) {
             if let Some(passphrase) = request.key_passphrase.as_ref() {
                 write_cached_key_passphrase(
                     &request.host,
@@ -2326,11 +2388,11 @@ async fn finalize_remote_mount<R: Runtime>(
 
     if request.save_profile {
         let has_password = request.auth_method == "password"
-            && request.remember_password
+            && request.remember_password != Some(false)
             && (request.password.is_some()
                 || read_cached_password(&request.host, request.port, &request.user).is_some());
         let has_key_passphrase = request.auth_method == "key_file"
-            && request.remember_password
+            && request.remember_password != Some(false)
             && (request.key_passphrase.is_some()
                 || read_cached_key_passphrase(
                     &request.host,
@@ -2354,8 +2416,10 @@ async fn finalize_remote_mount<R: Runtime>(
         &request.remote_path,
     );
 
-    let client = Arc::new(client);
-    install_remote_recovery_hook(&client, &mount_id, &origin_label, &app);
+    // A shared session already reports recovery for the mount that opened it.
+    if !shared {
+        install_remote_recovery_hook(&client, &mount_id, &origin_label, &app);
+    }
 
     let mount_entry = RemoteMountEntry {
         mount_id: mount_id.clone(),
@@ -2364,6 +2428,7 @@ async fn finalize_remote_mount<R: Runtime>(
         display_name: display_name.clone(),
         origin_label: origin_label.clone(),
         host: request.host.clone(),
+        connect_host: request.connect_host.clone(),
         port: request.port,
         user: request.user.clone(),
         client: Arc::clone(&client),
@@ -2452,7 +2517,7 @@ async fn handle_remote_connect_outcome<R: Runtime>(
 ) -> BridgeResult<RemoteMountConnectResult> {
     match outcome {
         RemoteConnectOutcome::Connected(client) => {
-            finalize_remote_mount(state, context.request, *client, app).await
+            finalize_remote_mount(state, context.request, Arc::new(*client), false, app).await
         }
         RemoteConnectOutcome::NeedHostKeyConfirmation(pending) => {
             let id = uuid::Uuid::new_v4();
@@ -3799,12 +3864,47 @@ async fn remote_mount_connect<R: Runtime>(
     state: State<'_, BridgeState>,
     window: tauri::Window<R>,
 ) -> BridgeResult<RemoteMountConnectResult> {
-    let normalized = normalize_remote_mount_request(request)?;
-    let auth = select_remote_auth(&normalized)?;
+    let ssh_config = load_user_ssh_config().await;
+    let normalized = normalize_remote_mount_request(request, &ssh_config)?;
     let probe_options = remote_probe_options(&normalized);
+    let app = window.app_handle().clone();
+
+    // Already mounted: hand back the live mount without a new login.
+    if let Some(info) = live_remote_mount_for_request(state.inner(), &normalized).await {
+        return Ok(RemoteMountConnectResult::Connected { mount: info });
+    }
+
+    // Another folder on the same host is mounted: reuse its authenticated
+    // session, so a second folder needs no second password or 2FA prompt.
+    if let Some(client) = shared_remote_client_for_request(state.inner(), &normalized).await {
+        match tokio::time::timeout(
+            REMOTE_FS_OPERATION_TIMEOUT,
+            client.probe_filesystem(probe_options.clone()),
+        )
+        .await
+        {
+            Ok(Ok(_)) => {
+                return finalize_remote_mount(state.inner(), normalized, client, true, app).await;
+            }
+            // The folder itself is unusable (missing, not a directory, no
+            // SFTP): a fresh login would fail the same way.
+            Ok(Err(err @ remotely::Error::Readiness(_))) => {
+                return Err(map_remotely_error(err, 8221));
+            }
+            // Transport trouble on the shared session: fall back to a new login.
+            Ok(Err(err)) => {
+                warn!("Shared SSH session probe failed, reconnecting: {err}");
+            }
+            Err(_) => warn!("Shared SSH session probe timed out, reconnecting"),
+        }
+    }
+
+    let auth = select_remote_auth(&normalized)?;
+    let proxy_jump = normalized.proxy_jump.clone();
+    let config_host = normalized.host.clone();
 
     let connect_config = RemoteConnectConfig {
-        host: normalized.host.clone(),
+        host: normalized.connect_host.clone(),
         port: normalized.port,
         user: normalized.user.clone(),
         auth,
@@ -3833,11 +3933,95 @@ async fn remote_mount_connect<R: Runtime>(
             "SSH connection timed out after {}s while connecting/authenticating.",
             REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
         ),
-    })?
-    .map_err(|e| map_remotely_error(e, 8221))?;
+    })
+    .and_then(|result| result.map_err(|e| map_remotely_error(e, 8221)))
+    .map_err(|err| with_proxy_jump_hint(err, &config_host, proxy_jump.as_deref()))?;
 
-    handle_remote_connect_outcome(state.inner(), context, outcome, window.app_handle().clone())
+    handle_remote_connect_outcome(state.inner(), context, outcome, app).await
+}
+
+/// A failed connect to a host that `~/.ssh/config` reaches through a jump host
+/// most likely failed for that reason; say so.
+fn with_proxy_jump_hint(err: BridgeError, host: &str, proxy_jump: Option<&str>) -> BridgeError {
+    let Some(jump) = proxy_jump else {
+        return err;
+    };
+    let hint = format!(
+        " ~/.ssh/config reaches '{host}' through the jump host '{jump}' (ProxyJump), \
+         which remote mounts cannot use yet. Connect over VPN or use a host that is \
+         directly reachable."
+    );
+    match err {
+        BridgeError::Io { code, details } => BridgeError::Io {
+            code,
+            details: details + &hint,
+        },
+        BridgeError::Input { code, details } => BridgeError::Input {
+            code,
+            details: details + &hint,
+        },
+        BridgeError::Internal { code, details } => BridgeError::Internal {
+            code,
+            details: details + &hint,
+        },
+        other => other,
+    }
+}
+
+/// The live mount of exactly this folder, if one exists and its session is up.
+async fn live_remote_mount_for_request(
+    state: &BridgeState,
+    request: &NormalizedRemoteMountRequest,
+) -> Option<RemoteMountInfo> {
+    let identity = remote_cache::identity(
+        &request.host,
+        request.port,
+        &request.user,
+        &request.remote_path,
+    );
+    let existing = {
+        let mounts = state.remote_mounts.lock().await;
+        mounts
+            .values()
+            .find(|mount| {
+                !mount.transfers.is_stopped()
+                    && mount.local_root.file_name() == Some(std::ffi::OsStr::new(&identity))
+            })
+            .cloned()?
+    };
+    existing
+        .client
+        .is_connected()
         .await
+        .then(|| remote_mount_info_from_entry(&existing))
+}
+
+/// A live session another mount opened to the same `(host, port, user)`.
+async fn shared_remote_client_for_request(
+    state: &BridgeState,
+    request: &NormalizedRemoteMountRequest,
+) -> Option<Arc<RemoteClient>> {
+    let candidates: Vec<Arc<RemoteClient>> = {
+        let mounts = state.remote_mounts.lock().await;
+        mounts
+            .values()
+            .filter(|mount| {
+                !mount.transfers.is_stopped()
+                    && mount
+                        .connect_host
+                        .eq_ignore_ascii_case(&request.connect_host)
+                    && mount.port == request.port
+                    && mount.user == request.user
+            })
+            .map(|mount| Arc::clone(&mount.client))
+            .collect()
+    };
+    for client in candidates {
+        if client.is_connected().await {
+            return Some(client);
+        }
+    }
+    None
 }
 
 #[command]
@@ -3922,14 +4106,23 @@ async fn remote_mount_respond_auth<R: Runtime>(
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.remote_mount_unmount")]
-async fn remote_mount_unmount(
+async fn remote_mount_unmount<R: Runtime>(
     mount_id: String,
     purge_cache: Option<bool>,
     state: State<'_, BridgeState>,
+    app: tauri::AppHandle<R>,
 ) -> BridgeResult<ReleaseResult> {
-    let removed = {
+    // Another mount of the same host may share this SSH session; it keeps it.
+    let (removed, heir) = {
         let mut mounts = state.remote_mounts.lock().await;
-        mounts.remove(&mount_id)
+        let removed = mounts.remove(&mount_id);
+        let heir = removed.as_ref().and_then(|removed| {
+            mounts
+                .values()
+                .find(|other| Arc::ptr_eq(&other.client, &removed.client))
+                .map(|other| (other.mount_id.clone(), other.origin_label.clone()))
+        });
+        (removed, heir)
     };
 
     let Some(mount) = removed else {
@@ -3949,11 +4142,17 @@ async fn remote_mount_unmount(
         .acquire_many_owned(REMOTE_MOUNT_MAX_CONCURRENT_OPS as u32)
         .await
         .map_err(|_| remote_transfer::error("Remote mount operation gate closed"))?;
-    mount
-        .client
-        .close()
-        .await
-        .map_err(|e| map_remotely_error(e, 8229))?;
+    if let Some((heir_id, heir_label)) = heir {
+        // Recovery notices for the shared session now name a mount that is
+        // still there.
+        install_remote_recovery_hook(&mount.client, &heir_id, &heir_label, &app);
+    } else {
+        mount
+            .client
+            .close()
+            .await
+            .map_err(|e| map_remotely_error(e, 8229))?;
+    }
 
     if purge_cache.unwrap_or(false) {
         if let Err(e) = tokio::fs::remove_dir_all(&mount.local_root).await {
@@ -4319,6 +4518,31 @@ async fn remote_discovery_inventory_for_folder_ontology_request(
 #[tracing::instrument(skip_all, err, name = "api.list_remote_mount_profiles")]
 async fn list_remote_mount_profiles() -> BridgeResult<Vec<RemoteMountProfile>> {
     load_remote_profiles().await
+}
+
+/// Concrete host aliases from `~/.ssh/config`, offered as connection shortcuts.
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.list_ssh_config_hosts")]
+async fn list_ssh_config_hosts() -> BridgeResult<Vec<SshConfigHost>> {
+    let config = load_user_ssh_config().await;
+    Ok(ssh_config_hosts(&config))
+}
+
+fn ssh_config_hosts(config: &SshConfig) -> Vec<SshConfigHost> {
+    config
+        .host_aliases()
+        .into_iter()
+        .map(|alias| {
+            let resolved = config.resolve(&alias);
+            SshConfigHost {
+                alias,
+                host_name: resolved.host_name,
+                user: resolved.user,
+                port: resolved.port,
+                proxy_jump: resolved.proxy_jump,
+            }
+        })
+        .collect()
 }
 
 #[command]
@@ -14501,6 +14725,103 @@ mod tests {
         assert!(!profile.has_password);
         assert!(!profile.has_key_passphrase);
         assert_eq!(profile.updated_at_ms, 0);
+        assert!(!profile.reconnect_on_launch);
+    }
+
+    fn remote_request(host: &str, user: &str, port: Option<u16>) -> RemoteMountConnectRequest {
+        RemoteMountConnectRequest {
+            host: host.to_string(),
+            port,
+            user: user.to_string(),
+            remote_path: "/data".to_string(),
+            auth_method: Some("agent".to_string()),
+            password: None,
+            key_path: None,
+            key_passphrase: None,
+            verify_host_key: None,
+            accept_unknown_host_keys: None,
+            known_hosts_path: None,
+            remember_password: None,
+            save_profile: None,
+            profile_name: None,
+            reconnect_on_launch: None,
+        }
+    }
+
+    #[test]
+    fn remote_request_resolves_ssh_config_alias() {
+        let config = SshConfig::parse(
+            "Host cluster\n  HostName login.cluster.example.org\n  User alice\n  Port 2222\n  ProxyJump gw\n",
+        );
+        let normalized =
+            normalize_remote_mount_request(remote_request("cluster", "", Some(22)), &config)
+                .expect("alias supplies the user");
+        // Keyed on what the user typed; dialled where the alias points.
+        assert_eq!(normalized.host, "cluster");
+        assert_eq!(normalized.connect_host, "login.cluster.example.org");
+        assert_eq!(normalized.user, "alice");
+        assert_eq!(normalized.port, 2222);
+        assert_eq!(normalized.proxy_jump.as_deref(), Some("gw"));
+        // No preference stated: the keychain is left alone.
+        assert_eq!(normalized.remember_password, None);
+
+        // Explicit form values win over the config.
+        let explicit =
+            normalize_remote_mount_request(remote_request("cluster", "bob", Some(2200)), &config)
+                .unwrap();
+        assert_eq!(explicit.user, "bob");
+        assert_eq!(explicit.port, 2200);
+    }
+
+    #[test]
+    fn remote_request_without_alias_is_unchanged() {
+        let config = SshConfig::parse("Host other\n  User nobody\n");
+        let normalized = normalize_remote_mount_request(
+            remote_request(" host.example.org ", "alice", None),
+            &config,
+        )
+        .unwrap();
+        assert_eq!(normalized.host, "host.example.org");
+        assert_eq!(normalized.connect_host, "host.example.org");
+        assert_eq!(normalized.port, 22);
+        assert!(normalized.proxy_jump.is_none());
+        assert!(
+            normalize_remote_mount_request(remote_request("host.example.org", "", None), &config)
+                .is_err(),
+            "a user is still required when the config has none"
+        );
+    }
+
+    #[test]
+    fn ssh_config_hosts_lists_concrete_aliases() {
+        let config = SshConfig::parse(
+            "Host cluster\n  HostName login.example.org\n  User alice\nHost *.internal\n  User x\nHost *\n  Port 2200\n",
+        );
+        let hosts = ssh_config_hosts(&config);
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0].alias, "cluster");
+        assert_eq!(hosts[0].host_name.as_deref(), Some("login.example.org"));
+        assert_eq!(hosts[0].user.as_deref(), Some("alice"));
+        assert_eq!(hosts[0].port, Some(2200));
+    }
+
+    #[test]
+    fn proxy_jump_hint_is_appended_only_for_jump_hosts() {
+        let err = BridgeError::Io {
+            code: 8221,
+            details: "connection refused".into(),
+        };
+        let BridgeError::Io { details, .. } =
+            with_proxy_jump_hint(err.clone(), "cluster", Some("gw"))
+        else {
+            panic!("variant preserved");
+        };
+        assert!(details.starts_with("connection refused"));
+        assert!(details.contains("ProxyJump"));
+        let BridgeError::Io { details, .. } = with_proxy_jump_hint(err, "cluster", None) else {
+            panic!("variant preserved");
+        };
+        assert_eq!(details, "connection refused");
     }
 
     #[test]

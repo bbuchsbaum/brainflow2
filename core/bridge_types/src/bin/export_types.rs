@@ -72,6 +72,9 @@ fn main() {
     if let Err(e) = RemoteMountProfile::export_all() {
         eprintln!("Warning: {e}");
     }
+    if let Err(e) = SshConfigHost::export_all() {
+        eprintln!("Warning: {e}");
+    }
 
     if let Err(e) = BidsDatasetSummary::export_all() {
         eprintln!("Warning: {e}");

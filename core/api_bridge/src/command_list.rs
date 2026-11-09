@@ -56,6 +56,7 @@ bridge_commands! {
         list_remote_mounts,
         list_remote_directory,
         list_remote_mount_profiles,
+        list_ssh_config_hosts,
         remove_remote_mount_profile,
         init_render_loop,
         create_offscreen_render_target,

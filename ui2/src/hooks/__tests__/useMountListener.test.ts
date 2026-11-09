@@ -101,6 +101,8 @@ vi.mock('@/services/transport', () => ({
   getTransport: () => ({
     invoke: mockInvoke,
   }),
+  // No remote mounts: launch reconnects stay out of these tests.
+  getHostCapabilities: () => ({}),
 }));
 
 vi.mock('@/stores/fileBrowserStore', () => {

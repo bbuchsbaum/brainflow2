@@ -21,6 +21,7 @@ Backend commands exposed through `api_bridge` and `ui2/src/services/transport.ts
 - `list_remote_directory`
 - `remote_mount_unmount`
 - `list_remote_mount_profiles`
+- `list_ssh_config_hosts`
 - `remove_remote_mount_profile`
 
 Shared bridge types exported to `@brainflow/api`:
@@ -31,6 +32,7 @@ Shared bridge types exported to `@brainflow/api`:
 - `RemoteMountProfile`
 - `RemoteHostKeyChallenge`
 - `RemoteAuthChallenge`
+- `SshConfigHost`
 
 ## Runtime Flow
 
@@ -44,6 +46,17 @@ Shared bridge types exported to `@brainflow/api`:
 8. When a remote file is opened, `materialize_remote_file_if_needed()` stages it into the local cache, verifies freshness from remote stat metadata, and then calls the normal local load/render path.
 9. If an SFTP list/stat/download operation hits a retryable transport error, `remotely` retries once, `api_bridge` emits `remote-mount-recovery`, and the frontend shows a warning notification describing the recovered mount.
    - Transport hardening underneath this: all ops on a mount multiplex over a single SFTP channel per SSH session (no more per-call channel opens that exhausted the session into "Channel send error"), and a dropped SSH session is transparently re-established before the next op — but only for non-interactive auth (key file / agent / stored password), with a short cooldown so a down host doesn't trigger a reconnect storm. Keyboard-interactive sessions are never silently reconnected.
+
+## Repeat Connections
+
+Reaching the same machine again should take one click and, where possible, no new login:
+
+- **Recents and Pinned reconnect.** A remote entry in Files › Recents or Pinned opens the dialog on that folder's saved profile and connects at once (`RemoteMountDialog` `initialTarget` + `autoConnect`). The dialog only stays up if SSH asks for something (host-key trust, a Duo/OTP prompt) or the profile uses a password the keychain does not hold. A folder with no saved profile is prefilled instead.
+- **Already mounted → no handshake.** `remote_mount_connect` first looks for a live mount of the same folder and returns it without dialling.
+- **One session per host.** If another folder on the same `(HostName, port, user)` is mounted and its session is up, the new folder reuses that authenticated `RemoteClient` after a filesystem probe, so a second folder on a 2FA host needs no second prompt. A probe that fails for transport reasons falls back to a fresh login; a readiness failure (missing folder, no SFTP) is reported. Unmount closes the session only when no other mount shares it, and moves the recovery-notice hook to a remaining mount.
+- **`~/.ssh/config` aliases.** `remotely::ssh::SshConfig` resolves the typed host as OpenSSH would. `HostName` is dialled, `User` fills an empty user, `Port` replaces the default 22, and the first existing `IdentityFile` is used for key auth without an explicit key path. Profiles, keychain entries and the cache identity stay keyed on the alias the user typed. The dialog offers the aliases (`list_ssh_config_hosts`) as host suggestions and shows what an alias resolves to. `ProxyJump` is not supported: the dialog warns, and a failed connect explains it.
+- **Reconnect when Brainflow starts.** A saved profile can be marked `reconnect_on_launch`. After startup actions flush, `useMountListener` remounts those profiles without prompting (`reconnectRemoteProfilesOnLaunch`); any that need a prompt or fail produce a warning pointing at Recents.
+- **Keychain left alone on reconnect.** `remember_password` is tri-state: `true` stores, `false` deletes, absent leaves the keychain as it is. Startup, launch and profile reconnects omit it. Previously startup mounts sent `false`, which deleted a saved password or key passphrase after connecting with it.
 
 ## Credential Storage Policy
 
@@ -65,6 +78,7 @@ Shared bridge types exported to `@brainflow/api`:
 - Cached files are reused only when the sidecar metadata matches the latest remote stat result.
 - `DownloadOptions { sync_on_finish: true }` preserves atomic finalize behavior so partial downloads never become visible to the local loader path.
 - `remote_mount_unmount(..., purge_cache=true)` removes both staged files and the cache-metadata sidecars for that mount.
+- The cache directory and sidecars are keyed on `(host, port, user, remote path)`, not on the per-session `mount_id`, so files downloaded in an earlier session are reused after reconnecting as long as the remote size and mtime still match. Inactive mount caches are evicted oldest-first once the 4 GiB budget (`BRAINFLOW_REMOTE_CACHE_BYTES`) is exceeded.
 - SSH connect/probe also uses a bounded retry budget (`retry_count=1`) so transient handshake failures do not loop indefinitely.
 
 ## Testing
@@ -104,4 +118,5 @@ Suggested environment variables for automation:
 - Host key challenge repeats unexpectedly: inspect the selected `known_hosts_path`, verify the profile trust flags, and confirm the server key did not rotate.
 - Saved profile reconnects but still prompts for a secret: confirm the profile `auth_method` still matches the intended login path and that the relevant keychain entry exists.
 - Cached remote file seems stale: unmount with cache purge or remove the affected mount cache directory so the next open forces a fresh stat+download cycle.
-- Interactive startup mounts fail: this is expected. Startup mounts only support non-interactive reuse; interactive flows must be completed from `Mount Remote (SSH)…`.
+- Interactive startup mounts fail: this is expected. Startup mounts and "Reconnect when Brainflow starts" only support non-interactive reuse; interactive flows must be completed from `Mount Remote (SSH)…` or by clicking the folder in Recents.
+- An alias from `~/.ssh/config` fails to connect: check whether it uses `ProxyJump` (not supported) or `Match` blocks (skipped; their options never apply).

@@ -13,11 +13,15 @@ import {
 import { Modal } from '@/components/ui/Modal';
 import { getTransport } from '@/services/transport';
 import {
+  findProfileForTarget,
   listRemoteMountProfiles,
+  listSshConfigHosts,
   type ConnectedRemoteMount,
   type RemoteAuthMethod,
   type RemoteMountConnectResult,
   type RemoteMountProfile,
+  type RemoteMountTarget,
+  type SshConfigHost,
 } from '@/services/RemoteMountService';
 import { formatTauriError } from '@/utils/formatTauriError';
 
@@ -27,6 +31,16 @@ interface RemoteMountDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onMounted: (mount: ConnectedRemoteMount) => Promise<void> | void;
+  /**
+   * Open on this folder (e.g. a remote Recents entry): its saved profile is
+   * selected, or the form is prefilled when there is none.
+   */
+  initialTarget?: RemoteMountTarget | null;
+  /**
+   * With `initialTarget` and a saved profile that needs no typed secret,
+   * connect straight away; the dialog only shows if SSH asks for something.
+   */
+  autoConnect?: boolean;
 }
 
 interface RemoteMountFormState {
@@ -41,6 +55,7 @@ interface RemoteMountFormState {
   rememberPassword: boolean;
   saveProfile: boolean;
   profileName: string;
+  reconnectOnLaunch: boolean;
 }
 
 const DEFAULT_FORM: RemoteMountFormState = {
@@ -55,7 +70,10 @@ const DEFAULT_FORM: RemoteMountFormState = {
   rememberPassword: true,
   saveProfile: true,
   profileName: '',
+  reconnectOnLaunch: false,
 };
+
+const SSH_HOSTS_LIST_ID = 'remote-mount-ssh-config-hosts';
 
 const AUTH_METHOD_OPTIONS: readonly SelectOption[] = [
   { value: 'password', label: 'Password' },
@@ -149,6 +167,43 @@ function rememberSecretLabel(authMethod: RemoteAuthMethod): string | null {
   return null;
 }
 
+/** Whether a profile can connect without the user typing a secret first. */
+function canConnectUnattended(profile: RemoteMountProfile): boolean {
+  return normalizeAuthMethod(profile.auth_method) !== 'password' || profile.has_password;
+}
+
+function formFromTarget(target: RemoteMountTarget): RemoteMountFormState {
+  return {
+    ...DEFAULT_FORM,
+    host: target.host,
+    port: String(target.port ?? 22),
+    user: target.user ?? '',
+    remotePath: target.remotePath || '/',
+  };
+}
+
+function formFromProfile(profile: RemoteMountProfile): RemoteMountFormState {
+  const authMethod = normalizeAuthMethod(profile.auth_method);
+  return {
+    ...DEFAULT_FORM,
+    host: profile.host,
+    port: String(profile.port),
+    user: profile.user,
+    remotePath: profile.remote_path,
+    authMethod,
+    keyPath: profile.key_path ?? '',
+    rememberPassword:
+      authMethod === 'password'
+        ? profile.has_password
+        : authMethod === 'key_file'
+          ? profile.has_key_passphrase
+          : false,
+    saveProfile: true,
+    profileName: profile.name,
+    reconnectOnLaunch: profile.reconnect_on_launch ?? false,
+  };
+}
+
 function sortProfilesByMostRecent(profiles: RemoteMountProfile[]): RemoteMountProfile[] {
   return [...profiles].sort((a, b) => {
     const aUpdated = Number(a.updated_at_ms ?? 0);
@@ -160,13 +215,20 @@ function sortProfilesByMostRecent(profiles: RemoteMountProfile[]): RemoteMountPr
   });
 }
 
-export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDialogProps) {
+export function RemoteMountDialog({
+  isOpen,
+  onClose,
+  onMounted,
+  initialTarget = null,
+  autoConnect = false,
+}: RemoteMountDialogProps) {
   const profileSelectRef = useRef<HTMLSelectElement | null>(null);
   const authInputRef = useRef<HTMLInputElement | null>(null);
   const trustButtonRef = useRef<HTMLButtonElement | null>(null);
   const [profiles, setProfiles] = useState<RemoteMountProfile[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [selectedProfileId, setSelectedProfileId] = useState('');
+  const [sshHosts, setSshHosts] = useState<SshConfigHost[]>([]);
 
   const [form, setForm] = useState<RemoteMountFormState>(DEFAULT_FORM);
   const [step, setStep] = useState<RemoteDialogStep>('form');
@@ -181,6 +243,10 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
     () => profiles.find((profile) => profile.id === selectedProfileId) ?? null,
     [profiles, selectedProfileId]
   );
+  const sshHost = useMemo(() => {
+    const host = form.host.trim().toLowerCase();
+    return host ? (sshHosts.find((candidate) => candidate.alias === host) ?? null) : null;
+  }, [form.host, sshHosts]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -218,15 +284,32 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
       setSelectedProfileId('');
       setForm(DEFAULT_FORM);
 
+      void listSshConfigHosts().then((hosts) => {
+        if (active) setSshHosts(hosts);
+      });
+
       try {
         const loadedProfiles = await listRemoteMountProfiles();
         if (!active) return;
         const sortedProfiles = sortProfilesByMostRecent(loadedProfiles);
         setProfiles(sortedProfiles);
-        if (sortedProfiles.length > 0) {
+        if (initialTarget) {
+          const profile = findProfileForTarget(sortedProfiles, initialTarget);
+          if (profile) {
+            setSelectedProfileId(profile.id);
+            const profileForm = formFromProfile(profile);
+            setForm(profileForm);
+            if (autoConnect && canConnectUnattended(profile)) {
+              setProfilesLoading(false);
+              await connectWith(profileForm, profile, () => active);
+            }
+          } else {
+            setForm(formFromTarget(initialTarget));
+          }
+        } else if (sortedProfiles.length > 0) {
           const recentProfile = sortedProfiles[0];
           setSelectedProfileId(recentProfile.id);
-          applyProfile(recentProfile);
+          setForm(formFromProfile(recentProfile));
         }
       } catch (profileError) {
         if (!active) return;
@@ -244,28 +327,23 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
     return () => {
       active = false;
     };
+    // The target and auto-connect choice are read once per opening.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   const applyProfile = (profile: RemoteMountProfile) => {
-    const authMethod = normalizeAuthMethod(profile.auth_method);
+    setForm(formFromProfile(profile));
+  };
+
+  const handleHostChange = (value: string) => {
+    const alias = sshHosts.find((candidate) => candidate.alias === value.trim().toLowerCase());
     setForm((prev) => ({
       ...prev,
-      host: profile.host,
-      port: String(profile.port),
-      user: profile.user,
-      remotePath: profile.remote_path,
-      authMethod,
-      password: '',
-      keyPath: profile.key_path ?? '',
-      keyPassphrase: '',
-      rememberPassword:
-        authMethod === 'password'
-          ? profile.has_password
-          : authMethod === 'key_file'
-            ? profile.has_key_passphrase
-            : false,
-      saveProfile: true,
-      profileName: profile.name,
+      host: value,
+      // Picking a ~/.ssh/config alias fills what the config knows and the
+      // form has not been given yet.
+      user: alias?.user && !prev.user.trim() ? alias.user : prev.user,
+      port: alias?.port && prev.port.trim() === '22' ? String(alias.port) : prev.port,
     }));
   };
 
@@ -326,18 +404,28 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
     }
   };
 
-  const handleConnect = async () => {
-    const host = form.host.trim();
-    const user = form.user.trim();
-    const remotePath = form.remotePath.trim();
-    const parsedPort = Number.parseInt(form.port, 10);
-    const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 22;
+  const handleConnect = () => connectWith(form, selectedProfile, () => true);
 
-    if (!host || !user || !remotePath) {
+  async function connectWith(
+    values: RemoteMountFormState,
+    profile: RemoteMountProfile | null,
+    isActive: () => boolean
+  ) {
+    const host = values.host.trim();
+    const user = values.user.trim();
+    const remotePath = values.remotePath.trim();
+    const parsedPort = Number.parseInt(values.port, 10);
+    const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 22;
+    // A ~/.ssh/config alias may supply the user.
+    const configUser = sshHosts.find(
+      (candidate) => candidate.alias === host.toLowerCase()
+    )?.user;
+
+    if (!host || (!user && !configUser) || !remotePath) {
       setError('Host, user, and remote path are required.');
       return;
     }
-    if (form.authMethod === 'password' && !form.password.trim() && !profileHasStoredSecret(selectedProfile, 'password')) {
+    if (values.authMethod === 'password' && !values.password.trim() && !profileHasStoredSecret(profile, 'password')) {
       setError('Password is required for password authentication.');
       return;
     }
@@ -356,30 +444,33 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
           port,
           user,
           remote_path: remotePath,
-          auth_method: form.authMethod,
-          password: form.authMethod === 'password' ? form.password : undefined,
-          key_path: form.authMethod === 'key_file' ? form.keyPath.trim() || undefined : undefined,
+          auth_method: values.authMethod,
+          password: values.authMethod === 'password' ? values.password : undefined,
+          key_path: values.authMethod === 'key_file' ? values.keyPath.trim() || undefined : undefined,
           key_passphrase:
-            form.authMethod === 'key_file' ? form.keyPassphrase || undefined : undefined,
+            values.authMethod === 'key_file' ? values.keyPassphrase || undefined : undefined,
           remember_password:
-            form.authMethod === 'password' || form.authMethod === 'key_file'
-              ? form.rememberPassword
+            values.authMethod === 'password' || values.authMethod === 'key_file'
+              ? values.rememberPassword
               : false,
-          save_profile: form.saveProfile,
-          profile_name: form.saveProfile ? form.profileName.trim() || undefined : undefined,
+          save_profile: values.saveProfile,
+          profile_name: values.saveProfile ? values.profileName.trim() || undefined : undefined,
+          reconnect_on_launch: values.saveProfile ? values.reconnectOnLaunch : undefined,
         },
       });
 
+      if (!isActive()) return;
       await handleConnectOutcome(result);
     } catch (connectError) {
+      if (!isActive()) return;
       const message = formatTauriError(connectError) || 'Failed to connect to remote host.';
-      const messageWithHint = withAuthHint(message, form.authMethod);
+      const messageWithHint = withAuthHint(message, values.authMethod);
       setError(messageWithHint);
       setStep('form');
     } finally {
-      setPending(false);
+      if (isActive()) setPending(false);
     }
-  };
+  }
 
   const handleHostKeyDecision = async (trust: boolean) => {
     if (!hostKeyChallenge) {
@@ -507,11 +598,41 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
             <FieldRow label="Host" labelWidth="wide" disabled={pending}>
               <TextField
                 value={form.host}
-                onChange={(event) => setForm((prev) => ({ ...prev, host: event.target.value }))}
-                placeholder="login.example.org"
+                onChange={(event) => handleHostChange(event.target.value)}
+                placeholder={sshHosts.length > 0 ? 'Host or ~/.ssh/config alias' : 'login.example.org'}
+                list={sshHosts.length > 0 ? SSH_HOSTS_LIST_ID : undefined}
+                autoComplete="off"
                 mono
               />
             </FieldRow>
+            {sshHosts.length > 0 && (
+              <datalist id={SSH_HOSTS_LIST_ID}>
+                {sshHosts.map((candidate) => (
+                  <option key={candidate.alias} value={candidate.alias}>
+                    {[
+                      candidate.user ? `${candidate.user}@` : '',
+                      candidate.host_name ?? candidate.alias,
+                    ].join('')}
+                  </option>
+                ))}
+              </datalist>
+            )}
+            {sshHost && (
+              <p
+                className="m-0 py-0.5 text-bf-xs text-bf-text-secondary"
+                style={{ paddingLeft: LABEL_WIDTH.wide + 12 }}
+              >
+                From ~/.ssh/config: {sshHost.user ? `${sshHost.user}@` : ''}
+                {sshHost.host_name ?? sshHost.alias}
+                {sshHost.port && sshHost.port !== 22 ? `:${sshHost.port}` : ''}
+              </p>
+            )}
+            {sshHost?.proxy_jump && (
+              <Notice severity="warning" role={undefined} className="my-1">
+                This host is reached through the jump host {sshHost.proxy_jump}, which remote
+                mounts cannot use yet. Connect over VPN or use a directly reachable host.
+              </Notice>
+            )}
 
             <FieldRow label="Port" labelWidth="wide" disabled={pending}>
               <TextField
@@ -529,7 +650,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
               <TextField
                 value={form.user}
                 onChange={(event) => setForm((prev) => ({ ...prev, user: event.target.value }))}
-                placeholder="alice"
+                placeholder={sshHost?.user ?? 'alice'}
                 mono
               />
             </FieldRow>
@@ -642,6 +763,18 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
             >
               Save connection profile
             </SwitchRow>
+
+            {form.saveProfile && (
+              <SwitchRow
+                checked={form.reconnectOnLaunch}
+                onCheckedChange={(checked) =>
+                  setForm((prev) => ({ ...prev, reconnectOnLaunch: checked }))
+                }
+                disabled={pending}
+              >
+                Reconnect when Brainflow starts
+              </SwitchRow>
+            )}
 
             {form.saveProfile && (
               <FieldRow label="Profile name" labelWidth="wide" disabled={pending}>
