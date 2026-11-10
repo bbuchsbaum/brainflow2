@@ -234,3 +234,49 @@ provided for the hippocampus.
 
 This moves mask-mesh extraction into delivery step 3, ahead of the HippUnfold
 assets, which become part of step 4.
+
+## Mock-up and what real data showed (2026-11-10)
+
+A design canvas ("Deep structure view", private to the owner) mocks the feature
+in the app shell with panels rendered offline from real data: the HCP group map
+for working memory (2-back minus 0-back, z), the MNI152NLin6Asym T1w,
+Harvard-Oxford subcortical labels, fsLR 32k midthickness surfaces and the
+HippUnfold surfaces. The panels were drawn by a throwaway script, not by
+Brainflow's renderers, so they are evidence for the design and not for the
+implementation.
+
+**Activation and integration.**
+
+- A fifth layout, "Deep structures", beside Orthogonal, Integrated, Mosaic and
+  Compare in the top-bar switcher and in View > Layout. It applies to the
+  current tab like the other layouts.
+- It needs a map and a label layer. Without a label layer the layout shows an
+  empty state offering to load the Harvard-Oxford subcortical atlas or to use a
+  loaded segmentation, and asks the user to confirm the exact template.
+- The dock has one tab per structure plus "All"; "Add structure" opens a
+  picker over the label table with left and right labels paired by name.
+- The Inspector gains a "Deep structures" section (label source, template
+  status, sampling, the structure list with mean values). Display settings stay
+  on the map layer and apply everywhere.
+- The status bar adds the structure and relative position of the crosshair.
+
+**Section 3 is corrected by the renders.**
+
+- Removing the medial wall exposes the thalamus and caudate well. The putamen
+  is behind them, as expected.
+- The hippocampus is **not** visible through the medial-wall opening from a
+  medial, inferior-medial or superior-medial camera: medial temporal cortex
+  lies in front of it.
+- A local reveal does expose it: cortical triangles within 2 mm of the
+  structure's screen outline and in front of it are removed. This is still an
+  index-buffer filter, so it needs no clipping planes. It hides real
+  parahippocampal data, so it is an explicit, pinnable toggle that is off by
+  default. The cortex-view control therefore has three states: closed, medial
+  window, window and reveal.
+- Even revealed, the hippocampus is small on screen. The dock, not the in-place
+  view, is where it is read.
+
+**Confirmed available.** HippUnfold folded surfaces for MNI152NLin6Asym load as
+plain GIfTI (2,004 vertices at 1 mm density), and the matching unfolded template
+mesh is in the `khanlab/hippunfold` repository
+(`resources/unfold_template_hipp/`), so the unfolded card needs no new geometry.
