@@ -195,11 +195,42 @@ Judge each step on the three tasks: locate a deep effect anatomically, compare
 its anterior-posterior distribution between hemispheres, and compare cortical
 and deep patterns across maps.
 
-## Open questions
+## Decisions (2026-11-10)
 
-- Is the hippocampus the only structure needed for the first release, or
-  should the dock ship with a structure picker over the whole label table?
-- Should template hippocampal assets be bundled with the app or fetched on
-  first use like other TemplateFlow surfaces?
-- For native-space data without template surfaces, is a label-derived mesh in
-  the medial window required, or are cards plus a locator enough?
+- **Structures.** The dock is label-driven from the first release, with a
+  structure picker over the label table. Hippocampus is the default and gets
+  the most design attention; thalamus, caudate and putamen are presets in the
+  same release.
+- **Template assets** are fetched on first use and cached, like other
+  TemplateFlow surfaces. Bundling is revisited later.
+- **Native-space data** (recommendation): see below.
+
+## Meshes for the medial window, and native space
+
+HippUnfold surfaces cover the hippocampus only, and only in matching MNI
+templates. Thalamus, caudate and putamen therefore need a mesh built from the
+label mask even in template space, so that path is required for the first
+release that includes the medial window, and native space gets it for free.
+
+- **One mesh path for every structure:** a surface extracted from the label
+  mask (surface nets or marching cubes on the binary mask, light
+  volume-preserving smoothing), computed in Rust, cached per
+  `(label layer, label id)`, and coloured by sampling the map at its vertices.
+  It is labelled as a mask boundary, not an anatomical surface.
+- **Hippocampus upgrade:** when the volume's template matches, the HippUnfold
+  surfaces replace the mask mesh and add ribbon sampling and the unfolded card.
+- **Native space:** cards always work, because they need only a label layer.
+  The medial window is offered when the subject's own cortical surfaces are
+  loaded with a medial-wall mask; the mask mesh is drawn in it. Without those
+  surfaces, a locator (small orthogonal thumbnails with the structure outlined)
+  replaces the in-place view. Template meshes are never drawn in native space.
+
+Not all four structures are visible through the medial opening at once. The
+thalamus and caudate lie medially; the putamen sits lateral to them and the
+hippocampus is inferior. The renderer has no per-mesh opacity, so the rule is:
+the selected structure is drawn in full, structures that would occlude it are
+hidden, and the rest stay as neutral context. An inferior-medial preset is
+provided for the hippocampus.
+
+This moves mask-mesh extraction into delivery step 3, ahead of the HippUnfold
+assets, which become part of step 4.
