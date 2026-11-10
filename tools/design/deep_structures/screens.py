@@ -33,7 +33,11 @@ def hero(w, h):
     for s, (px, py) in zip(STOPS, pts):
         sel = abs(s - ssel) < 0.1
         tk.append(f'<rect x="{px - (4 if sel else 2):.1f}" y="{py - (4 if sel else 2):.1f}" width="{8 if sel else 4}" height="{8 if sel else 4}" fill="{"#5fe0a0" if sel else "#e9eaec"}" stroke="#000" stroke-width="1"/>')
-        if sel: tk.append(f'<text x="{px - 44:.1f}" y="{py + 20:.1f}" fill="#e9eaec" font-size="10" font-family="IBM Plex Mono" stroke="#000" stroke-width="2.5" paint-order="stroke">{num(s, 0)} mm</text>')
+        if sel:
+            (ax0, ay0), (ax1, ay1) = pts[0], pts[-1]; ln = ((ax1 - ax0) ** 2 + (ay1 - ay0) ** 2) ** .5 or 1
+            nx, ny = -(ay1 - ay0) / ln, (ax1 - ax0) / ln
+            if ny < 0: nx, ny = -nx, -ny
+            tk.append(f'<text x="{px + nx * 22 - 16:.1f}" y="{py + ny * 22 + 4:.1f}" fill="#e9eaec" font-size="10" font-family="IBM Plex Mono" stroke="#000" stroke-width="2.5" paint-order="stroke">{num(s, 0)} mm</text>')
     names = ''.join(f'<div class="lab" style="left:{p[0] * w:.0f}px;top:{p[1] * ih:.0f}px;transform:translate(-50%,-50%)">{nm}</div>' for nm, p in k['names'].items())
     return f"""<div style="width:{w}px;height:{h}px;display:flex;flex-direction:column;background:#000">
 <div class="ttl">Cortex cut, structures whole · {PLANE.lower()} · {num(ssel, 0)} mm from the {ax['origin']}</div>
@@ -79,7 +83,7 @@ def zoomW(w, h):
 def zoom(hm, w, h):
     k = m[f'zoom_{hm}']
     mk = f'<div class="mark" style="left:{cr["zoom"][0] * 100:.1f}%;top:{cr["zoom"][1] * 100:.1f}%"></div>' if hm == 'L' else ''
-    labs = ''.join(f'<div class="lab" style="left:{p[0] * 100:.0f}%;top:{p[1] * 100:.0f}%;transform:translate(-50%,-190%)">{nm}</div>' for nm, p in k['labels'].items() if nm in (NAME, 'Amygdala', 'Thalamus', 'Putamen', 'Caudate', 'Hippocampus', 'Pallidum', 'Brainstem') and 0.08 < p[0] < 0.92 and 0.12 < p[1] < 0.9)
+    labs = ''.join(f'<div class="lab" style="left:{p[0] * 100:.0f}%;top:{p[1] * 100:.0f}%;transform:translate(-50%,-330%)">{nm}</div>' for nm, p in k['labels'].items() if nm in (NAME, 'Amygdala', 'Thalamus', 'Putamen', 'Caudate', 'Hippocampus', 'Pallidum', 'Brainstem') and 0.08 < p[0] < 0.92 and 0.12 < p[1] < 0.9)
     lat, med = ('Lateral', 'Medial') if hm == 'L' else ('Medial', 'Lateral')
     return f"""<div class="canvas" style="width:{w}px;height:{h}px;overflow:hidden;outline:1px solid #9a9da3;outline-offset:-1px"><img src="{img('zoom_' + hm)}" style="display:block;width:{w}px">
 <div class="lab" style="left:6px;top:5px">{'Left' if hm == 'L' else 'Right'} · ×{w / 44.0 / (FWPX / 152.0):.1f} · 2 mm voxels</div>{labs}{mk}
@@ -108,7 +112,7 @@ def prof_svg(own, other, key, x0, x1, cut, brush, dot=None):
     def line(p, k='mean'): return ' '.join(f"{Xc(q[key]):.0f},{Y(q[k]):.1f}" for q in p)
     s = ['<svg viewBox="0 0 1000 100" preserveAspectRatio="none" style="display:block;width:100%;height:100%;overflow:visible">',
          f'<rect x="{Xc(brush[0]):.0f}" y="0" width="{Xc(brush[1]) - Xc(brush[0]):.0f}" height="100" fill="rgba(255,255,255,.09)"/>',
-         f'<rect x="{Xc(cut[0]):.0f}" y="0" width="{max(Xc(cut[1]) - Xc(cut[0]), 3):.0f}" height="100" fill="rgba(95,224,160,.22)"/>',
+         f'<line x1="{(Xc(cut[0]) + Xc(cut[1])) / 2:.0f}" x2="{(Xc(cut[0]) + Xc(cut[1])) / 2:.0f}" y1="0" y2="100" stroke="rgba(95,224,160,{0 if Xc(cut[1]) - Xc(cut[0]) > 20 else 0.9})" stroke-width="1.5" vector-effect="non-scaling-stroke"/>',
          f'<line x1="0" x2="1000" y1="{Y(0):.1f}" y2="{Y(0):.1f}" stroke="rgba(233,234,236,.72)" vector-effect="non-scaling-stroke"/>',
          f'<line x1="0" x2="1000" y1="{Y(-3.1):.1f}" y2="{Y(-3.1):.1f}" stroke="rgba(255,255,255,.3)" stroke-dasharray="2 3" vector-effect="non-scaling-stroke"/>',
          f'<line x1="0" x2="1000" y1="{Y(3.1):.1f}" y2="{Y(3.1):.1f}" stroke="rgba(255,255,255,{0.3 if ZT > 4.2 else 0})" stroke-dasharray="2 3" vector-effect="non-scaling-stroke"/>',
@@ -135,9 +139,9 @@ def sheet(hm, w=316):
     rl = ''.join(f'<div style="position:absolute;right:{w + 5}px;top:{r["pd"] * 100:.1f}%;margin-top:-7px;font-size:10px;line-height:14px;color:var(--t2)">{r["name"] if r["name"] != "Subiculum" else "Sub"}</div>' for r in k['row'][:4])
     # subfield dot plot, shared axis -10..0, this side filled, other hollow
     DW = 54
-    def dx(v): return (v + 8) / 8 * DW
+    def dx(v): return (v + 10) / 10 * DW
     dots = [f'<div style="position:absolute;left:{w + 12}px;top:0;bottom:0;width:{DW}px;border-left:1px solid rgba(255,255,255,.16);border-right:1px solid rgba(233,234,236,.72)"></div>',
-            f'<div style="position:absolute;left:{w + 12 + dx(-3.1):.0f}px;top:0;bottom:0;border-left:1px dashed rgba(255,255,255,.3)"></div>'] + [f'<div class="mono" style="position:absolute;left:{w + 12 + dx(v):.0f}px;top:100%;transform:translateX(-50%);font-size:10px;line-height:13px;color:var(--t2)">{lb}</div>' for v, lb in ((-8, '−8'), (-3.1, '−3.1'), (0, '0'))]
+            f'<div style="position:absolute;left:{w + 12 + dx(-3.1):.0f}px;top:0;bottom:0;border-left:1px dashed rgba(255,255,255,.3)"></div>'] + [f'<div class="mono" style="position:absolute;left:{w + 12 + dx(v):.0f}px;top:100%;transform:translateX(-50%);font-size:10px;line-height:13px;color:var(--t2)">{lb}</div>' for v, lb in ((-10, '−10'), (-3.1, '−3.1'), (0, '0'))]
     for r, r2 in zip(k['row'][:4], ot['row'][:4]):
         for v, own in ((r2['mean'], False), (r['mean'], True)):
             col = '#e9eaec' if abs(v) >= 3.1 else '#76797f'
@@ -152,7 +156,7 @@ def sheet(hm, w=316):
 <div style="position:relative;width:{w}px;height:{h:.0f}px;background:#000"><img src="{img('sheet_' + hm)}" style="display:block;width:{w}px;height:{h:.0f}px">{rl}{''.join(dots)}{glab}</div>
 <div style="position:relative;width:{w}px;height:62px;margin-top:2px">{prof_svg(k['col'], ot['col'], 't', 0, 1, (sel['t0'], sel['t1']), (b0, b1))}</div>
 <div style="position:relative;width:{w}px;height:18px">{mmt}<div class="muted" style="position:absolute;left:{w + 4}px;top:3px;font-size:10px;line-height:12px;white-space:nowrap">mm, straight axis</div></div>
-<div style="display:flex;justify-content:space-between;width:{w}px;font-size:10px;line-height:13px" class="muted"><span>0% head</span><span class="mono" style="color:var(--t2)">{b['t0'] * 100:.0f}–{b['t1'] * 100:.0f}%: mean {num(b['mean'])}, {b['n']} vertices</span><span>tail 100%</span></div></div>"""
+<div style="display:flex;justify-content:space-between;width:{w}px;font-size:10px;line-height:13px" class="muted"><span>0% head</span><span class="mono" style="color:var(--t2)">{b['t0'] * 100:.0f}–{b['t1'] * 100:.0f}%: mean {num(b['mean'])}, {b['n']} of {k['nvert']:,} vertices</span><span>tail 100%</span></div></div>"""
 
 def longsec(hm, w=312):
     k = m[f'long_{hm}']; ot = m[f'long_{"R" if hm == "L" else "L"}']; a0, a1 = k['ax']; h = w * k['h_mm'] / (a1 - a0)
@@ -193,7 +197,7 @@ def table():
     return f"""<div class="sec"><div class="h" style="margin-bottom:4px">Deep structures</div>
 <div class="kv"><span>Labels</span><span>Harvard-Oxford th25, atlas</span></div>
 <div class="kv"><span>Template</span><span>MNI152NLin6Asym <span class="pill" style="color:var(--ok);background:rgba(108,197,150,.14)">Matches</span></span></div>
-<div style="display:flex;font-size:10px;line-height:14px;margin:8px 0 2px;gap:8px" class="muted"><span style="flex:1">Profile −8 to 8 (L white) · share beyond ±3.1</span><span style="white-space:nowrap">mean <i>z</i>, L R</span></div>{''.join(rows)}</div>
+<div style="display:flex;font-size:10px;line-height:14px;margin:8px 0 2px;gap:8px" class="muted"><span style="flex:1">Profile −8 to 8 (L white) · share beyond ±3.1</span><span style="white-space:nowrap">mask mean <i>z</i>, L R</span></div>{''.join(rows)}</div>
 <div class="sec"><div class="h" style="margin-bottom:4px">Cut</div>
 <div class="kv"><span>Plane</span><span>{'Across hippocampal long axis' if HIPP else 'Coronal'}</span></div>
 <div class="kv"><span>Position</span><span class="mono">{num(ssel, 0)} mm · tilt {ax['tilt_deg']:.0f}°</span></div>
@@ -211,7 +215,7 @@ else:
     zooms = zoomW(442, zh)
 leads = ''.join(f'<line x1="{x1:.0f}" y1="{y1:.0f}" x2="{x2:.0f}" y2="{y2:.0f}" stroke="#000" stroke-width="2.6"/><line x1="{x1:.0f}" y1="{y1:.0f}" x2="{x2:.0f}" y2="{y2:.0f}" stroke="#9a9da3" stroke-width="1"/>' for (x1, y1), (x2, y2) in pairs)
 dock = (sheet('L') + sheet('R')) if HIPP else (longsec('L') + longsec('R'))
-note = 'White: this side, with quartiles · dashed: other side · CA4 and dentate not shown · unfolded template units' if HIPP else 'White: this side, with quartiles · dashed: other side · no template surfaces: sections and mask means'
+note = 'This side white, other dashed, quartiles thin · CA4 and dentate not shown · unfolded template units' if HIPP else 'This side white, other dashed, quartiles thin · no template surfaces: sections and mask means'
 centre = f"""<div class="tabs"><span class="on">Deep</span><span style="margin-left:auto;padding-right:10px">{cbar()}</span></div>
 <div class="key"><span><span style="width:26px;height:3px;background:{S.POS}"></span>Cortex: surface value on the midthickness contour</span>
 <span><span style="width:12px;height:10px;background:{S.NEG};outline:1px solid #bbb"></span>Deep: voxels inside atlas outlines</span>

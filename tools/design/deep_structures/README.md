@@ -12,7 +12,7 @@ renderers, and nothing here ships.
 | `render.py <out> hipp\|thal` | Renders every panel of one state and writes `meta.json`. |
 | `screens.py <out>` | Builds `h.html` for that state from the panels and `meta.json`. |
 | `shell.py` | Static mock of the app shell, modelled on the Integrated layout. |
-| `shot.js <html> <png>` | Captures a screen at 1440 x 900 with Playwright. |
+| `shot.cjs <html> <png>` | Captures a screen at 1440 x 900 with Playwright. |
 
 ## Inputs
 
@@ -38,5 +38,5 @@ Python needs `numpy`, `scipy`, `nibabel`, `scikit-image` and `Pillow`.
 ```sh
 python3 tools/design/deep_structures/render.py /tmp/deep/hipp hipp
 python3 tools/design/deep_structures/screens.py /tmp/deep/hipp
-node tools/design/deep_structures/shot.js /tmp/deep/hipp/h.html main.png
+node tools/design/deep_structures/shot.cjs /tmp/deep/hipp/h.html main.png
 ```

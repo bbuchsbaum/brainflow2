@@ -1,0 +1,219 @@
+{
+ "feature": "deep-structures",
+ "round": 3,
+ "direction": "h",
+ "viewport": "1440x900",
+ "real": "All brain images and all numbers are computed from public data (HCP group z map WM 2-back minus 0-back; MNI152NLin6Asym T1w and mask; Harvard-Oxford subcortical th25; fsLR 32k midthickness; HippUnfold MNI152NLin6Asym surfaces, subfields and unfolded template). Thalamus 1.33/1.33 and putamen 1.83/1.83 were rechecked: per-hemisphere means are 1.328 vs 1.334 and 1.828 vs 1.834; the group map is near-symmetric there.",
+ "mocked": "Static HTML shell modelled on the real Integrated layout; nothing is interactive; offline software rasteriser.",
+ "states": {
+  "main": "Hippocampus selected. Left: cortex and white matter cut by a plane across the hippocampal long axis, 18 mm from the head; hippocampus (HippUnfold surface, ribbon mean, subfield lines), thalamus, caudate and putamen (mask-boundary meshes, vertex samples) stay whole and come through the face; green ring where the plane crosses the hippocampus; drawn long axis with stop ticks and a handle; faint outline of the removed half. Right: the face flat with leaders to left and right zooms (x3.3), and uncut laterals with the plane trace, stops, hippocampus outline and the removed side dimmed. Dock: per hemisphere, structure crops at each stop tied to their graticule line; unfolded sheet with subfield atlas lines, dashed graticule of the other stops, green trace of the cut, brushed band between 8 and 28 mm; subfield dot plot (this side filled, other hollow, grey when below threshold); column-mean profile on the sheet's own axis with the cut drawn as the span its trace covers and mm ticks placed where each stop's trace falls.",
+  "thalamus": "Thalamus selected, as the no-template-surface case: coronal cut 16 mm from the anterior pole, structures whole, zooms on the thalami. Dock: per hemisphere a sagittal long-axis section in the section language with stop lines, and the mask-mean profile beneath on the same millimetre axis."
+ },
+ "decisions": [
+  "Cut the cortex, not the structure: structures are separate meshes drawn uncut after the cap.",
+  "Sheet axis is percent along the unfolded long axis; millimetres along the straight axis appear as an uneven tick row and as graticule curves on the sheet.",
+  "Whole-brain strip removed; its stops are ticks on the drawn axis, the laterals and the graticule.",
+  "Stipple replaced by thin signed threshold contours in unlabelled tissue more than 4.5 mm from cortex.",
+  "Sheet keeps the thresholded colour scale used everywhere else; sub-threshold marginal values are greyed instead of drawing an unthresholded sheet.",
+  "Brush is an interval on the sheet's own axis (25 to 50 percent), a rectangle on the sheet and the same x extent on the profile.",
+  "Counts are given as volume (label grid 1 mm) and approximate map voxels (2 mm); grids are named in the inspector.",
+  "Camera frames the deep structures at about 1.4 times the round-2 scale; whole-brain context is carried by the uncut laterals.",
+  "Structure meshes are nearly unlit and sampled 2 mm inside the mask boundary.",
+  "A structure pair that meets at the midline gets one bilateral zoom."
+ ],
+ "changes": [
+  {
+   "critic": "tufte",
+   "rank": 1,
+   "states": [
+    "main",
+    "thalamus"
+   ],
+   "change": "One statement of grids; volume in cm3 and approximate map voxels"
+  },
+  {
+   "critic": "tufte",
+   "rank": 2,
+   "states": [
+    "main"
+   ],
+   "change": "Brush is a tinted rectangle bounded by two lines on the sheet; graticule curves labelled in mm at the sheet top"
+  },
+  {
+   "critic": "tufte",
+   "rank": 3,
+   "states": [
+    "main",
+    "thalamus"
+   ],
+   "change": "Sparklines 60x16 on -8 to 8 with 3.1 rules, right side grey; two-ended bar for share beyond threshold"
+  },
+  {
+   "critic": "tufte",
+   "rank": 4,
+   "states": [
+    "thalamus"
+   ],
+   "change": "One bilateral zoom with midline and L/R names; dock titles shortened"
+  },
+  {
+   "critic": "tufte",
+   "rank": 5,
+   "states": [
+    "main",
+    "thalamus"
+   ],
+   "change": "Face labels in a margin column; frames and leaders 1 px grey, one leader per zoom"
+  },
+  {
+   "critic": "tufte",
+   "rank": 6,
+   "states": [
+    "main"
+   ],
+   "change": "Rectangular brush removes the folded tint patch; subfield lines 70 percent grey with halo; dot plot -8 to 0 with labelled rules; subfield means to two decimals (CA2 and CA3 differ: -5.40 vs -5.38 left, -4.45 vs -4.42 right)"
+  },
+  {
+   "critic": "tufte",
+   "rank": 7,
+   "states": [
+    "main",
+    "thalamus"
+   ],
+   "change": "Camera framed on the deep structures; crops at 2.4 px/mm"
+  },
+  {
+   "critic": "tufte",
+   "rank": 8,
+   "states": [
+    "main",
+    "thalamus"
+   ],
+   "change": "Paired profiles share one y range; status marks values beyond the colour range; caption shortened"
+  },
+  {
+   "critic": "bostock",
+   "rank": 1,
+   "states": [
+    "main"
+   ],
+   "change": "Brush is one interval on sheet and profile"
+  },
+  {
+   "critic": "bostock",
+   "rank": 2,
+   "states": [
+    "main"
+   ],
+   "change": "Graticule labelled; only the cut is green; tick row named 'mm, straight axis'"
+  },
+  {
+   "critic": "bostock",
+   "rank": 3,
+   "states": [
+    "thalamus"
+   ],
+   "change": "Single zoom; titles fit; crosshair lies on the sagittal long-axis section"
+  },
+  {
+   "critic": "bostock",
+   "rank": 4,
+   "states": [
+    "main",
+    "thalamus"
+   ],
+   "change": "Leaders no longer cross other views; labels outside frames; axis label off the axis"
+  },
+  {
+   "critic": "bostock",
+   "rank": 5,
+   "states": [
+    "main",
+    "thalamus"
+   ],
+   "change": "Meshes nearly unlit; values sampled 2 mm inside the boundary and said so"
+  },
+  {
+   "critic": "bostock",
+   "rank": 6,
+   "states": [
+    "main",
+    "thalamus"
+   ],
+   "change": "CA2/CA3 checked; dot axis labelled; thin lines named quartiles; sparkline scale stated"
+  },
+  {
+   "critic": "neuro",
+   "rank": 1,
+   "states": [
+    "main"
+   ],
+   "change": "Sheet scale bar removed; sheet stated to be in unfolded template units; mm ticks named as straight-axis"
+  },
+  {
+   "critic": "neuro",
+   "rank": 2,
+   "states": [
+    "thalamus"
+   ],
+   "change": "Bilateral zoom for the midline pair"
+  },
+  {
+   "critic": "neuro",
+   "rank": 3,
+   "states": [
+    "main",
+    "thalamus"
+   ],
+   "change": "Counts as volume and map voxels; inward mesh sampling stated"
+  },
+  {
+   "critic": "neuro",
+   "rank": 4,
+   "states": [
+    "main",
+    "thalamus"
+   ],
+   "change": "Camera framed on the selected structures; axis label moved"
+  },
+  {
+   "critic": "neuro",
+   "rank": 5,
+   "states": [
+    "main",
+    "thalamus"
+   ],
+   "change": "Leaders rerouted; scale bar moved; title reads 'top: anterior-superior'"
+  },
+  {
+   "critic": "neuro",
+   "rank": 6,
+   "states": [
+    "main",
+    "thalamus"
+   ],
+   "change": "Brainstem and pallidum named in zooms; quartiles named; dot axis labelled"
+  }
+ ],
+ "conflicts": [
+  {
+   "issue": "Unthresholded sheet",
+   "critics": [
+    "tufte"
+   ],
+   "decision": "Keep one thresholded scale; grey sub-threshold marginals",
+   "why": "A second colour mapping on the sheet would break the one-scale rule every critic asked for."
+  }
+ ],
+ "not_done": [
+  "Brush as a slab on the 3D object and laterals",
+  "Curved planar reformation and curved axes for caudate",
+  "Fold-to-unfold morph",
+  "Per-vertex (unsmoothed) sheet toggle",
+  "Cortical ribbon filled white to pial",
+  "Tissue-distance scale on the sheet",
+  "Neighbour names in the thalamus sagittal sections",
+  "Volume-only and inflated-cortex states",
+  "1280x800 variant"
+ ]
+}

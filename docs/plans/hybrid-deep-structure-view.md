@@ -280,3 +280,30 @@ implementation.
 plain GIfTI (2,004 vertices at 1 mm density), and the matching unfolded template
 mesh is in the `khanlab/hippunfold` repository
 (`resources/unfold_template_hipp/`), so the unfolded card needs no new geometry.
+
+## Hill climb outcome (2026-11-10, later)
+
+A visual hill climb with Tufte, Bostock and neuroimaging-specialist critics
+replaced the dock-of-cards layout above. The record, score history, open items
+and prototype checklist are in
+[docs/design/deep-structures/critiques.md](../design/deep-structures/critiques.md),
+with reference screens beside it. In short:
+
+- The view is one "Deep" layout built around a single object: cortex cut by a
+  plane the user moves, with the deep structures left whole and coming through
+  the cut face.
+- Every plane that meets the brain is drawn in one section language: cortex as
+  the surface contour coloured by surface values, deep structures as map
+  voxels inside atlas outlines.
+- The unfolded hippocampal sheet sits in the Plot dock above its own column
+  mean, with the cut positions drawn across it. Structures without template
+  surfaces get a long-axis section and a mask-mean profile on one millimetre
+  axis.
+- The medial-wall window and the local reveal described above are superseded
+  by the cut. The trust rules in section 5 and the label-driven structure
+  frame in section 2 still hold.
+
+The delivery order changes accordingly: the structure frame and profiles
+first; then the cut face in the section language on the existing slice
+renderer; then the cut and whole structures in the surface view; then the
+sheet.
