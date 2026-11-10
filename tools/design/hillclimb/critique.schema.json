@@ -16,7 +16,9 @@
       "enum": [
         "tufte",
         "jobs",
-        "operator"
+        "operator",
+        "bostock",
+        "neuro"
       ]
     },
     "round": {

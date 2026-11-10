@@ -16,6 +16,8 @@ are implemented. The results of the segmentation run are in
 | `prompts/tufte.md` | Data-ink and encoding critic: rubric and lessons. |
 | `prompts/jobs.md` | Focus and simplicity critic: rubric and lessons. |
 | `prompts/operator.md` | Expert-rater critic: rubric, lessons and prototype test priorities. |
+| `prompts/bostock.md` | Representation and interaction critic (added for the deep-structure view). |
+| `prompts/neuro.md` | Neuroimaging-specialist critic (added for the deep-structure view). |
 | `prompts/builder.md` | Template for the agent that makes each round's changes. |
 | `critique.schema.json` | JSON Schema for each critic's `<critic>.json`. |
 
@@ -30,6 +32,11 @@ the critic's judgement, not the mean. 8 means "ship with small fixes" and
 | Tufte | `data_ink_image_primacy`, `label_contour_encoding`, `comparison_design`, `typography_chrome_hierarchy`, `integrity` |
 | Jobs | `focus`, `simplicity`, `defaults_flow`, `craft`, `delight` |
 | Operator | `tracing_efficiency`, `safety_trust`, `multi_contrast_geometry`, `protocol_review`, `fatigue` |
+| Bostock | `representation_fit`, `integration`, `interaction_model`, `scales_encodings`, `novelty_reason` |
+| Neuro | `anatomical_fidelity`, `sampling_honesty`, `analytic_usefulness`, `convention_trust`, `generality` |
+
+Pick three critics per feature. The segmentation run used Tufte, Jobs and
+Operator; the deep-structure view used Tufte, Bostock and Neuro.
 
 Each issue is tagged by what it needs: `static` (fixable and checkable on
 screenshots), `interactive` (needs a prototype in use) or `real-data`
