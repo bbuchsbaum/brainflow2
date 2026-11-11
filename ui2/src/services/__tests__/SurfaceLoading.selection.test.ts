@@ -28,6 +28,9 @@ const {
   },
   mockSurfaceStoreState: {
     surfaces: new Map(),
+    // Surface-set discovery (geometry families) reads and caches the set.
+    surfaceSets: new Map(),
+    setSurfaceSet: vi.fn(),
     setLoadingState: vi.fn(),
     addSurface: vi.fn(),
     setSurfaceGeometry: vi.fn(),
@@ -77,6 +80,7 @@ describe('SurfaceLoadingService selection routing', () => {
     mockQueueState.isLoading.mockReturnValue(false);
     mockQueueState.enqueue.mockReturnValue('queue-1');
     mockSurfaceStoreState.surfaces = new Map();
+    mockSurfaceStoreState.surfaceSets = new Map();
   });
 
   it('activates loaded file surfaces through the shared selection helper without targeting a surface view', async () => {

@@ -11,6 +11,7 @@ import { useRenderStateStore } from '@/stores/renderStateStore';
 import { getRenderCoordinator } from './RenderCoordinator';
 import type { RenderRequest } from './RenderCoordinator';
 import { effectiveRenderRatio, hidpiViewState, tagBitmapRatio } from '@/utils/renderPixelRatio';
+import { tagBitmapPlane } from '@/utils/framePlane';
 import { hasVisibleSliceCanvas } from './ViewZoomService';
 import {
   areCrosshairStatesEqual,
@@ -242,7 +243,10 @@ export class OptimizedRenderService {
         });
         
         viewsToRender.forEach((viewType) => {
-          const imageBitmap = tagBitmapRatio(results?.[viewType] ?? null, ratio);
+          const imageBitmap = tagBitmapPlane(
+            tagBitmapRatio(results?.[viewType] ?? null, ratio),
+            viewState.views[viewType],
+          );
           const key = storeKeyFor(viewType);
           const duration = performance.now() - (startTimes.get(viewType) ?? startTime);
           
@@ -264,7 +268,7 @@ export class OptimizedRenderService {
         const renderState = hidpiViewState(viewState, [viewType], ratio);
         const [width, height] = renderState.views[viewType].dim_px;
         
-        const imageBitmap = tagBitmapRatio(
+        const imageBitmap = tagBitmapPlane(tagBitmapRatio(
           (await renderCoordinator.requestRender({
             viewState: renderState,
             viewType,
@@ -274,7 +278,7 @@ export class OptimizedRenderService {
             priority: 'normal'
           })) as ImageBitmap | null,
           ratio,
-        );
+        ), viewState.views[viewType]);
         
         const key = storeKeyFor(viewType);
         setImage(key, imageBitmap);

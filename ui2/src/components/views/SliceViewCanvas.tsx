@@ -31,6 +31,8 @@ import {
 import { useSliceViewModel } from "@/hooks/useSliceViewModel";
 import { SLIDER_HEIGHT } from "./constants";
 import { useViewStateStore } from "@/stores/viewStateStore";
+import { useLastImage } from "@/stores/renderStateStore";
+import { bitmapPlane, displayPlane } from "@/utils/framePlane";
 import { useLayerStore } from "@/stores/layerStore";
 import { useWindowLevel } from "@/hooks/useWindowLevel";
 import { useShortcut } from "@/hooks/useShortcut";
@@ -161,6 +163,14 @@ function SliceViewCanvasBody({
     hoverLayerIds,
   } = model;
   const viewPlane = model.viewPlane as NonNullable<SliceViewModel["viewPlane"]>;
+  // The plane of the frame on screen: until a resize, pan or zoom's frame
+  // arrives, the crosshair and pointer mapping follow the frame shown, not
+  // the plane already requested (utils/framePlane).
+  const lastImage = useLastImage(renderContext.id);
+  const shownPlane = useMemo(
+    () => displayPlane(viewPlane, bitmapPlane(lastImage)),
+    [viewPlane, lastImage],
+  );
 
   // Access setter without subscribing to it (stable reference)
   const setCrosshair = useRef(
@@ -238,12 +248,12 @@ function SliceViewCanvasBody({
   });
 
   // Stable ref for viewPlane to prevent infinite loop in handleMouseMove
-  const viewPlaneRef = React.useRef(viewPlane);
+  const viewPlaneRef = React.useRef(shownPlane);
   React.useEffect(() => {
-    if (viewPlane) {
-      viewPlaneRef.current = viewPlane;
+    if (shownPlane) {
+      viewPlaneRef.current = shownPlane;
     }
-  }, [viewPlane]);
+  }, [shownPlane]);
 
   const activeAtlasId = useMemo(() => {
     const atlasLayer = layers.find(
@@ -285,7 +295,7 @@ function SliceViewCanvasBody({
     canvasToWorld,
     onHoverStart: markActive,
     // A slice step or zoom under a still pointer re-reads the pointer (F5).
-    viewKey: `${viewPlane.origin_mm}|${viewPlane.u_mm}|${viewPlane.v_mm}|${viewPlane.dim_px}`,
+    viewKey: `${shownPlane.origin_mm}|${shownPlane.u_mm}|${shownPlane.v_mm}|${shownPlane.dim_px}`,
   });
 
   // Slider navigation using the same approach as original SliceView
@@ -431,11 +441,11 @@ function SliceViewCanvasBody({
       return null;
     }
     const k = (frameImageRect.right - frameImageRect.left) / p.width;
-    const [ix, iy] = CoordinateTransform.worldToScreenUnchecked(crosshair.world_mm, viewPlane);
+    const [ix, iy] = CoordinateTransform.worldToScreenUnchecked(crosshair.world_mm, shownPlane);
     // Through the placement, so a mirrored display is followed.
     const point = imagePointToCanvasPoint([ix, iy], p);
     return { x: point.canvasX * k, y: point.canvasY * k };
-  }, [placementState, frameImageRect, crosshair.visible, crosshair.world_mm, viewPlane]);
+  }, [placementState, frameImageRect, crosshair.visible, crosshair.world_mm, shownPlane]);
 
   // Handle mouse clicks to update crosshair — skip if window/level drag is active
   const isDraggingRef = useRef(isDragging);
@@ -460,8 +470,8 @@ function SliceViewCanvasBody({
   const colorbarDataKey = useMemo(() => {
     if (!frameImageRect || !placementState || !(placementState.width > 0)) return "";
     const k = (frameImageRect.right - frameImageRect.left) / placementState.width;
-    return paneRectKey(dataRectOnPane(dataEdgeBounds, viewPlane, placementState, crosshair.world_mm, k));
-  }, [dataEdgeBounds, viewPlane, placementState, crosshair.world_mm, frameImageRect]);
+    return paneRectKey(dataRectOnPane(dataEdgeBounds, shownPlane, placementState, crosshair.world_mm, k));
+  }, [dataEdgeBounds, shownPlane, placementState, crosshair.world_mm, frameImageRect]);
   const colorbarDataRect = useMemo(() => paneRectFromKey(colorbarDataKey), [colorbarDataKey]);
 
   // How well this view holds the colorbar, by the same placement rule the
@@ -760,7 +770,7 @@ function SliceViewCanvasBody({
           width={width}
           height={canvasHeight}
           context={renderContext}
-          viewPlane={viewPlane}
+          viewPlane={shownPlane}
           crosshair={crosshair}
           crosshairStyle={crosshairStyle}
           getCrosshairKnockouts={getCrosshairKnockouts}
@@ -793,7 +803,7 @@ function SliceViewCanvasBody({
             metric={temporalMetric}
             width={width}
             height={canvasHeight}
-            viewPlane={viewPlane}
+            viewPlane={shownPlane}
             placement={placementState}
             voxelToWorld={heatmapAffine}
             pixelRatio={pixelRatio}

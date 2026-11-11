@@ -210,6 +210,28 @@ describe("ViewStateStore", () => {
       expect(recalcAllViewsMock).not.toHaveBeenCalled();
       expectCovers(useViewStateStore.getState().viewState.views);
     });
+
+    it("keeps the other panes at their own pane sizes in a locked layout", async () => {
+      // A splitter drag in the orthogonal grid: the axial pane grows while
+      // the two panes below it shrink. Scaling the others by the axial pane's
+      // ratio refit them at the wrong size on every step, so their zoom
+      // swung back and forth during the drag.
+      useViewLayoutStore.getState().setMode("locked");
+      await store.updateDimensionsAndPreserveScale("sagittal", [320, 180]);
+      await store.updateDimensionsAndPreserveScale("coronal", [300, 180]);
+      const before = useViewStateStore.getState().viewState.views;
+      const sagittal = JSON.parse(JSON.stringify(before.sagittal));
+      const coronal = JSON.parse(JSON.stringify(before.coronal));
+
+      await store.updateDimensionsAndPreserveScale("axial", [640, 500]);
+      await store.updateDimensionsAndPreserveScale("axial", [600, 460]);
+
+      const after = useViewStateStore.getState().viewState.views;
+      expect(after.sagittal).toEqual(sagittal);
+      expect(after.coronal).toEqual(coronal);
+      expect(after.axial.dim_px[0]).toBeLessThanOrEqual(600);
+      expect(after.axial.dim_px[1]).toBeLessThanOrEqual(460);
+    });
   });
 
   describe("Locked layout fallbacks", () => {
