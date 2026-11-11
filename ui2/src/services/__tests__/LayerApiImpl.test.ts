@@ -797,6 +797,52 @@ describe('LayerApiImpl', () => {
     expect(mockLayerStoreState.layerMetadata.get(added.id)?.renderProps?.layerMode).toBe('label');
   });
 
+  it('a continuous map named like a mask is drawn with its colormap, not as a flat white mask (p4_brain_mask_prob.nii)', async () => {
+    // The mask shader path fills every voxel above 0.1 white and ignores the
+    // colormap and window, while the Inspector offered both (a "Jet" layer
+    // drawn solid white). Only a true {0, 1} image takes it.
+    mockApiService.requestLayerGpuResources.mockResolvedValueOnce({
+      data_range: { min: 3.9e-15, max: 1 },
+      center_world: [0, 0, 0],
+      is_binary_like: false,
+      dim: [8, 8, 8],
+      voxel_to_world: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+    });
+    const api = new LayerApiImpl();
+    const added = await api.addLayer(
+      { name: 'p4_brain_mask_prob.nii', volumeId: 'vol-prob', visible: true, type: 'mask', order: 0 },
+      { workspaceId: 'test' },
+    );
+    // What the Inspector's metadata holds and what is sent to the renderer agree.
+    expect(mockLayerStoreState.layerMetadata.get(added.id)?.renderProps).toMatchObject({ layerMode: 'scalar', interpolation: 'linear' });
+    const sent = () => mockViewStateStoreState.viewState.layers.find((l: { id: string }) => l.id === added.id) as { layerMode?: string } | undefined;
+    expect(sent()?.layerMode).toBe('scalar');
+    // The histogram refinement that follows the first paint keeps the mode.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockLayerStoreState.layerMetadata.get(added.id)?.renderProps?.layerMode).toBe('scalar');
+    expect(sent()?.layerMode).toBe('scalar');
+    const internals = api as unknown as { refinedRender(layer: unknown): { layerMode: string }; toViewLayer(layer: unknown): { layerMode: string } };
+    expect(internals.refinedRender(added).layerMode).toBe('scalar');
+  });
+
+  it('a binary template mask keeps the flat mask fill', async () => {
+    mockLayerStoreState.layerMetadata.set('vol-tmask', { source: 'template' });
+    mockApiService.requestLayerGpuResources.mockResolvedValueOnce({
+      data_range: { min: 0, max: 1 },
+      center_world: [0, 0, 0],
+      is_binary_like: true,
+      dim: [8, 8, 8],
+      voxel_to_world: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+    });
+    const api = new LayerApiImpl();
+    const added = await api.addLayer(
+      { name: 'MNI152 brain mask', volumeId: 'vol-tmask', visible: true, type: 'mask', order: 0 },
+      { workspaceId: 'test' },
+    );
+    expect(added.type).toBe('mask');
+    expect(mockLayerStoreState.layerMetadata.get(added.id)?.renderProps?.layerMode).toBe('mask');
+  });
+
   it('a small-integer count map keeps its type (review: lesion_overlap_n20)', async () => {
     mockLayerStoreState.layerMetadata.set('vol-overlap', { nativeDtype: 'u8', source: 'file' });
     mockApiService.requestLayerGpuResources.mockResolvedValueOnce({

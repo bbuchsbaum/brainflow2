@@ -14,6 +14,8 @@ use ts_rs::TS;
 
 pub mod bids;
 pub use bids::*;
+pub mod dataset_card;
+pub use dataset_card::*;
 
 // --- Moved from nifti_loader ---
 #[derive(Debug, Clone, PartialEq, Serialize)]

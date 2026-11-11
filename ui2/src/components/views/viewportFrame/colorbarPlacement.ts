@@ -20,8 +20,15 @@
  *    across the side letters' band (the letters themselves stay clear), so
  *    the bar never vanishes.
  *
+ * A host may keep the block off the image altogether (`offImage`: the Studio
+ * Deck and Compare pane A, one large plane whose image is the subject). Rules
+ * 2 and 3 then do not apply: with no margin that holds the full or the
+ * compact block, the slot is `below`, and the pane draws the legend as a
+ * strip in the row under the canvas that holds its slice slider.
+ *
  * A pane narrower or shorter than COLORBAR_COMPACT_BELOW always takes the
- * compact form. The orientation letters, the header row and the radiological
+ * compact form. A host may ask for more (`compactOnImageBelow`): below that
+ * size the full block is used only off the image, never over it. The orientation letters, the header row and the radiological
  * badge are kept clear. A previous slot is kept while it still fits and no
  * other slot is clearly better (hysteresis), so the block does not hop on
  * small resizes.
@@ -38,7 +45,9 @@ export interface PaneRect {
 
 export type ColorbarMarginSlot = 'right' | 'left' | 'bottom' | 'top';
 export type ColorbarCornerSlot = 'corner-br' | 'corner-tr' | 'corner-bl' | 'corner-tl';
-export type ColorbarSlot = ColorbarMarginSlot | ColorbarCornerSlot;
+/** Not in the canvas area: the strip in the row under it (an `offImage` pane). */
+export type ColorbarBelowSlot = 'below';
+export type ColorbarSlot = ColorbarMarginSlot | ColorbarCornerSlot | ColorbarBelowSlot;
 
 export interface ColorbarPlacement {
   slot: ColorbarSlot;
@@ -94,6 +103,19 @@ export interface ColorbarPaneInput {
   previousSlot?: ColorbarSlot | null;
   /** The compact form was used last time: the full block needs a little more room to return. */
   previousCompact?: boolean;
+  /**
+   * In a pane narrower or shorter than this, the block never sits on the
+   * image in its full form: with no free margin it takes the compact form
+   * (the bar and its window ends). The full block still takes a margin that
+   * holds it. For small single-plane panes whose header already names the
+   * image (a Studio Compare pane); 0 or omitted: the usual rule.
+   */
+  compactOnImageBelow?: number;
+  /**
+   * The block never covers the image (the Studio Deck, Compare pane A): a
+   * free margin, full or compact, or else the `below` slot, never a corner.
+   */
+  offImage?: boolean;
 }
 
 export type ColorbarPlacementInput = ColorbarPaneInput & ColorbarForm;
@@ -442,6 +464,8 @@ export function placeColorbar(input: ColorbarPlacementInput): ColorbarPlacement 
 export const ColorbarFit = {
   None: 0,
   Corner: 1,
+  /** In the row under the canvas (an `offImage` pane with no margin). */
+  Below: 1,
   CompactMargin: 2,
   FullMargin: 3,
 } as const;
@@ -473,7 +497,22 @@ export function placeColorbarBlock(
   if (fullMargin) return { ...fullMargin, compact: false, fit: ColorbarFit.FullMargin };
   const compactMargin = placeColorbarInMargin(compact);
   if (compactMargin) return { ...compactMargin, compact: true, fit: ColorbarFit.CompactMargin };
-  const fullCorner = small ? null : placeColorbarInCorner(full);
+  // Off the image only: no corner. The pane shows the strip under its canvas.
+  if (pane.offImage) {
+    return {
+      slot: 'below',
+      left: 0,
+      top: pane.height,
+      barH: 0,
+      scrim: false,
+      room: 0,
+      compact: true,
+      fit: ColorbarFit.Below,
+    };
+  }
+  const fullOffImageOnly =
+    pane.width < (pane.compactOnImageBelow ?? 0) || pane.height < (pane.compactOnImageBelow ?? 0);
+  const fullCorner = small || fullOffImageOnly ? null : placeColorbarInCorner(full);
   if (fullCorner) return { ...fullCorner, compact: false, fit: ColorbarFit.Corner };
   const compactCorner = placeColorbarInCorner(compact);
   if (compactCorner) return { ...compactCorner, compact: true, fit: ColorbarFit.Corner };
@@ -498,6 +537,10 @@ export function holdColorbarSlot(
   held: { slot: ColorbarSlot; barH: number },
 ): ColorbarPlacement {
   const { width: w, height: h, chromeH, boxWidth, minBarH } = input;
+  // Under the canvas: nothing in the pane to follow.
+  if (held.slot === 'below') {
+    return { slot: 'below', left: 0, top: h, barH: 0, scrim: false, room: 0 };
+  }
   const image = paneImageRect(input);
   // The same bar if it still fits the pane's height, else the tallest that does.
   const barH = Math.max(minBarH, Math.min(held.barH, Math.floor(h - 2 * COLORBAR_EDGE - chromeH)));

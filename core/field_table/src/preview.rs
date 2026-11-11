@@ -17,7 +17,7 @@ pub use bridge_types::{
     StudioFolderOntologyRoleGuess, StudioFolderOntologySummary, StudioFolderOntologyWarning,
 };
 use discovery::regex_candidate;
-pub use discovery::{DiscoveryInventory, DiscoveryInventoryFile, DiscoverySampleHeader};
+pub use discovery::{DiscoveryHeaderAudit, DiscoveryInventory, DiscoveryInventoryFile};
 use manifest::{manifest_candidate, FeatureBindingPreview};
 pub use ontology::{preview_folder_ontology, preview_folder_ontology_with_discovery_inventory};
 use source::{
@@ -26,8 +26,8 @@ use source::{
 };
 use support::{
     feature_support_kind, infer_support_summary, inspect_table_volume_support,
-    manifest_binding_support_label, table_support_label, validate_nifti_volume_support,
-    TableSupportSignature,
+    manifest_binding_support_label, table_support_label, table_volume_support,
+    validate_nifti_volume_support, GridDifference, TableSupportSignature,
 };
 use table::table_candidate;
 

@@ -5,6 +5,7 @@ import type { ViewState } from '@/types/viewState';
 import type { LayerInfo } from '@/stores/layerStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useAppModeStore } from '@/stores/appModeStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
 import {
   applyRenderLayerScope,
   hasRenderLayerScope,
@@ -47,12 +48,22 @@ function seedWorkspace(extra: LayerInfo[] = []): void {
     ],
     layerMetadata: new Map(),
   });
+  showInActiveView(useLayerStore.getState().layers.map((l) => l.id));
 }
 
+/** The layers the active view draws (the layer store holds every workspace's). */
+function showInActiveView(layerIds: string[]): void {
+  useViewStateStore.setState((state) => ({
+    viewState: {
+      ...state.viewState,
+      layers: layerIds.map((id) => ({ id, volumeId: `vol-${id}` })),
+    } as unknown as ViewState,
+  }));
+}
+
+/** What the render path hands the scope: the active view's layers. */
 function sceneViewState(): ViewState {
-  return {
-    layers: useLayerStore.getState().layers.map((l) => ({ id: l.id, volumeId: l.volumeId })),
-  } as unknown as ViewState;
+  return useViewStateStore.getState().viewState;
 }
 
 const drawnLayerIds = () => applyRenderLayerScope(sceneViewState()).layers.map((l) => l.id);
@@ -117,6 +128,130 @@ describe('DeckLens render scope', () => {
     expect(hasRenderLayerScope()).toBe(false);
     act(() => useAppModeStore.setState({ mode: 'studio' }));
     expect(drawnLayerIds()).toEqual(['member']);
+  });
+});
+
+describe('DeckLens background template', () => {
+  const TEMPLATE = 'template:MNI152NLin2009cAsym_T1w_1mm';
+  const NEXT_MEMBER = '/data/fir3d/sub-02_faces_beta.nii.gz';
+
+  async function openSet(supportLabel: string) {
+    const { useSetStudioStore } = await import('@/stores/setStudioStore');
+    useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
+    useSetStudioStore.getState().bootstrapStudio({
+      set: { ...volumeSet, supportLabel, savedCohortIds: [] } as SpatialFieldSetSummary,
+      features: [],
+      cohorts: [],
+      expressions: [],
+    });
+    return useSetStudioStore;
+  }
+
+  beforeEach(() => {
+    resetRenderLayerScope();
+    useAppModeStore.setState({ mode: 'studio' });
+  });
+  afterEach(async () => {
+    cleanup();
+    const { useSetStudioStore } = await import('@/stores/setStudioStore');
+    useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
+  });
+
+  it('draws the chosen template beneath the member, whichever the workspace stacks higher', async () => {
+    const store = await openSet('Folder of maps');
+    // The workspace has the template ABOVE the member.
+    seedWorkspace([layer('member', MEMBER_PATH), layer('template', TEMPLATE)]);
+    renderDeck(MEMBER_PATH);
+    expect(drawnLayerIds()).toEqual(['member']);
+
+    act(() => store.getState().setStudioBackground(TEMPLATE));
+    expect(drawnLayerIds()).toEqual(['template', 'member']);
+
+    act(() => store.getState().setStudioBackground(null));
+    expect(drawnLayerIds()).toEqual(['member']);
+  });
+
+  it("uses the declared space's template without a choice, and none once None is chosen", async () => {
+    const store = await openSet('MNI152NLin2009cAsym (2mm)');
+    seedWorkspace([
+      layer('member', MEMBER_PATH),
+      layer('brain', 'template:MNI152NLin2009cAsym_brain_1mm'),
+    ]);
+    renderDeck(MEMBER_PATH);
+    expect(drawnLayerIds()).toEqual(['brain', 'member']);
+    act(() => store.getState().setStudioBackground(null));
+    expect(drawnLayerIds()).toEqual(['member']);
+  });
+
+  it('shows the member alone until the template has loaded', async () => {
+    const store = await openSet('Folder of maps');
+    seedWorkspace([layer('member', MEMBER_PATH)]);
+    store.getState().setStudioBackground(TEMPLATE);
+    renderDeck(MEMBER_PATH);
+    expect(drawnLayerIds()).toEqual(['member']);
+    act(() => seedWorkspace([layer('member', MEMBER_PATH), layer('template', TEMPLATE)]));
+    expect(drawnLayerIds()).toEqual(['template', 'member']);
+  });
+
+  it('keeps the template drawn while the next member loads', async () => {
+    const store = await openSet('Folder of maps');
+    store.getState().setStudioBackground(TEMPLATE);
+    seedWorkspace([layer('template', TEMPLATE), layer('member', MEMBER_PATH)]);
+    const view = renderDeck(MEMBER_PATH);
+    expect(drawnLayerIds()).toEqual(['template', 'member']);
+
+    const next = (sourcePath: string) => (
+      <DeckLens
+        activeSet={volumeSet}
+        activeFeature={null}
+        activeMemberId="s02_faces_l2"
+        activeMemberSourcePath={sourcePath}
+        onSelectMember={vi.fn()}
+        onInspectCurrent={vi.fn()}
+        onOpenCurrentSource={vi.fn()}
+      />
+    );
+    view.rerender(next(NEXT_MEMBER));
+    // Not loaded yet: the template stays, the last member does not.
+    expect(drawnLayerIds()).toEqual(['template']);
+    act(() =>
+      seedWorkspace([
+        layer('template', TEMPLATE),
+        layer('member', MEMBER_PATH),
+        layer('member-2', NEXT_MEMBER),
+      ]),
+    );
+    expect(drawnLayerIds()).toEqual(['template', 'member-2']);
+  });
+
+  it('does not count a template or member open only in another tab (review item 2)', async () => {
+    const store = await openSet('Folder of maps');
+    store.getState().setStudioBackground(TEMPLATE);
+    seedWorkspace([layer('member', MEMBER_PATH)]);
+    // Another tab's copies: in the global layer store, not in this view.
+    useLayerStore.setState((state) => ({
+      layers: [
+        layer('tab-b-template', TEMPLATE),
+        layer('tab-b-member', MEMBER_PATH),
+        ...state.layers,
+      ],
+    }));
+    renderDeck(MEMBER_PATH);
+    // This view's own member; no template until one is loaded here.
+    expect(drawnLayerIds()).toEqual(['member']);
+    act(() => {
+      useLayerStore.setState((state) => ({ layers: [...state.layers, layer('template', TEMPLATE)] }));
+      showInActiveView(['t1', 'aseg', 'olsen', 'member', 'template']);
+    });
+    expect(drawnLayerIds()).toEqual(['template', 'member']);
+  });
+
+  it('draws a member that is itself the template once', async () => {
+    const store = await openSet('Folder of maps');
+    store.getState().setStudioBackground(TEMPLATE);
+    seedWorkspace([layer('template', TEMPLATE)]);
+    renderDeck(TEMPLATE);
+    expect(drawnLayerIds()).toEqual(['template']);
   });
 });
 

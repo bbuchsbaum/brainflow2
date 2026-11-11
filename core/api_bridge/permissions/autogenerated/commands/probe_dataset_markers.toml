@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-probe-dataset-markers"
+description = "Enables the probe_dataset_markers command without any pre-configured scope."
+commands.allow = ["probe_dataset_markers"]
+
+[[permission]]
+identifier = "deny-probe-dataset-markers"
+description = "Denies the probe_dataset_markers command without any pre-configured scope."
+commands.deny = ["probe_dataset_markers"]

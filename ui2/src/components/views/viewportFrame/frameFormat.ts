@@ -272,13 +272,14 @@ export function isThresholdActive(
 export function thresholdExpressionParts(
   threshold: readonly [number, number] | null | undefined,
   symbol: string = 'value',
+  format: (value: number) => string = formatLayerValue,
 ): [string, string] | null {
   if (!isThresholdActive(threshold)) return null;
   const [lo, hi] = threshold as readonly [number, number];
   const scale = Math.max(Math.abs(lo), Math.abs(hi));
   const symmetric = hi > 0 && Math.abs(lo + hi) <= 1e-6 * scale;
-  if (symmetric) return [`|${symbol}|`, `≤ ${formatLayerValue(hi)}`];
-  return [`${formatLayerValue(lo)} ≤ ${symbol}`, `≤ ${formatLayerValue(hi)}`];
+  if (symmetric) return [`|${symbol}|`, `≤ ${format(hi)}`];
+  return [`${format(lo)} ≤ ${symbol}`, `≤ ${format(hi)}`];
 }
 
 export function thresholdExpression(
@@ -330,6 +331,7 @@ export function colorbarTicks(
   heightPx: number,
   minSpacingPx = 12,
   dataRange?: { min: number; max: number } | null,
+  format: (value: number) => string = formatLayerValue,
 ): ColorbarTick[] {
   const [min, max] = window;
   if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
@@ -352,7 +354,7 @@ export function colorbarTicks(
       (t) => t.value === c.value || Math.abs(t.fraction - fraction) * heightPx < minSpacingPx,
     );
     if (tooClose) continue;
-    let label = formatLayerValue(c.value);
+    let label = format(c.value);
     if (c.kind === 'window' && dataRange) {
       if (c.value === max && dataRange.max > max) label = `≥ ${label}`;
       else if (c.value === min && dataRange.min < min) label = `≤ ${label}`;

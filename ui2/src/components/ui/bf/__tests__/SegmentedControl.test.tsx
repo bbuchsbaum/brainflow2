@@ -63,6 +63,72 @@ describe('bf SegmentedControl', () => {
     window.removeEventListener('keydown', onWindowKey);
   });
 
+  it('a press that moves no focus leaves no mark: Tab-in then has its ring and arrows', () => {
+    const options = [...OPTIONS, { value: 'none', label: 'None', disabled: true }];
+    function Line() {
+      const [value, setValue] = useState('solid');
+      return (
+        <SegmentedControl
+          aria-label="Line style"
+          options={options}
+          value={value}
+          onValueChange={setValue}
+        />
+      );
+    }
+    render(<Line />);
+    const group = screen.getByRole('radiogroup', { name: 'Line style' });
+    const solid = screen.getByRole('radio', { name: 'Solid' });
+    // A disabled segment, the group's own border, and (macOS WKWebView) an
+    // enabled segment that the click does not focus.
+    for (const target of [screen.getByRole('radio', { name: 'None' }), group, solid]) {
+      fireEvent.pointerDown(target);
+      fireEvent.pointerUp(target);
+      expect(group).not.toHaveAttribute('data-pointer-focus');
+    }
+    // Tab into the group: the ring is not suppressed and the arrows select.
+    solid.focus();
+    expect(group).not.toHaveAttribute('data-pointer-focus');
+    fireEvent.keyDown(solid, { key: 'ArrowRight' });
+    const dashed = screen.getByRole('radio', { name: 'Dashed' });
+    expect(dashed).toHaveFocus();
+    expect(dashed).toHaveAttribute('aria-checked', 'true');
+    expect(group).not.toHaveAttribute('data-pointer-focus');
+  });
+
+  it('after a click, using the keyboard on the group brings back the ring and the arrows', () => {
+    render(<Harness />);
+    const group = screen.getByRole('radiogroup', { name: 'Line style' });
+    const solid = screen.getByRole('radio', { name: 'Solid' });
+    const dotted = screen.getByRole('radio', { name: 'Dotted' });
+    fireEvent.pointerDown(solid);
+    solid.focus();
+    fireEvent.pointerUp(solid);
+    fireEvent.click(solid);
+    expect(group).toHaveAttribute('data-pointer-focus');
+    // End is the group's key: it moves, and the ring is no longer suppressed.
+    fireEvent.keyDown(solid, { key: 'End' });
+    expect(dotted).toHaveFocus();
+    expect(dotted).toHaveAttribute('aria-checked', 'true');
+    expect(group).not.toHaveAttribute('data-pointer-focus');
+    // The arrows are the group's again.
+    fireEvent.keyDown(dotted, { key: 'ArrowLeft' });
+    const dashed = screen.getByRole('radio', { name: 'Dashed' });
+    expect(dashed).toHaveFocus();
+    expect(dashed).toHaveAttribute('aria-checked', 'true');
+    expect(group).not.toHaveAttribute('data-pointer-focus');
+
+    // A press on the segment that already has focus is a pointer press too,
+    // and Tab (here Shift+Tab out and back) is keyboard use.
+    fireEvent.pointerDown(dashed);
+    fireEvent.pointerUp(dashed);
+    expect(group).toHaveAttribute('data-pointer-focus');
+    fireEvent.keyDown(dashed, { key: 'Tab' });
+    expect(group).not.toHaveAttribute('data-pointer-focus');
+    fireEvent.keyDown(dashed, { key: 'ArrowRight' });
+    expect(dotted).toHaveAttribute('aria-checked', 'true');
+  });
+
   it('renders nothing for a single option unless asked', () => {
     const { container, rerender } = render(
       <SegmentedControl aria-label="Line" options={[OPTIONS[0]]} value="solid" onValueChange={() => {}} />,
@@ -253,5 +319,30 @@ describe('bf SegmentedControl disabled', () => {
     expect(cls.filter((c) => c.startsWith('hover:'))).toEqual([]);
     expect(cls).toContain('enabled:hover:bg-accent');
     expect(cls).toContain('enabled:hover:text-foreground');
+  });
+
+  it('marks pointer focus so a later keystroke draws no ring on the selected segment', () => {
+    render(<Harness />);
+    const group = screen.getByRole('radiogroup', { name: 'Line style' });
+    const dashed = screen.getByRole('radio', { name: 'Dashed' });
+    // Selection is the fill; the ring is for focus reached by keyboard.
+    expect(group).not.toHaveAttribute('data-pointer-focus');
+    expect(dashed.className).toContain(
+      'group-data-[pointer-focus]/segmented:focus-visible:outline-none',
+    );
+    expect(dashed.className).toContain('focus-visible:outline-[var(--bf-border-focus)]');
+    expect(group.className).toContain('group/segmented');
+
+    fireEvent.pointerDown(dashed);
+    fireEvent.click(dashed);
+    dashed.focus();
+    expect(group).toHaveAttribute('data-pointer-focus');
+    // Slice keys pressed with the segment focused do not clear it.
+    fireEvent.keyDown(dashed, { key: 'ArrowUp' });
+    expect(group).toHaveAttribute('data-pointer-focus');
+
+    // Focus leaves the group: reaching it again by Tab shows the ring.
+    fireEvent.blur(dashed, { relatedTarget: document.body });
+    expect(group).not.toHaveAttribute('data-pointer-focus');
   });
 });

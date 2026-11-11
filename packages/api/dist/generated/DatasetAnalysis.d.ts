@@ -1,0 +1,33 @@
+import type { DatasetPipelineRef } from "./DatasetPipelineRef";
+/**
+ * One analysis folder below a folder that holds analyses.
+ */
+export type DatasetAnalysis = {
+    path: string;
+    folderName: string;
+    /**
+     * `Name` from its description.
+     */
+    title: string | null;
+    generatedBy: DatasetPipelineRef | null;
+    /**
+     * `sub-*` folders directly inside it.
+     */
+    subjectCount: number;
+    /**
+     * It also holds `sub-*` links that were not followed, so the count is a
+     * floor.
+     */
+    subjectCountTruncated: boolean;
+    hasGroupLevel: boolean;
+    hasDescription: boolean;
+    /**
+     * Its description exists but could not be read or parsed in full.
+     */
+    issue: string | null;
+    /**
+     * A date its description declares under a top-level key such as `Date`
+     * or `DateCreated`, as written. Never taken from a folder name.
+     */
+    date: string | null;
+};

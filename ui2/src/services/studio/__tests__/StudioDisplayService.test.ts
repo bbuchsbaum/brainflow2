@@ -48,6 +48,24 @@ type MockViewLayer = {
 const mockViewState = { layers: [] as MockViewLayer[] };
 const mockViewStateStoreState = {
   setViewState: vi.fn((updater: (draft: typeof mockViewState) => void) => updater(mockViewState)),
+  activeWorkspaceKey: 'studio',
+  // One workspace: its view is the active view.
+  get workspaceViewStates() {
+    const view = this.viewState;
+    return { get: (key: string) => (key === 'studio' ? view : undefined) };
+  },
+  // One workspace: every layer in the store is one the active view draws.
+  get viewState() {
+    return {
+      layers: mockLayerStoreState.layers.map(
+        (layer) =>
+          mockViewState.layers.find((viewLayer) => viewLayer.id === layer.id) ?? {
+            id: layer.id,
+            opacity: 1,
+          },
+      ),
+    };
+  },
 };
 
 const mockComparisonStoreState = {

@@ -76,6 +76,17 @@ fn main() {
         eprintln!("Warning: {e}");
     }
 
+    // Dataset cards: exporting the roots brings every type they hold.
+    for result in [
+        DatasetMarker::export_all(),
+        DatasetCard::export_all(),
+        SidecarCard::export_all(),
+    ] {
+        if let Err(e) = result {
+            eprintln!("Failed to export a dataset card type: {}", e);
+        }
+    }
+
     if let Err(e) = BidsDatasetSummary::export_all() {
         eprintln!("Warning: {e}");
     }

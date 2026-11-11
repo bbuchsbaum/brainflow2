@@ -1,7 +1,7 @@
 import { useStudioMapSliceKeys } from '@/hooks/useStudioMapSliceKeys';
 import { useStudioInFront, useStudioWorkspaceKey } from '@/hooks/useStudioWorkspace';
 import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
-import { Button, Notice, NumberField, SegmentedControl, Select } from '@/components/ui/bf';
+import { Button, NumberField, SegmentedControl, Select } from '@/components/ui/bf';
 import { inferenceChannelNames, inferenceChannel } from '@/services/studio/inferenceCatalog';
 import { PopulationInferenceControls } from './PopulationInferenceControls';
 import { selectInferenceChannel } from '@/services/studio/populationInference';
@@ -13,6 +13,7 @@ import {
   populationSharesEffectScale,
 } from '@/services/studio/PopulationSliceService';
 import { PopulationColorbar } from './PopulationColorbar';
+import { PopulationIssueNotice } from './PopulationIssueNotice';
 import {
   STUDIO_MIN_VIEW_PX,
   StudioToolbarMore,
@@ -513,8 +514,9 @@ export function PopulationLens({
           and More. */}
       <StudioToolbarPortal>
         <div
-          // One line in the Studio toolbar; on its own (harnesses) it may wrap.
-          className={`flex min-w-0 items-center gap-2 text-bf-sm ${slot ? 'flex-nowrap' : 'flex-wrap'}`}
+          // Beside the lens switcher while it fits; in a narrow column it
+          // takes a row of its own and wraps there, never clipped.
+          className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-x-2 gap-y-1 text-bf-sm"
           aria-label="Population controls"
           title={`Population · ${studio.features[studio.selection.activeFeatureId ?? '']?.label ?? 'Selected feature'}`}
         >
@@ -695,11 +697,7 @@ export function PopulationLens({
             ; selection retained.
           </span>
       )}
-      {issue && (
-        <Notice role="alert" severity="danger">
-          {issue}
-        </Notice>
-      )}
+      {issue && <PopulationIssueNotice issue={issue} />}
       {comparing && (
         <div
           className="flex flex-wrap items-center gap-2 text-bf-sm"

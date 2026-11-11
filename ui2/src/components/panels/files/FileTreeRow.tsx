@@ -1,6 +1,6 @@
 import { getSetStudioService } from '@/services/studio/SetStudioService';
 import { fileExtension } from "@/utils/formatName";
-import React from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { cn } from "@/utils/cn";
 import { Chip, SelectableRow } from "@/components/ui/bf";
 import { useFittedName } from "./shared/useFittedName";
@@ -33,6 +33,18 @@ import type { DragFileData, MountSource } from "@/types/filesystem";
 import type { DisplayOpenIntent } from "@/types/loadIntent";
 import { inferFileType, type FileTypeInfo } from "./shared/inferFileType";
 import { FileTypeBadge } from "./shared/FileTypeBadge";
+import { getDatasetCardService } from "@/services/DatasetCardService";
+import { selectMarker, useDatasetCardStore } from "@/stores/datasetCardStore";
+import { CARD_ROW_PATH_ATTRIBUTE } from "@/components/datasetCard/DatasetCardHost";
+import { DatasetMarkerButton, MarkerSummary } from "./DatasetMarker";
+import {
+  browseRootOf,
+  isSidecarCandidate,
+  useDatasetMarker,
+} from "./datasetMarkerModel";
+
+/** How long the pointer rests on a marked row before its summary shows. */
+const SUMMARY_DELAY_MS = 500;
 
 export interface FileNodeData {
   id: string;
@@ -175,10 +187,23 @@ export function FileTreeItemRow({
   innerRef,
   children,
 }: RowRendererProps<FileNodeData>) {
+  // Read only (the row itself asks for the marker): the treeitem's name is
+  // the file name, so the marker is announced as its description.
+  const marker = useDatasetCardStore(
+    selectMarker(node.data.type === "directory" ? browseRootOf(node) : null, node.data.path),
+  );
+  const markerDescription =
+    marker?.analysisCount != null
+      ? "Contains analyses. Press Space to list them."
+      : marker?.hasDescription
+        ? "Has a dataset description. Press Space to show it."
+        : undefined;
   return (
     <div
       {...attrs}
+      {...{ [CARD_ROW_PATH_ATTRIBUTE]: node.data.path }}
       aria-label={node.data.name}
+      aria-description={markerDescription}
       ref={innerRef}
       onFocus={(e) => e.stopPropagation()}
       onClick={node.handleClick}
@@ -236,6 +261,48 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
       .filter((value): value is string => Boolean(value))
       .join("\n");
 
+  // Dataset marker: asked for because this folder row is rendered, never
+  // because it is hovered. The hover summary reads what the probe returned.
+  const browseRoot = browseRootOf(node);
+  const marker = useDatasetMarker(browseRoot, data.path, isDirectory);
+  const summaryId = useId();
+  const summaryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [summaryAnchor, setSummaryAnchor] = useState<DOMRect | null>(null);
+  // One floating thing at a time: no hover summary while a card is pinned.
+  const cardOpen = useDatasetCardStore((state) => state.card !== null);
+  function hideSummary() {
+    if (summaryTimer.current !== null) clearTimeout(summaryTimer.current);
+    summaryTimer.current = null;
+    setSummaryAnchor((current) => (current === null ? current : null));
+  }
+  function showSummarySoon(element: Element) {
+    if (!marker) return;
+    const row = element.closest(".file-tree-item") ?? element;
+    if (summaryTimer.current !== null) clearTimeout(summaryTimer.current);
+    summaryTimer.current = setTimeout(() => {
+      summaryTimer.current = null;
+      if (row.isConnected) setSummaryAnchor(row.getBoundingClientRect());
+    }, SUMMARY_DELAY_MS);
+  }
+  useEffect(
+    () => () => {
+      if (summaryTimer.current !== null) clearTimeout(summaryTimer.current);
+    },
+    [],
+  );
+  function openDescription(from: Element | null) {
+    hideSummary();
+    fileBrowserStore.selectFile(data.path);
+    getDatasetCardService().openDatasetCard({
+      rootPath: browseRoot,
+      path: data.path,
+      returnFocus: from?.closest<HTMLElement>('[role="treeitem"]') ?? null,
+    });
+  }
+  // A mounted remote root keeps its native tooltip (origin, cache path), so
+  // its summary shows from the marker itself rather than from the whole row.
+  const summaryFromRow = Boolean(marker) && !remoteMountSource;
+
   const typeInfo = inferFileType(data.path, isDirectory, { isFourD });
   const FileIcon = iconForKind(typeInfo, Boolean(node.isOpen));
 
@@ -271,6 +338,15 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
       const clientY = event.clientY;
 
       const dirItems: ContextMenuItem[] = [
+        ...(marker
+          ? [
+              {
+                id: "show-dataset-description",
+                label: marker.analysisCount !== null ? "Show analyses" : "Show description",
+                onClick: () => openDescription(null),
+              },
+            ]
+          : []),
         {
           id: 'open-folder-studio',
           label: 'Open in Set studio…',
@@ -355,6 +431,20 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
           });
         },
       },
+      ...(isSidecarCandidate(data.path)
+        ? [
+            { id: "sep-metadata", label: "", separator: true },
+            {
+              id: "show-metadata",
+              label: "Show metadata",
+              onClick: () =>
+                getDatasetCardService().openSidecarCard({
+                  rootPath: browseRoot,
+                  path: data.path,
+                }),
+            },
+          ]
+        : []),
     ];
 
     contextMenu.open(event.clientX, event.clientY, items);
@@ -392,16 +482,22 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
         isSelected && "selected",
         isDirectory && "font-medium",
       )}
-      title={remoteMountRowTooltip || data.name}
+      title={remoteMountRowTooltip || (marker ? undefined : data.name)}
       data-drag-source={!isDirectory ? "file" : undefined}
       onPointerDown={!isDirectory ? handlePointerDown : undefined}
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
       onMouseEnter={
-        isDirectory && !node.isOpen
-          ? () => useFileBrowserStore.getState().prefetchDirectory(data.path)
+        isDirectory
+          ? (event) => {
+              if (!node.isOpen) useFileBrowserStore.getState().prefetchDirectory(data.path);
+              if (summaryFromRow) showSummarySoon(event.currentTarget);
+            }
           : undefined
       }
+      onMouseLeave={marker ? hideSummary : undefined}
+      onPointerDownCapture={marker ? hideSummary : undefined}
+      onWheel={marker ? hideSummary : undefined}
     >
       {isDirectory ? (
         // Pointer affordance only: the treeitem owns keyboard expansion
@@ -453,7 +549,10 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
 
       {!isDirectory && <FileTypeBadge info={typeInfo} />}
 
-      <div className="file-name" title={remoteMountRowTooltip || data.name}>
+      <div
+        className="file-name"
+        title={remoteMountRowTooltip || (marker ? undefined : data.name)}
+      >
         <span
           ref={fitted.ref}
           aria-hidden
@@ -478,7 +577,33 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
         {data.type === "file" && data.size && (
           <span className="file-size">{formatFileSize(data.size)}</span>
         )}
+        {marker && (
+          <span
+            className="flex"
+            onMouseEnter={
+              summaryFromRow ? undefined : (event) => showSummarySoon(event.currentTarget)
+            }
+          >
+            <DatasetMarkerButton
+              marker={marker}
+              name={data.name}
+              selected={isSelected}
+              describedBy={summaryAnchor && !cardOpen ? summaryId : undefined}
+              onOpen={openDescription}
+            />
+          </span>
+        )}
       </div>
+      {marker && summaryAnchor && !cardOpen && (
+        <MarkerSummary
+          id={summaryId}
+          marker={marker}
+          name={data.name}
+          rootPath={browseRoot}
+          path={data.path}
+          anchor={summaryAnchor}
+        />
+      )}
     </SelectableRow>
   );
 };

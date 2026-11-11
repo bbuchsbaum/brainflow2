@@ -10,7 +10,7 @@ pub use materialize::materialize_compare_panes;
 pub use preview::{
     preview_folder_ontology, preview_folder_ontology_with_discovery_inventory,
     preview_import_candidates, preview_import_candidates_with_discovery_inventory,
-    DiscoveryInventory, DiscoveryInventoryFile, DiscoverySampleHeader,
+    DiscoveryHeaderAudit, DiscoveryInventory, DiscoveryInventoryFile,
     StudioFolderOntologyCandidate, StudioFolderOntologyFactor, StudioFolderOntologyPreviewRequest,
     StudioFolderOntologyRoleGuess, StudioFolderOntologySummary, StudioFolderOntologyWarning,
 };
@@ -409,40 +409,607 @@ mod tests {
         assert!(!preview.contract.can_import);
     }
 
+    /// An inventory that arrives without a header audit says nothing about
+    /// the grid, so the set is never comparable, however complete its files.
     #[test]
-    fn remote_inventory_records_staged_sample_header_provenance() {
+    fn remote_inventory_without_a_header_audit_is_never_compare_ready() {
         let root = "/remote-cache/live-mount";
-        let temp_dir = make_temp_dir("remote-sample-header");
-        let staged_sample = temp_dir.join("sample-tstat.nii.gz");
-        save_test_nifti(&staged_sample, &[1.0, 2.0], [2, 1, 1]);
-
-        let mut inventory = complete_remote_inventory(root);
-        inventory.sample_header = Some(DiscoverySampleHeader {
-            source_path: format!("{}/1001/maps/tstat.nii.gz", root),
-            local_path: staged_sample.clone(),
-            note: format!(
-                "Staged one remote sample header from {}/1001/maps/tstat.nii.gz at {}.",
-                root,
-                staged_sample.display()
-            ),
-        });
-
         let previews = preview_import_candidates_with_discovery_inventory(
             remote_discovery_request(root, true),
-            Some(inventory),
+            Some(complete_remote_inventory(root)),
         );
 
         let preview = &previews[0];
-        assert_eq!(preview.set.alignment_class, StudioAlignmentClass::SameGrid);
-        assert!(preview.set.support_label.contains("sampled"));
-        assert!(preview
+        assert_eq!(preview.set.alignment_class, StudioAlignmentClass::Unknown);
+        assert_eq!(preview.set.support_label, "headers not sampled");
+        assert!(!preview.set.ingest_audit.support.ready_for_compare);
+        assert_ne!(
+            preview.contract.readiness,
+            StudioImportReadiness::CompareReady
+        );
+        support_issue(preview, "did not read image headers");
+    }
+
+    /// Header facts as a remote audit obtains them: parsed from the leading
+    /// bytes of a real gzipped NIfTI file.
+    fn streamed_header(dims: [u16; 3]) -> nifti_loader::HeaderSummary {
+        let dir = make_temp_dir("streamed-header");
+        let path = dir.join("member.nii.gz");
+        let voxels = dims.iter().map(|&d| d as usize).product::<usize>();
+        save_test_nifti(&path, &vec![1.0; voxels], dims);
+        let bytes = fs::read(&path).expect("read fixture bytes");
+        fs::remove_dir_all(dir).expect("cleanup temp dir");
+        nifti_loader::header_summary_from_prefix(&bytes)
+            .expect("parse header prefix")
+            .expect("complete header")
+    }
+
+    /// The inventory of [`complete_remote_inventory`] with a header for every
+    /// file the discovery binds.
+    fn audited_remote_inventory(root: &str) -> DiscoveryInventory {
+        let mut inventory = complete_remote_inventory(root);
+        let header = streamed_header([2, 3, 4]);
+        inventory.header_audit = Some(DiscoveryHeaderAudit {
+            headers: inventory
+                .files
+                .iter()
+                .filter(|file| !file.relative_path.starts_with("notes/"))
+                .map(|file| (file.source_path.clone(), Ok(header.clone())))
+                .collect(),
+            ..DiscoveryHeaderAudit::default()
+        });
+        inventory
+    }
+
+    fn remote_audit_preview(root: &str, inventory: DiscoveryInventory) -> StudioImportCandidate {
+        // The unmatched notes/loose.nii.gz is a join warning of its own, so
+        // these tests exclude it to isolate the support audit.
+        let mut request = remote_discovery_request(root, true);
+        request.discovery_exclude_patterns = Some(vec!["^notes/".to_string()]);
+        preview_import_candidates_with_discovery_inventory(request, Some(inventory)).remove(0)
+    }
+
+    fn support_issue<'a>(
+        preview: &'a StudioImportCandidate,
+        needle: &str,
+    ) -> &'a bridge_types::StudioJoinIssueDetail {
+        preview
             .set
             .ingest_audit
-            .notes
+            .join
+            .issue_details
             .iter()
-            .any(|note| note.contains("Staged one remote sample header")));
+            .find(|issue| issue.message.contains(needle))
+            .unwrap_or_else(|| panic!("no issue mentioning {needle:?}"))
+    }
 
-        fs::remove_dir_all(temp_dir).expect("cleanup temp dir");
+    #[test]
+    fn remote_inventory_with_every_header_on_one_grid_is_compare_ready() {
+        let root = "/remote-cache/live-mount";
+        let preview = remote_audit_preview(root, audited_remote_inventory(root));
+
+        assert_eq!(preview.set.member_count, 2);
+        assert_eq!(preview.set.alignment_class, StudioAlignmentClass::SameGrid);
+        assert!(preview.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(
+            preview.contract.readiness,
+            StudioImportReadiness::CompareReady
+        );
+        assert!(preview
+            .contract
+            .capabilities
+            .contains(&StudioImportCapability::Compare));
+        // No file was downloaded to reach that verdict.
+        assert!(preview
+            .set
+            .member_summaries
+            .iter()
+            .filter_map(|member| member.source_path.as_deref())
+            .all(|path| !Path::new(path).exists()));
+    }
+
+    /// A set audited over a mount and the same files audited on disk must be
+    /// described identically, label included: downstream code reads the label.
+    #[test]
+    fn remote_header_audit_matches_the_local_audit_of_the_same_files() {
+        let local_root = make_temp_dir("remote-local-parity");
+        let mut headers = std::collections::HashMap::new();
+        let mut files = Vec::new();
+        for subject in ["1001", "1002"] {
+            let maps = local_root.join(subject).join("maps");
+            fs::create_dir_all(&maps).expect("create maps dir");
+            for role in ["beta", "tstat", "se", "pvalue"] {
+                let path = maps.join(format!("{role}.nii.gz"));
+                save_test_nifti(&path, &[1.0; 24], [2, 3, 4]);
+                let relative = format!("{subject}/maps/{role}.nii.gz");
+                let file = remote_inventory_file("/remote-cache/live-mount", &relative);
+                let bytes = fs::read(&path).expect("read fixture bytes");
+                headers.insert(
+                    file.source_path.clone(),
+                    Ok(nifti_loader::header_summary_from_prefix(&bytes)
+                        .expect("parse header prefix")
+                        .expect("complete header")),
+                );
+                files.push(file);
+            }
+        }
+        let local = preview_import_candidates(remote_discovery_request(
+            &local_root.to_string_lossy(),
+            true,
+        ))
+        .remove(0);
+        let remote = preview_import_candidates_with_discovery_inventory(
+            remote_discovery_request("/remote-cache/live-mount", true),
+            Some(DiscoveryInventory {
+                root_exists: true,
+                files,
+                header_audit: Some(DiscoveryHeaderAudit {
+                    headers,
+                    ..DiscoveryHeaderAudit::default()
+                }),
+                ..DiscoveryInventory::default()
+            }),
+        )
+        .remove(0);
+
+        assert!(local.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(
+            local.set.support_label,
+            "2×3×4 voxels · 1.00×1.00×1.00 mm (sampled)"
+        );
+        assert_eq!(remote.set.support_label, local.set.support_label);
+        assert_eq!(remote.set.alignment_class, local.set.alignment_class);
+        assert_eq!(
+            remote.set.ingest_audit.support.ready_for_compare,
+            local.set.ingest_audit.support.ready_for_compare
+        );
+        assert_eq!(remote.contract.readiness, local.contract.readiness);
+        assert_eq!(remote.contract.capabilities, local.contract.capabilities);
+        fs::remove_dir_all(local_root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn remote_inventory_with_one_differing_grid_names_the_member_and_is_not_ready() {
+        let root = "/remote-cache/live-mount";
+        let mut inventory = audited_remote_inventory(root);
+        inventory.header_audit.as_mut().unwrap().headers.insert(
+            format!("{root}/1002/maps/se.nii.gz"),
+            Ok(streamed_header([2, 3, 5])),
+        );
+        let preview = remote_audit_preview(root, inventory);
+
+        assert_eq!(preview.set.alignment_class, StudioAlignmentClass::Mixed);
+        assert_eq!(preview.set.support_label, "mixed volume grids (sampled)");
+        assert!(!preview.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(
+            preview.set.ingest_audit.support.severity,
+            StudioAuditSeverity::Error
+        );
+        assert_eq!(
+            preview.contract.readiness,
+            StudioImportReadiness::InspectOnly
+        );
+        let issue = support_issue(&preview, "different grid");
+        assert_eq!(issue.member_ids, vec!["1002".to_string()]);
+        assert!(
+            issue.message.contains("dimensions or voxel size differ"),
+            "{}",
+            issue.message
+        );
+    }
+
+    /// The audited inventory with one member file's affine replaced.
+    fn remote_preview_with_affine(
+        relative_path: &str,
+        edit: impl FnOnce(&mut nifti_loader::VoxelToWorld),
+    ) -> StudioImportCandidate {
+        let root = "/remote-cache/live-mount";
+        let mut inventory = audited_remote_inventory(root);
+        let mut header = streamed_header([2, 3, 4]);
+        edit(&mut header.affine);
+        inventory
+            .header_audit
+            .as_mut()
+            .unwrap()
+            .headers
+            .insert(format!("{root}/{relative_path}"), Ok(header));
+        remote_audit_preview(root, inventory)
+    }
+
+    fn assert_mixed_by_placement(preview: &StudioImportCandidate, member: &str) {
+        assert_eq!(preview.set.alignment_class, StudioAlignmentClass::Mixed);
+        assert_eq!(preview.set.support_label, "mixed volume grids (sampled)");
+        assert!(!preview.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(
+            preview.set.ingest_audit.support.severity,
+            StudioAuditSeverity::Error
+        );
+        assert_eq!(
+            preview.contract.readiness,
+            StudioImportReadiness::InspectOnly
+        );
+        let issue = support_issue(preview, "different grid");
+        assert_eq!(issue.member_ids, vec![member.to_string()]);
+        assert!(
+            issue.message.contains("position or orientation"),
+            "{}",
+            issue.message
+        );
+        assert!(
+            !issue.message.contains("voxel size differ"),
+            "{}",
+            issue.message
+        );
+    }
+
+    /// Subject-native maps: one matrix and voxel size, each in its own place.
+    /// Population refuses them, so the audit must not call them one grid.
+    #[test]
+    fn same_shape_at_a_shifted_origin_is_a_mixed_grid() {
+        let preview = remote_preview_with_affine("1002/maps/se.nii.gz", |affine| {
+            affine[(0, 3)] += 4.0;
+        });
+        assert_mixed_by_placement(&preview, "1002");
+    }
+
+    #[test]
+    fn same_shape_in_a_rotated_or_flipped_orientation_is_a_mixed_grid() {
+        // Left-right flip of the first axis.
+        let flipped = remote_preview_with_affine("1001/maps/tstat.nii.gz", |affine| {
+            affine[(0, 0)] = -affine[(0, 0)];
+        });
+        assert_mixed_by_placement(&flipped, "1001");
+        // First two axes exchanged (a 90° in-plane rotation up to sign).
+        let rotated = remote_preview_with_affine("1002/maps/beta.nii.gz", |affine| {
+            affine.swap_columns(0, 1);
+        });
+        assert_mixed_by_placement(&rotated, "1002");
+    }
+
+    /// The audit's tolerance is Population's: `nifti_loader::affines_match`.
+    #[test]
+    fn affines_within_the_grid_tolerance_are_one_grid_and_just_outside_are_not() {
+        let inside = remote_preview_with_affine("1002/maps/se.nii.gz", |affine| {
+            affine[(1, 3)] += 0.9e-5;
+            affine[(2, 0)] -= 0.9e-5;
+        });
+        assert_eq!(inside.set.alignment_class, StudioAlignmentClass::SameGrid);
+        assert!(inside.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(
+            inside.contract.readiness,
+            StudioImportReadiness::CompareReady
+        );
+
+        let outside = remote_preview_with_affine("1002/maps/se.nii.gz", |affine| {
+            affine[(2, 0)] += 1.2e-5;
+        });
+        assert_mixed_by_placement(&outside, "1002");
+    }
+
+    /// The origin has its own tolerance (`GRID_ORIGIN_TOLERANCE_MM`): one f32
+    /// step at an MNI origin exceeds 1e-5 and is still the same grid.
+    #[test]
+    fn origins_within_a_micrometre_are_one_grid_and_just_outside_are_not() {
+        // The control: one file at -132 among files at 0 is a real mismatch.
+        let control = remote_preview_with_affine("1002/maps/se.nii.gz", |affine| {
+            affine[(1, 3)] = -132.0;
+        });
+        assert_mixed_by_placement(&control, "1002");
+
+        let root = "/remote-cache/live-mount";
+        let preview_with_origins = |origin: f32, other: f32| {
+            let mut inventory = audited_remote_inventory(root);
+            let headers = &mut inventory.header_audit.as_mut().unwrap().headers;
+            for (path, header) in headers.iter_mut() {
+                let header = header.as_mut().expect("audited header");
+                header.affine[(1, 3)] = if path.ends_with("1002/maps/se.nii.gz") {
+                    other
+                } else {
+                    origin
+                };
+            }
+            remote_audit_preview(root, inventory)
+        };
+        let step = f32::from_bits((-132.0f32).to_bits() + 1);
+        assert!((step - -132.0f32).abs() > 1e-5);
+        let same = preview_with_origins(-132.0, step);
+        assert_eq!(same.set.alignment_class, StudioAlignmentClass::SameGrid);
+        assert!(same.set.ingest_audit.support.ready_for_compare);
+
+        let apart = preview_with_origins(-132.0, -132.0 + 1.2e-3);
+        assert_mixed_by_placement(&apart, "1002");
+    }
+
+    /// Shape and placement mismatches are reported separately, each naming
+    /// its own members.
+    #[test]
+    fn shape_and_placement_mismatches_are_reported_apart() {
+        let root = "/remote-cache/live-mount";
+        let mut inventory = audited_remote_inventory(root);
+        let mut shifted = streamed_header([2, 3, 4]);
+        shifted.affine[(2, 3)] = -30.0;
+        let headers = &mut inventory.header_audit.as_mut().unwrap().headers;
+        // The reference is the first bound file, which belongs to 1001.
+        headers.insert(format!("{root}/1002/maps/se.nii.gz"), Ok(shifted));
+        headers.insert(
+            format!("{root}/1002/maps/beta.nii.gz"),
+            Ok(streamed_header([2, 3, 5])),
+        );
+        let preview = remote_audit_preview(root, inventory);
+
+        assert_eq!(preview.set.alignment_class, StudioAlignmentClass::Mixed);
+        let shape = support_issue(&preview, "dimensions or voxel size differ");
+        assert_eq!(shape.member_ids, vec!["1002".to_string()]);
+        let placement = support_issue(&preview, "position or orientation");
+        assert_eq!(placement.member_ids, vec!["1002".to_string()]);
+        assert_ne!(shape.message, placement.message);
+    }
+
+    fn local_origin_discovery(label: &str, origins: [f32; 2]) -> (PathBuf, StudioImportCandidate) {
+        let root = make_temp_dir(label);
+        for (subject, origin) in ["1001", "1002"].iter().zip(origins) {
+            let maps = root.join(subject).join("maps");
+            fs::create_dir_all(&maps).expect("create maps dir");
+            for role in ["beta", "tstat", "se", "pvalue"] {
+                save_test_nifti_at_origin(
+                    &maps.join(format!("{role}.nii.gz")),
+                    &[1.0; 24],
+                    [2, 3, 4],
+                    origin,
+                );
+            }
+        }
+        let preview =
+            preview_import_candidates(remote_discovery_request(&root.to_string_lossy(), true))
+                .remove(0);
+        (root, preview)
+    }
+
+    /// The local audit reads the same affine from files on disk.
+    #[test]
+    fn local_folder_with_a_shifted_member_is_a_mixed_grid() {
+        let (root, shifted) = local_origin_discovery("local-shifted-origin", [0.0, 6.0]);
+        assert_mixed_by_placement(&shifted, "1002");
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+
+        let (root, aligned) = local_origin_discovery("local-shared-origin", [6.0, 6.0]);
+        assert_eq!(aligned.set.alignment_class, StudioAlignmentClass::SameGrid);
+        assert!(aligned.set.ingest_audit.support.ready_for_compare);
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    /// The local audit reads headers only, as the remote one does. A member
+    /// whose image data is cut short therefore audits the same both ways: its
+    /// header is intact, so the set is one grid and compare-ready, and the
+    /// damage surfaces when that member is loaded.
+    #[test]
+    fn truncated_payload_audits_alike_locally_and_remotely() {
+        let local_root = make_temp_dir("truncated-payload");
+        let remote_root = "/remote-cache/live-mount";
+        let mut headers = std::collections::HashMap::new();
+        let mut files = Vec::new();
+        for subject in ["1001", "1002"] {
+            let maps = local_root.join(subject).join("maps");
+            fs::create_dir_all(&maps).expect("create maps dir");
+            for role in ["beta", "tstat", "se", "pvalue"] {
+                let path = maps.join(format!("{role}.nii"));
+                save_test_nifti(&path, &vec![1.0; 6000], [10, 20, 30]);
+                if (subject, role) == ("1002", "se") {
+                    let whole = fs::read(&path).expect("read fixture bytes");
+                    assert_eq!(whole.len(), 352 + 4 * 6000);
+                    fs::write(&path, &whole[..352 + 100]).expect("truncate payload");
+                    assert!(nifti_loader::load_nifti_volume_auto(&path).is_err());
+                }
+                let bytes = fs::read(&path).expect("read fixture bytes");
+                let file =
+                    remote_inventory_file(remote_root, &format!("{subject}/maps/{role}.nii"));
+                headers.insert(
+                    file.source_path.clone(),
+                    Ok(nifti_loader::header_summary_from_prefix(&bytes)
+                        .expect("parse header prefix")
+                        .expect("complete header")),
+                );
+                files.push(file);
+            }
+        }
+        let local = preview_import_candidates(remote_discovery_request(
+            &local_root.to_string_lossy(),
+            true,
+        ))
+        .remove(0);
+        let remote = preview_import_candidates_with_discovery_inventory(
+            remote_discovery_request(remote_root, true),
+            Some(DiscoveryInventory {
+                root_exists: true,
+                files,
+                header_audit: Some(DiscoveryHeaderAudit {
+                    headers,
+                    ..DiscoveryHeaderAudit::default()
+                }),
+                ..DiscoveryInventory::default()
+            }),
+        )
+        .remove(0);
+
+        assert_eq!(local.set.alignment_class, StudioAlignmentClass::SameGrid);
+        assert!(local.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(
+            local.set.support_label,
+            "10×20×30 voxels · 1.00×1.00×1.00 mm (sampled)"
+        );
+        assert_eq!(remote.set.support_label, local.set.support_label);
+        assert_eq!(remote.set.alignment_class, local.set.alignment_class);
+        assert_eq!(
+            remote.set.ingest_audit.support.ready_for_compare,
+            local.set.ingest_audit.support.ready_for_compare
+        );
+        assert_eq!(remote.contract.readiness, local.contract.readiness);
+        fs::remove_dir_all(local_root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn remote_inventory_with_an_unreadable_header_is_not_ready() {
+        let root = "/remote-cache/live-mount";
+        let mut inventory = audited_remote_inventory(root);
+        let unreadable = format!("{root}/1001/maps/pvalue.nii.gz");
+        inventory.header_audit.as_mut().unwrap().headers.insert(
+            unreadable.clone(),
+            Err(format!("{unreadable}: File has no complete NIfTI header")),
+        );
+        let preview = remote_audit_preview(root, inventory);
+
+        assert!(!preview.set.ingest_audit.support.ready_for_compare);
+        // The headers that were read agree: the set is unchecked, not mixed.
+        assert_eq!(preview.set.alignment_class, StudioAlignmentClass::Unknown);
+        assert_eq!(preview.set.support_label, "header audit incomplete");
+        assert_eq!(
+            preview.set.ingest_audit.support.severity,
+            StudioAuditSeverity::Error
+        );
+        assert_ne!(
+            preview.contract.readiness,
+            StudioImportReadiness::CompareReady
+        );
+        let issue = support_issue(&preview, "could not be read");
+        assert_eq!(issue.member_ids, vec!["1001".to_string()]);
+        assert!(issue.message.contains(&unreadable));
+        assert!(issue.message.starts_with("1 matched image header(s)"));
+    }
+
+    /// A real mismatch among the headers that were read stays mixed, whatever
+    /// else could not be read.
+    #[test]
+    fn remote_inventory_with_an_unreadable_header_and_a_differing_grid_is_mixed() {
+        let root = "/remote-cache/live-mount";
+        let mut inventory = audited_remote_inventory(root);
+        let headers = &mut inventory.header_audit.as_mut().unwrap().headers;
+        headers.insert(
+            format!("{root}/1001/maps/pvalue.nii.gz"),
+            Err("no complete NIfTI header".to_string()),
+        );
+        headers.insert(
+            format!("{root}/1002/maps/se.nii.gz"),
+            Ok(streamed_header([2, 3, 5])),
+        );
+        let preview = remote_audit_preview(root, inventory);
+
+        assert_eq!(preview.set.alignment_class, StudioAlignmentClass::Mixed);
+        assert_eq!(
+            preview.set.ingest_audit.support.severity,
+            StudioAuditSeverity::Error
+        );
+        support_issue(&preview, "could not be read");
+        support_issue(&preview, "different grid");
+    }
+
+    /// No header could be read at all: nothing is known about the grids.
+    #[test]
+    fn remote_inventory_with_no_readable_header_is_unchecked_not_mixed() {
+        let root = "/remote-cache/live-mount";
+        let mut inventory = audited_remote_inventory(root);
+        let headers = &mut inventory.header_audit.as_mut().unwrap().headers;
+        let count = headers.len();
+        for header in headers.values_mut() {
+            *header = Err("connection reset".to_string());
+        }
+        let preview = remote_audit_preview(root, inventory);
+
+        assert_eq!(preview.set.alignment_class, StudioAlignmentClass::Unknown);
+        assert_eq!(
+            preview.set.support_label,
+            "sample headers could not be read"
+        );
+        assert!(!preview.set.ingest_audit.support.ready_for_compare);
+        let issue = support_issue(&preview, "could not be read");
+        assert!(
+            issue
+                .message
+                .starts_with(&format!("{count} matched image header(s)")),
+            "{}",
+            issue.message
+        );
+    }
+
+    #[test]
+    fn remote_inventory_with_a_4d_member_is_not_ready() {
+        let root = "/remote-cache/live-mount";
+        let mut inventory = audited_remote_inventory(root);
+        let mut series = streamed_header([2, 3, 4]);
+        series.dim.push(10);
+        series.pixdim.push(2.0);
+        inventory
+            .header_audit
+            .as_mut()
+            .unwrap()
+            .headers
+            .insert(format!("{root}/1002/maps/beta.nii.gz"), Ok(series));
+        let preview = remote_audit_preview(root, inventory);
+
+        assert!(!preview.set.ingest_audit.support.ready_for_compare);
+        let issue = support_issue(&preview, "could not be read");
+        // Named by the path under the chosen folder, not the cache location.
+        assert!(
+            issue
+                .message
+                .contains("first error: 1002/maps/beta.nii.gz is a 4D series"),
+            "{}",
+            issue.message
+        );
+        assert!(!issue.message.contains(root), "{}", issue.message);
+        assert_eq!(issue.member_ids, vec!["1002".to_string()]);
+    }
+
+    #[test]
+    fn remote_inventory_with_a_partial_header_audit_is_not_ready() {
+        let root = "/remote-cache/live-mount";
+        let mut inventory = audited_remote_inventory(root);
+        let audit = inventory.header_audit.as_mut().unwrap();
+        audit
+            .headers
+            .remove(&format!("{root}/1002/maps/tstat.nii.gz"));
+        audit.headers.remove(&format!("{root}/1002/maps/se.nii.gz"));
+        let preview = remote_audit_preview(root, inventory);
+
+        // Every header that was read agrees, and that is still not enough.
+        assert!(!preview.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(preview.set.alignment_class, StudioAlignmentClass::Unknown);
+        assert_eq!(preview.set.support_label, "header audit incomplete");
+        assert_eq!(
+            preview.set.ingest_audit.support.severity,
+            StudioAuditSeverity::Warning
+        );
+        assert_eq!(
+            preview.contract.readiness,
+            StudioImportReadiness::ReviewRequired
+        );
+        let issue = support_issue(&preview, "were not read");
+        assert!(issue.message.starts_with("2 matched image header(s)"));
+        assert_eq!(issue.member_ids, vec!["1002".to_string()]);
+    }
+
+    #[test]
+    fn remote_inventory_whose_header_audit_failed_is_not_ready() {
+        let root = "/remote-cache/live-mount";
+        let mut inventory = audited_remote_inventory(root);
+        inventory.header_audit.as_mut().unwrap().failure =
+            Some("Remote mount changed while image headers were being read.".to_string());
+        let preview = remote_audit_preview(root, inventory);
+
+        // The per-file results came from a mount that is gone; none is trusted.
+        assert!(!preview.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(preview.set.alignment_class, StudioAlignmentClass::Unknown);
+        assert_eq!(preview.set.support_label, "header audit incomplete");
+        support_issue(&preview, "Remote mount changed");
+    }
+
+    #[test]
+    fn remote_inventory_truncation_blocks_readiness_despite_a_clean_header_audit() {
+        let root = "/remote-cache/live-mount";
+        let mut inventory = audited_remote_inventory(root);
+        inventory.truncated = true;
+        let preview = remote_audit_preview(root, inventory);
+        assert_eq!(preview.set.alignment_class, StudioAlignmentClass::SameGrid);
+        assert!(!preview.set.ingest_audit.support.ready_for_compare);
     }
 
     #[test]

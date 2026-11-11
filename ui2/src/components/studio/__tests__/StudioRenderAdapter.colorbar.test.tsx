@@ -14,11 +14,23 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 vi.mock('@/components/views/FlexibleSlicePanel', () => ({
   FlexibleSlicePanel: ({ viewId }: { viewId: string }) => {
     const bar = useOverlayColorbar();
-    const { group } = useColorbarGroup();
-    return <div data-testid={`probe-${viewId}`} data-layer={bar?.layerId ?? ''} data-group={group} />;
+    const { group, offImage } = useColorbarGroup();
+    return (
+      <div
+        data-testid={`probe-${viewId}`}
+        data-layer={bar?.layerId ?? ''}
+        data-group={group}
+        data-off-image={String(Boolean(offImage))}
+      />
+    );
   },
 }));
-vi.mock('@/components/views/OrthogonalViewContainer', () => ({ OrthogonalViewContainer: () => null }));
+vi.mock('@/components/views/OrthogonalViewContainer', () => ({
+  OrthogonalViewContainer: () => {
+    const { offImage } = useColorbarGroup();
+    return <div data-testid="probe-ortho" data-off-image={String(Boolean(offImage))} />;
+  },
+}));
 vi.mock('@/components/views/SurfaceViewPanelLazy', () => ({ SurfaceViewPanel: () => null }));
 vi.mock('@/hooks/useStudioMemberRenderScope', () => ({ useStudioMemberRenderScope: () => {} }));
 
@@ -66,4 +78,15 @@ it('the Deck (no describeBase) keeps the usual rule, still apart from the main v
   const probe = screen.getByTestId('probe-axial');
   expect(probe.dataset.layer).toBe('other');
   expect(probe.dataset.group).not.toBe('main');
+});
+
+it('the Deck and pane A (one large plane) keep the colour legend off the image; the three-plane view does not ask', () => {
+  const { unmount } = render(<StudioRenderAdapter supportKind="volume" title="" subtitle="" hideChrome plane="axial" memberSourcePath="/m/s01.nii" />);
+  expect(screen.getByTestId('probe-axial').dataset.offImage).toBe('true');
+  unmount();
+  render(<StudioRenderAdapter supportKind="volume" title="" subtitle="" hideChrome plane="coronal" memberSourcePath="/m/s01.nii" describeBase compactColorbar />);
+  expect(screen.getByTestId('probe-coronal').dataset.offImage).toBe('true');
+  cleanup();
+  render(<StudioRenderAdapter supportKind="volume" title="" subtitle="" hideChrome memberSourcePath="/m/s01.nii" />);
+  expect(screen.getByTestId('probe-ortho').dataset.offImage).toBe('false');
 });

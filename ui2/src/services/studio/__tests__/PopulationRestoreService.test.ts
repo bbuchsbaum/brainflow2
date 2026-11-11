@@ -645,3 +645,44 @@ it('restores a v2 similarity order, partition and fit with unassigned members', 
     expect(refused.set.savedPopulation?.notices.join(' ')).toMatch(/order could not be verified/);
   }
 });
+it('reopens a saved calculation on the anatomy it was saved with, and on none without one', () => {
+  const view = {
+    crosshairMm: [0, 0, 0] as [number, number, number],
+    orientation: 'axial' as const,
+    dimPx: [1, 1] as [number, number],
+    zoom: 1,
+    summary: 'mean' as const,
+  };
+  const saved = opened();
+  saved.calculation.underlay = { sourcePath: 'template:MNI152NLin2009cAsym_T1w_1mm' };
+  const payload = preparePopulationRestore(saved, 'workspace', 2);
+  expect(payload.background).toBe('template:MNI152NLin2009cAsym_T1w_1mm');
+  useSetStudioStore.getState().bootstrapStudio(payload);
+  let state = useSetStudioStore.getState();
+  expect(state.studioBackground).toEqual({
+    setId: payload.set.id,
+    sourcePath: 'template:MNI152NLin2009cAsym_T1w_1mm',
+  });
+  // The restored grid declares no space; the saved choice still applies.
+  let built = buildPopulationSliceQuery(state, 'workspace', view).query!;
+  expect(built.request.underlay).toEqual({ sourcePath: 'template:MNI152NLin2009cAsym_T1w_1mm' });
+  expect(built.underlayIssue).toBeNull();
+
+  // "None" chosen afterwards wins: no anatomy is requested, and none is reported missing.
+  state.setStudioBackground(null);
+  state = useSetStudioStore.getState();
+  built = buildPopulationSliceQuery(state, 'workspace', view).query!;
+  expect(built.request.underlay).toBeUndefined();
+  expect(built.underlayIssue).toBeNull();
+
+  // A record without anatomy, or with something that is not a template, has none.
+  const plain = preparePopulationRestore(opened(), 'workspace', 3);
+  expect('background' in plain).toBe(false);
+  const odd = opened();
+  odd.calculation.underlay = { sourcePath: '/somewhere/anat.nii.gz' };
+  expect('background' in preparePopulationRestore(odd, 'workspace', 4)).toBe(false);
+  useSetStudioStore.getState().bootstrapStudio(plain);
+  built = buildPopulationSliceQuery(useSetStudioStore.getState(), 'workspace', view).query!;
+  expect(built.request.underlay).toBeUndefined();
+  expect(built.underlayIssue).toBe('space not declared');
+});

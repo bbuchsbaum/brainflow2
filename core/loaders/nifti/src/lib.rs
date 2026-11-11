@@ -472,18 +472,23 @@ pub fn load_nifti_auto_dimension(path: &Path) -> Result<VolumeSendable, NiftiErr
 /// file cannot be read.
 pub fn read_storage_info(path: &Path) -> Option<bridge_types::NiftiStorageInfo> {
     let header = nifti::NiftiHeader::from_file(path).ok()?;
-    let datatype = match header.data_type() {
-        Ok(kind) => format!("{kind:?}").to_lowercase(),
-        Err(_) => format!("code {}", header.datatype),
-    };
     Some(bridge_types::NiftiStorageInfo {
-        datatype,
+        datatype: storage_type_name(&header),
         bitpix: header.bitpix,
         scl_slope: header.scl_slope,
         scl_inter: header.scl_inter,
         cal_min: header.cal_min,
         cal_max: header.cal_max,
     })
+}
+
+/// The header's storage type as the UI names it: `int16`, `float32`, or
+/// `code N` for a code this reader does not know.
+fn storage_type_name(header: &nifti::NiftiHeader) -> String {
+    match header.data_type() {
+        Ok(kind) => format!("{kind:?}").to_lowercase(),
+        Err(_) => format!("code {}", header.datatype),
+    }
 }
 
 /// Read the NIfTI sform/qform transform codes from a file header.
@@ -557,8 +562,107 @@ fn temporal_metadata_from_header(header: &nifti::NiftiHeader) -> TemporalMetadat
     }
 }
 
-/// Header facts the BIDS browser reports per run. `dim` and `pixdim` hold the
-/// used dimensions, without the rank entry and `qfac`.
+/// The spatial voxel→world affine of a volume: always the 3D 4×4, also for a
+/// 4D file (whose neuroim space carries a 5×5 with the origin in the last
+/// column).
+pub type VoxelToWorld = nalgebra::Matrix4<f32>;
+
+/// Largest difference in an element of the 3×3 block (voxel axes: direction
+/// times voxel size) at which two voxel→world affines still describe one grid.
+/// Population sampling and the Set studio grid audit both decide through
+/// [`affines_match`], so a set the audit calls one grid is a set Population
+/// accepts.
+pub const GRID_AFFINE_TOLERANCE: f32 = 1e-5;
+
+/// Largest difference, in mm, in an element of the translation column at which
+/// two voxel→world affines still describe one grid. It is looser than
+/// [`GRID_AFFINE_TOLERANCE`] because an origin is tens to hundreds of mm from
+/// zero: one f32 step at 128 mm is already 1.5e-5, so two tools writing the
+/// same grid (an MNI y origin of -132, say) can differ by more than 1e-5.
+/// A micrometre is far below anything a voxel grid resolves.
+pub const GRID_ORIGIN_TOLERANCE_MM: f32 = 1e-3;
+
+/// Whether two voxel→world affines describe the same placement of a grid:
+/// every element of the 3×3 block within [`GRID_AFFINE_TOLERANCE`], every
+/// element of the translation column within [`GRID_ORIGIN_TOLERANCE_MM`], and
+/// the bottom row within [`GRID_AFFINE_TOLERANCE`] (all absolute). A
+/// non-finite element never matches.
+pub fn affines_match(a: &VoxelToWorld, b: &VoxelToWorld) -> bool {
+    (0..4).all(|row| {
+        (0..4).all(|column| {
+            let tolerance = if column == 3 && row < 3 {
+                GRID_ORIGIN_TOLERANCE_MM
+            } else {
+                GRID_AFFINE_TOLERANCE
+            };
+            (a[(row, column)] - b[(row, column)]).abs() <= tolerance
+        })
+    })
+}
+
+/// The voxel→world affine a loaded volume gets from this header.
+///
+/// The loader takes its affine from the `NeuroSpace` neuroim builds while
+/// decoding, and neuroim's header-to-transform step
+/// (`neuroim::io::get_transform_matrix`, at the pinned revision) is private
+/// and only reachable by decoding a payload. This mirrors it step for step, in
+/// the same f64 arithmetic, so a header-only read reports the affine a full
+/// load would: the sform rows when `sform_code > 0` and they are not all zero,
+/// else the qform quaternion when `qform_code > 0`, else `pixdim` on the
+/// diagonal with a zero origin. `header_affine_matches_the_loaded_volume`
+/// loads real files to hold the two together; update both if neuroim changes.
+pub fn voxel_to_world(header: &nifti::NiftiHeader) -> VoxelToWorld {
+    use nalgebra::Matrix4;
+    let rows = [header.srow_x, header.srow_y, header.srow_z];
+    let srow_sum: f32 = rows.iter().flatten().map(|value| value.abs()).sum();
+    if header.sform_code > 0 && srow_sum > 0.0 {
+        let mut matrix = Matrix4::<f64>::identity();
+        for (row, values) in rows.iter().enumerate() {
+            for (column, &value) in values.iter().enumerate() {
+                matrix[(row, column)] = value as f64;
+            }
+        }
+        return matrix.cast::<f32>();
+    }
+
+    let [i, j, k] = [
+        header.pixdim[1] as f64,
+        header.pixdim[2] as f64,
+        header.pixdim[3] as f64,
+    ];
+    if header.qform_code > 0 {
+        let b = header.quatern_b as f64;
+        let c = header.quatern_c as f64;
+        let d = header.quatern_d as f64;
+        let a = (1.0 - b * b - c * c - d * d).max(0.0).sqrt();
+        let r11 = a * a + b * b - c * c - d * d;
+        let r12 = 2.0 * b * c - 2.0 * a * d;
+        let r13 = 2.0 * b * d + 2.0 * a * c;
+        let r21 = 2.0 * b * c + 2.0 * a * d;
+        let r22 = a * a + c * c - b * b - d * d;
+        let r23 = 2.0 * c * d - 2.0 * a * b;
+        let r31 = 2.0 * b * d - 2.0 * a * c;
+        let r32 = 2.0 * c * d + 2.0 * a * b;
+        let r33 = a * a + d * d - b * b - c * c;
+        // `qfac` (pixdim[0]) carries the handedness of the third axis.
+        let qfac = if header.pixdim[0] < 0.0 { -1.0 } else { 1.0 };
+        #[rustfmt::skip]
+        let matrix = Matrix4::<f64>::new(
+            i * r11, j * r12, k * qfac * r13, header.quatern_x as f64,
+            i * r21, j * r22, k * qfac * r23, header.quatern_y as f64,
+            i * r31, j * r32, k * qfac * r33, header.quatern_z as f64,
+            0.0, 0.0, 0.0, 1.0,
+        );
+        return matrix.cast::<f32>();
+    }
+
+    Matrix4::<f64>::from_diagonal(&nalgebra::Vector4::new(i, j, k, 1.0)).cast::<f32>()
+}
+
+/// Header facts the BIDS browser and the Set studio grid audit read per file.
+/// `dim` and `pixdim` hold the used dimensions, without the rank entry and
+/// `qfac`. `affine` is what [`voxel_to_world`] derives; it is not part of any
+/// bridge type.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HeaderSummary {
     pub dim: Vec<u32>,
@@ -567,14 +671,44 @@ pub struct HeaderSummary {
     pub sform_code: i16,
     pub tr_seconds: Option<f32>,
     pub n_volumes: Option<u32>,
+    pub affine: VoxelToWorld,
+    /// On-disk storage type, named as [`read_storage_info`] names it
+    /// (`int16`, `float32`, or `code N` for one this reader does not know).
+    pub datatype: String,
 }
+
+/// Compressed bytes of a local file read before giving up on its header, the
+/// bound a remote header read uses.
+const MAX_LOCAL_HEADER_PREFIX: usize = 1 << 20;
 
 /// Header-only summary of a NIfTI file. Files this nifti version cannot parse,
 /// NIfTI-2 included, return an error so a dataset scan can carry on.
+///
+/// Only the start of the file is read, and it goes through
+/// [`header_summary_from_prefix`], the parser a remote header read uses: the
+/// same bytes give the same answer wherever they are read, gzip is recognised
+/// by its magic bytes rather than the file name, and the payload is never
+/// touched (so a truncated payload is not noticed here).
 pub fn read_header_summary(path: &Path) -> Result<HeaderSummary, NiftiError> {
-    let header = nifti::NiftiHeader::from_file(path)
-        .map_err(|e| NiftiError::ScalingError(format!("Failed to read NIfTI header: {e}")))?;
-    Ok(header_summary(&header))
+    use std::io::Read;
+    let failed =
+        |e: std::io::Error| NiftiError::ScalingError(format!("Failed to read NIfTI header: {e}"));
+    let mut file = std::fs::File::open(path).map_err(failed)?;
+    let mut prefix = Vec::new();
+    let mut chunk = vec![0u8; 16 * 1024];
+    while prefix.len() < MAX_LOCAL_HEADER_PREFIX {
+        let read = file.read(&mut chunk).map_err(failed)?;
+        if read == 0 {
+            break;
+        }
+        prefix.extend_from_slice(&chunk[..read]);
+        if let Some(summary) = header_summary_from_prefix(&prefix)? {
+            return Ok(summary);
+        }
+    }
+    Err(NiftiError::ScalingError(
+        "Failed to read NIfTI header: file has no complete NIfTI header".to_string(),
+    ))
 }
 
 /// Size of a NIfTI-1 header, the bytes a summary needs.
@@ -606,10 +740,18 @@ pub fn header_summary_from_prefix(prefix: &[u8]) -> Result<Option<HeaderSummary>
     Ok(Some(header_summary(&header)))
 }
 
-fn header_summary(header: &nifti::NiftiHeader) -> HeaderSummary {
+/// Summary of an already parsed header. Every reader of header facts (a local
+/// file, a streamed remote prefix) reduces to this, so they cannot disagree.
+pub fn header_summary(header: &nifti::NiftiHeader) -> HeaderSummary {
     let rank = (header.dim[0] as usize).clamp(1, 7);
-    let dim: Vec<u32> = header.dim[1..=rank].iter().map(|&d| d as u32).collect();
-    let n_volumes = (rank >= 4).then(|| dim[3..].iter().map(|&d| d.max(1)).product());
+    let dim: Vec<u32> = header.dim[1..=rank].iter().map(|&d| u32::from(d)).collect();
+    // Four trailing dims of up to 65535 each overflow a u32 product (a debug
+    // panic on a hostile or corrupt header): saturate instead.
+    let n_volumes = (rank >= 4).then(|| {
+        dim[3..]
+            .iter()
+            .fold(1u32, |volumes, &d| volumes.saturating_mul(d.max(1)))
+    });
     HeaderSummary {
         dim,
         pixdim: header.pixdim[1..=rank].to_vec(),
@@ -617,6 +759,8 @@ fn header_summary(header: &nifti::NiftiHeader) -> HeaderSummary {
         sform_code: header.sform_code,
         tr_seconds: temporal_metadata_from_header(header).tr_seconds,
         n_volumes,
+        affine: voxel_to_world(header),
+        datatype: storage_type_name(header),
     }
 }
 
@@ -1062,6 +1206,382 @@ mod tests {
         let mut nifti2 = 540i32.to_le_bytes().to_vec();
         nifti2.resize(NIFTI1_HEADER_BYTES, 0);
         assert!(header_summary_from_prefix(&nifti2).is_err());
+    }
+
+    fn plain_header(dims: [i16; 3], voxel: [f32; 3]) -> [u8; NIFTI1_HEADER_BYTES] {
+        let mut plain = [0u8; NIFTI1_HEADER_BYTES];
+        plain[..4].copy_from_slice(&348i32.to_le_bytes());
+        for (i, dim) in [3i16, dims[0], dims[1], dims[2]].iter().enumerate() {
+            plain[40 + 2 * i..42 + 2 * i].copy_from_slice(&dim.to_le_bytes());
+        }
+        for (i, size) in voxel.iter().enumerate() {
+            plain[80 + 4 * i..84 + 4 * i].copy_from_slice(&size.to_le_bytes());
+        }
+        plain[344..348].copy_from_slice(b"n+1\0");
+        plain
+    }
+
+    /// A gzip member may carry an arbitrarily long name before the deflate
+    /// stream, so the header can lie beyond any fixed first read. The reader
+    /// must ask for more instead of failing.
+    #[test]
+    fn header_summary_from_prefix_asks_for_more_when_the_gzip_header_is_long() {
+        use std::io::Write;
+        let plain = plain_header([5, 6, 7], [2.0, 2.0, 2.5]);
+        let mut encoder = flate2::GzBuilder::new()
+            .filename("x".repeat(40_000))
+            .write(Vec::new(), flate2::Compression::default());
+        encoder.write_all(&plain).unwrap();
+        encoder.write_all(&[0u8; 4096]).unwrap();
+        let gz = encoder.finish().unwrap();
+        assert!(gz.len() > 40_000);
+
+        for short in [16 * 1024, 32 * 1024, 40_000] {
+            assert_eq!(header_summary_from_prefix(&gz[..short]).unwrap(), None);
+        }
+        let summary = header_summary_from_prefix(&gz).unwrap().unwrap();
+        assert_eq!(summary.dim, [5, 6, 7]);
+        assert_eq!(summary.pixdim, [2.0, 2.0, 2.5]);
+        assert_eq!(
+            Some(summary),
+            header_summary_from_prefix(&plain).unwrap(),
+            "gzip and plain bytes of one header summarize alike"
+        );
+    }
+
+    #[test]
+    fn header_summary_from_prefix_rejects_garbage_and_reports_truncation() {
+        use std::io::Write;
+        // Not NIfTI at all (a GIfTI file starts like this).
+        let mut xml = b"<?xml version=\"1.0\" encoding=\"UTF-8\"?><GIFTI>".to_vec();
+        xml.resize(4096, b' ');
+        assert!(header_summary_from_prefix(&xml).is_err());
+
+        // Gzip magic followed by bytes that are not a deflate stream.
+        let mut bad_gz = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3];
+        bad_gz.extend(std::iter::repeat_n(0xffu8, 2048));
+        assert!(header_summary_from_prefix(&bad_gz).is_err());
+
+        // A complete gzip stream that ends before the header does: every
+        // prefix, the whole file included, is "not yet".
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder
+            .write_all(&plain_header([2, 2, 2], [1.0; 3])[..200])
+            .unwrap();
+        let truncated = encoder.finish().unwrap();
+        assert_eq!(header_summary_from_prefix(&truncated).unwrap(), None);
+        assert_eq!(header_summary_from_prefix(&[]).unwrap(), None);
+    }
+
+    // --- Voxel→world affine from the header ---
+
+    /// Orientation fields of a NIfTI-1 header, written at their byte offsets.
+    #[derive(Clone, Copy, Default)]
+    struct Orientation {
+        sform_code: i16,
+        srows: [[f32; 4]; 3],
+        qform_code: i16,
+        quatern: [f32; 3],
+        qoffset: [f32; 3],
+        qfac: f32,
+    }
+
+    /// A complete single-file NIfTI-1 image (float32 voxels, all zero) with
+    /// the given grid and orientation; `frames` > 1 makes it 4D.
+    fn oriented_file_bytes(
+        dims: [i16; 3],
+        voxel: [f32; 3],
+        frames: i16,
+        orientation: Orientation,
+    ) -> Vec<u8> {
+        let mut header = plain_header(dims, voxel);
+        let put_f32 = |header: &mut [u8], at: usize, value: f32| {
+            header[at..at + 4].copy_from_slice(&value.to_le_bytes())
+        };
+        if frames > 1 {
+            header[40..42].copy_from_slice(&4i16.to_le_bytes());
+            header[48..50].copy_from_slice(&frames.to_le_bytes());
+            put_f32(&mut header, 92, 2.0); // pixdim[4]
+        }
+        header[70..72].copy_from_slice(&16i16.to_le_bytes()); // float32
+        header[72..74].copy_from_slice(&32i16.to_le_bytes());
+        put_f32(&mut header, 76, orientation.qfac);
+        put_f32(&mut header, 108, 352.0); // vox_offset
+        header[252..254].copy_from_slice(&orientation.qform_code.to_le_bytes());
+        header[254..256].copy_from_slice(&orientation.sform_code.to_le_bytes());
+        for (i, value) in orientation
+            .quatern
+            .iter()
+            .chain(&orientation.qoffset)
+            .chain(orientation.srows.iter().flatten())
+            .enumerate()
+        {
+            put_f32(&mut header, 256 + 4 * i, *value);
+        }
+        let voxels = dims.iter().map(|&d| d as usize).product::<usize>() * frames.max(1) as usize;
+        let mut bytes = header.to_vec();
+        bytes.resize(352 + 4 * voxels, 0);
+        bytes
+    }
+
+    const OBLIQUE_SROWS: [[f32; 4]; 3] = [
+        [-1.9, 0.3, 0.1, 90.5],
+        [0.25, 2.4, -0.2, -126.0],
+        [0.05, 0.15, 3.1, -72.25],
+    ];
+
+    fn orientation_cases() -> Vec<(&'static str, Orientation)> {
+        let qform = Orientation {
+            qform_code: 1,
+            quatern: [0.1, 0.2, 0.3],
+            qoffset: [12.5, -40.0, 7.25],
+            qfac: 1.0,
+            ..Default::default()
+        };
+        vec![
+            (
+                "sform-over-qform",
+                Orientation {
+                    sform_code: 2,
+                    srows: OBLIQUE_SROWS,
+                    ..qform
+                },
+            ),
+            // A set sform code with empty rows is not an sform.
+            (
+                "empty-sform-falls-to-qform",
+                Orientation {
+                    sform_code: 1,
+                    ..qform
+                },
+            ),
+            ("qform-only", qform),
+            (
+                "qform-flipped",
+                Orientation {
+                    qfac: -1.0,
+                    ..qform
+                },
+            ),
+            (
+                "no-transform",
+                Orientation {
+                    qfac: 1.0,
+                    ..Default::default()
+                },
+            ),
+        ]
+    }
+
+    /// The affine reported from the header alone is the affine the loader
+    /// gives the decoded volume, to the bit, whichever transform the header
+    /// carries. This is what lets a header audit stand in for a load.
+    #[test]
+    fn header_affine_matches_the_loaded_volume() {
+        for (name, orientation) in orientation_cases() {
+            let bytes = oriented_file_bytes([2, 3, 4], [2.0, 2.5, 3.0], 1, orientation);
+            let path = scratch_file(&format!("affine-{name}.nii"), &bytes);
+            let (_, loaded) = load_nifti_volume_auto(&path).expect("load oriented volume");
+            let summary = read_header_summary(&path).expect("read header");
+            assert_eq!(summary.affine, *loaded.matrix(), "{name}");
+            assert!(summary.affine.try_inverse().is_some(), "{name}");
+        }
+    }
+
+    /// A 4D file keeps its spatial affine in a 5×5 neuroim transform whose
+    /// origin is the last column; the header affine is that 3D 4×4.
+    #[test]
+    fn header_affine_of_a_4d_file_is_the_spatial_affine_of_the_loaded_series() {
+        for (name, orientation) in orientation_cases() {
+            let bytes = oriented_file_bytes([2, 3, 4], [2.0, 2.5, 3.0], 5, orientation);
+            let path = scratch_file(&format!("affine-4d-{name}.nii"), &bytes);
+            let VolumeSendable::Vec4DF32(series) =
+                load_nifti_auto_dimension(&path).expect("load oriented series")
+            else {
+                panic!("expected Vec4DF32");
+            };
+            let trans = &series.space().trans;
+            assert_eq!((trans.nrows(), trans.ncols()), (5, 5), "{name}");
+            let spatial = neuroim::affine::spatial_mat4(trans).cast::<f32>();
+            let summary = read_header_summary(&path).expect("read header");
+            assert_eq!(summary.affine, spatial, "{name}");
+            assert_eq!(summary.dim, [2, 3, 4, 5]);
+        }
+    }
+
+    #[test]
+    fn header_affine_follows_sform_then_qform_then_pixdim() {
+        let affine = |orientation| {
+            let bytes = oriented_file_bytes([2, 3, 4], [2.0, 2.5, 3.0], 1, orientation);
+            header_summary_from_prefix(&bytes).unwrap().unwrap().affine
+        };
+        let cases = orientation_cases();
+        let case = |name: &str| cases.iter().find(|(n, _)| *n == name).unwrap().1;
+
+        let sform = affine(case("sform-over-qform"));
+        for (row, expected) in OBLIQUE_SROWS.iter().enumerate() {
+            for (column, value) in expected.iter().enumerate() {
+                assert_eq!(sform[(row, column)], *value);
+            }
+        }
+        assert_eq!(sform.row(3), nalgebra::RowVector4::new(0.0, 0.0, 0.0, 1.0));
+
+        let qform = affine(case("qform-only"));
+        assert_eq!(affine(case("empty-sform-falls-to-qform")), qform);
+        assert_ne!(sform, qform);
+        // The offsets are the origin, and each column keeps its voxel size.
+        assert_eq!(
+            [qform[(0, 3)], qform[(1, 3)], qform[(2, 3)]],
+            [12.5, -40.0, 7.25]
+        );
+        for (column, size) in [2.0f32, 2.5, 3.0].iter().enumerate() {
+            assert_relative_eq!(
+                qform.fixed_view::<3, 1>(0, column).norm(),
+                *size,
+                epsilon = 1e-5
+            );
+        }
+        // qfac = -1 mirrors the third axis and nothing else.
+        let flipped = affine(case("qform-flipped"));
+        assert_eq!(flipped.column(2).xyz(), -qform.column(2).xyz());
+        assert_eq!(flipped.column(0), qform.column(0));
+        assert_eq!(flipped.column(3), qform.column(3));
+
+        assert_eq!(
+            affine(case("no-transform")),
+            VoxelToWorld::from_diagonal(&nalgebra::Vector4::new(2.0, 2.5, 3.0, 1.0))
+        );
+    }
+
+    /// Pins the shared grid tolerances. Population sampling rejects members
+    /// whose affines differ by more than these, and the Set studio audit must
+    /// call exactly those sets mixed; changing them changes both.
+    #[test]
+    fn affines_match_within_the_grid_tolerance_and_not_beyond() {
+        assert_eq!(GRID_AFFINE_TOLERANCE, 1e-5);
+        assert_eq!(GRID_ORIGIN_TOLERANCE_MM, 1e-3);
+        let reference = VoxelToWorld::identity();
+        // The 3×3 block and the bottom row keep the tight tolerance; the
+        // translation column has its own, in mm.
+        for (row, column, tolerance) in [
+            (0, 0, 1e-5f32),
+            (1, 2, 1e-5),
+            (2, 1, 1e-5),
+            (3, 3, 1e-5),
+            (3, 0, 1e-5),
+            (0, 3, 1e-3),
+            (1, 3, 1e-3),
+            (2, 3, 1e-3),
+        ] {
+            let mut inside = reference;
+            inside[(row, column)] += 0.9 * tolerance;
+            assert!(affines_match(&reference, &inside), "({row},{column})");
+            assert!(affines_match(&inside, &reference), "({row},{column})");
+            let mut outside = reference;
+            outside[(row, column)] += 1.2 * tolerance;
+            assert!(!affines_match(&reference, &outside), "({row},{column})");
+            assert!(!affines_match(&outside, &reference), "({row},{column})");
+            let mut broken = reference;
+            broken[(row, column)] = f32::NAN;
+            assert!(!affines_match(&reference, &broken), "({row},{column})");
+        }
+        assert!(affines_match(&reference, &reference));
+    }
+
+    /// Two tools writing one MNI grid can leave origins one f32 step apart,
+    /// and a step at |origin| >= 128 mm is 1.5e-5: more than the tolerance of
+    /// the 3×3 block. Such grids are one grid; a rotation that small is not.
+    #[test]
+    fn affines_match_origins_one_float_step_apart() {
+        let mut reference = VoxelToWorld::identity();
+        reference[(0, 3)] = -96.0;
+        reference[(1, 3)] = -132.0;
+        reference[(2, 3)] = -78.0;
+        let mut stepped = reference;
+        stepped[(1, 3)] = f32::from_bits(reference[(1, 3)].to_bits() + 1);
+        assert!((stepped[(1, 3)] - reference[(1, 3)]).abs() > GRID_AFFINE_TOLERANCE);
+        assert!(affines_match(&reference, &stepped));
+        assert!(affines_match(&stepped, &reference));
+
+        let mut sheared = reference;
+        sheared[(0, 1)] += 1.5e-5;
+        assert!(!affines_match(&reference, &sheared));
+        let mut moved = reference;
+        moved[(1, 3)] += 0.01;
+        assert!(!affines_match(&reference, &moved));
+    }
+
+    /// Dimensions come from the file: the largest a header can declare must
+    /// not overflow the volume count (a panic in a debug build).
+    #[test]
+    fn header_summary_saturates_the_volume_count_of_hostile_dims() {
+        let header = nifti::NiftiHeader {
+            dim: [
+                7,
+                u16::MAX,
+                u16::MAX,
+                u16::MAX,
+                u16::MAX,
+                u16::MAX,
+                u16::MAX,
+                u16::MAX,
+            ],
+            ..Default::default()
+        };
+        let summary = header_summary(&header);
+        assert_eq!(summary.dim, [u32::from(u16::MAX); 7]);
+        assert_eq!(summary.n_volumes, Some(u32::MAX));
+
+        // A zero trailing dim counts as one, and a rank above 7 is clamped.
+        let header = nifti::NiftiHeader {
+            dim: [u16::MAX, 4, 4, 4, 0, 3, 0, 0],
+            ..Default::default()
+        };
+        let summary = header_summary(&header);
+        assert_eq!(summary.dim, [4, 4, 4, 0, 3, 0, 0]);
+        assert_eq!(summary.n_volumes, Some(3));
+    }
+
+    /// A local header read and a remote prefix read parse the same bytes the
+    /// same way, plain or gzipped, and neither looks at the payload: a file
+    /// whose image data is cut short still reports its header.
+    #[test]
+    fn local_header_read_matches_the_prefix_read_and_ignores_the_payload() {
+        use std::io::Write;
+        let orientation = orientation_cases()[0].1;
+        let whole = oriented_file_bytes([20, 30, 40], [2.0, 2.5, 3.0], 1, orientation);
+        let truncated = &whole[..352 + 64];
+        let gzip = |bytes: &[u8]| {
+            let mut encoder =
+                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+            encoder.write_all(bytes).unwrap();
+            encoder.finish().unwrap()
+        };
+        let expected = header_summary_from_prefix(&whole).unwrap().unwrap();
+        assert_eq!(expected.dim, [20, 30, 40]);
+        for (name, bytes) in [
+            ("whole.nii", whole.clone()),
+            ("whole.nii.gz", gzip(&whole)),
+            ("truncated.nii", truncated.to_vec()),
+            ("truncated.nii.gz", gzip(truncated)),
+        ] {
+            let path = scratch_file(&format!("header-parity-{name}"), &bytes);
+            let local = read_header_summary(&path).expect("local header read");
+            assert_eq!(local, expected, "{name}");
+            assert_eq!(
+                Some(local),
+                header_summary_from_prefix(&bytes).unwrap(),
+                "{name}"
+            );
+        }
+        // The loader itself still refuses the truncated file.
+        let truncated_path = scratch_file("header-parity-truncated.nii", truncated);
+        assert!(load_nifti_volume_auto(&truncated_path).is_err());
+
+        // A file that ends inside the header has no header to report.
+        let short = scratch_file("header-parity-short.nii", &whole[..200]);
+        let message = read_header_summary(&short).unwrap_err().to_string();
+        assert!(message.contains("no complete NIfTI header"), "{message}");
     }
 
     #[test]

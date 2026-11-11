@@ -38,10 +38,21 @@ import { SelectedFileSummary } from "./files/SelectedFileSummary";
 import { FilesFooterStatus } from "./files/FilesFooterStatus";
 import { ViewModeTabs, filesViewPanelProps } from "./files/ViewModeTabs";
 import { Button, Notice } from "@/components/ui/bf";
+import { RemoteReconnectButton } from "@/components/ui/RemoteReconnectButton";
+import { useRemoteReconnect } from "@/hooks/useRemoteReconnect";
+import { connectionLostTitle } from "@/utils/remoteConnectionError";
 import { ImagesView } from "./files/ImagesView";
 import { LoadedView } from "./files/LoadedView";
 import { BidsView } from "./files/BidsView";
 import { useKeyboardNavWithin } from "./files/useKeyboardNavWithin";
+import { DatasetCardHost } from "@/components/datasetCard/DatasetCardHost";
+import { getDatasetCardService } from "@/services/DatasetCardService";
+import {
+  markerKey,
+  markerOffersCard,
+  useDatasetCardStore,
+} from "@/stores/datasetCardStore";
+import { browseRootOf, isSidecarCandidate } from "./files/datasetMarkerModel";
 
 const FileBrowserPanelContent: React.FC = () => {
   const fileBrowserStore = useFileBrowserStore();
@@ -55,6 +66,8 @@ const FileBrowserPanelContent: React.FC = () => {
   const [remoteDialogTarget, setRemoteDialogTarget] =
     useState<RemoteMountTarget | null>(null);
   const treeContainerRef = useRef<HTMLDivElement>(null);
+  // The pinned dataset card sits beside this panel.
+  const panelRef = useRef<HTMLDivElement>(null);
   const treeResizeObserverRef = useRef<ResizeObserver | null>(null);
   // Folders the user opened (outside a search), so a remounted tree (a new
   // root, the search empty state) opens them again (QA 2026-10-30 F46:
@@ -76,6 +89,8 @@ const FileBrowserPanelContent: React.FC = () => {
   const loading = useFileBrowserStore((state) => state.loading);
   const error = useFileBrowserStore((state) => state.error);
   const errorPath = useFileBrowserStore((state) => state.errorPath);
+  // The listing failed because the mount's session dropped (see loadDirectory).
+  const errorConnection = useRemoteReconnect(error ? errorPath : null);
   const searchQuery = useFileBrowserStore((state) => state.searchQuery);
   const searchResults = useFileBrowserStore((state) => state.searchResults);
   const searchIndexing = useFileBrowserStore((state) => state.searchIndexing);
@@ -396,8 +411,77 @@ const FileBrowserPanelContent: React.FC = () => {
     setMountActionError(null);
   }
 
+  /**
+   * Space on a row: toggle its card. A folder needs a marker (a description
+   * file or child analyses); a file must be an image. Returns false when the
+   * row has no card, so Space keeps its usual meaning there.
+   */
+  function toggleCardFor(
+    target: { path: string; type: "file" | "directory"; rootPath: string | null },
+    returnFocus: HTMLElement | null,
+  ): boolean {
+    // A folder mounted inside another mounted folder is listed under both.
+    const roots = target.rootPath
+      ? [target.rootPath]
+      : entries
+          .filter(
+            (entry) =>
+              target.path === entry.path || target.path.startsWith(`${entry.path}/`),
+          )
+          .sort((a, b) => b.path.length - a.path.length)
+          .map((entry) => entry.path);
+    if (target.type === "file") {
+      if (roots.length === 0 || !isSidecarCandidate(target.path)) return false;
+      getDatasetCardService().toggleCard("sidecar", {
+        rootPath: roots[0],
+        path: target.path,
+        returnFocus,
+      });
+      return true;
+    }
+    const { markers } = useDatasetCardStore.getState();
+    const rootPath = roots.find((root) =>
+      markerOffersCard(markers[markerKey(root, target.path)]?.marker),
+    );
+    if (!rootPath) return false;
+    getDatasetCardService().toggleCard("dataset", {
+      rootPath,
+      path: target.path,
+      returnFocus,
+    });
+    return true;
+  }
+
+  /**
+   * Space inside the tree, before react-arborist sees it (it would toggle the
+   * folder or re-activate the file). Acts on the row that has keyboard focus.
+   */
+  function handleTreeSpaceCapture(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== " " || event.metaKey || event.ctrlKey || event.altKey) return;
+    const origin = event.target as HTMLElement | null;
+    // A control inside a row (the marker button) handles its own Space.
+    if (!origin || origin.closest("button, input, textarea, select")) return;
+    const tree = origin.closest<HTMLElement>('[role="tree"]');
+    const focused = treeApiRef.current?.focusedNode;
+    if (!tree || !focused) return;
+    const handled = toggleCardFor(
+      {
+        path: focused.data.path,
+        type: focused.data.type,
+        rootPath: browseRootOf(focused),
+      },
+      origin.closest<HTMLElement>('[role="treeitem"]') ?? tree,
+    );
+    if (!handled) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   function handlePanelKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement | null;
+    // React bubbles events out of portals: keys pressed in the pinned card
+    // (rendered in document.body) are not this panel's shortcuts.
+    if (target && !event.currentTarget.contains(target)) return;
     const tag = target?.tagName?.toLowerCase();
     const isEditable =
       tag === "input" ||
@@ -422,6 +506,23 @@ const FileBrowserPanelContent: React.FC = () => {
         event.preventDefault();
         void unmountSelectedRoot();
       }
+      return;
+    }
+
+    // Space on the selection, when focus is in the panel but not on a tree
+    // row (the tree's own rows are handled in handleTreeSpaceCapture).
+    if (
+      (event.key === " " || event.code === "Space") &&
+      !meta &&
+      !event.altKey &&
+      selectedFileNode &&
+      !target?.closest("button, a[href], [role='tab'], [role='option'], [role='tree']") &&
+      toggleCardFor(
+        { path: selectedFileNode.path, type: selectedFileNode.type, rootPath: null },
+        target,
+      )
+    ) {
+      event.preventDefault();
       return;
     }
 
@@ -464,9 +565,20 @@ const FileBrowserPanelContent: React.FC = () => {
     selectedFileNode?.type === "directory"
       ? selectedFileNode.path
       : null;
+  // A primitive, so the panel re-renders only when the answer changes.
+  const selectedFolderHasCard = useDatasetCardStore((state) =>
+    selectedFolderForSet === null
+      ? false
+      : entries.some((entry) =>
+          markerOffersCard(
+            state.markers[markerKey(entry.path, selectedFolderForSet)]?.marker,
+          ),
+        ),
+  );
 
   return (
     <div
+      ref={panelRef}
       className="file-browser-panel"
       onKeyDown={handlePanelKeyDown}
       tabIndex={-1}
@@ -637,23 +749,45 @@ const FileBrowserPanelContent: React.FC = () => {
         ) : error ? (
           <div className="error-state">
             <Notice
-              severity="danger"
+              severity={errorConnection.down ? "warning" : "danger"}
               action={
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() =>
-                    void fileBrowserStore.refreshDirectory(
-                      errorPath ?? (currentPath || rootPath),
-                    )
-                  }
-                >
-                  Retry
-                </Button>
+                <span className="flex shrink-0 items-center gap-1">
+                  {errorConnection.down ? (
+                    <RemoteReconnectButton
+                      path={errorPath}
+                      variant="primary"
+                      testId="fb-error-reconnect"
+                    />
+                  ) : null}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      void fileBrowserStore.refreshDirectory(
+                        errorPath ?? (currentPath || rootPath),
+                      )
+                    }
+                  >
+                    Retry
+                  </Button>
+                </span>
               }
             >
-              <div className="font-medium">Error loading directory</div>
-              <div className="error-message">{error}</div>
+              {errorConnection.down ? (
+                <>
+                  <div className="font-medium">
+                    {connectionLostTitle(errorConnection.host)}
+                  </div>
+                  <div className="error-message">
+                    Reconnect to list this folder.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="font-medium">Error loading directory</div>
+                  <div className="error-message">{error}</div>
+                </>
+              )}
             </Notice>
           </div>
         ) : !hasMountedDirectory ? (
@@ -683,7 +817,10 @@ const FileBrowserPanelContent: React.FC = () => {
             */}
             <div
               ref={setTreeContainer}
-              onKeyDownCapture={handleTreeTabCapture}
+              onKeyDownCapture={(event) => {
+                handleTreeTabCapture(event);
+                handleTreeSpaceCapture(event);
+              }}
               {...filesViewPanelProps("tree")}
               className="fb-tree-container"
               style={{
@@ -776,8 +913,15 @@ const FileBrowserPanelContent: React.FC = () => {
           rootNode={rootNode}
           recentsCount={recentsCount}
           pinnedCount={pinnedCount}
+          hint={
+            selectedFolderHasCard
+              ? "Space shows the description of the selected folder"
+              : undefined
+          }
         />
       )}
+
+      <DatasetCardHost anchorRef={panelRef} />
 
       <RemoteMountDialog
         isOpen={remoteDialogOpen}

@@ -1,3 +1,4 @@
+import { plainStudioSourceError } from '@/services/studio/studioSourceErrors';
 import type { ViewPlane } from '@/types/coordinates';
 import { populationRgba } from './PopulationSliceService';
 import { populationProbeActions } from './PopulationProbeActions';
@@ -477,7 +478,7 @@ export class PopulationRelationshipService {
       this.install(fit, scope!);
     } catch (error) {
       if (!abort.signal.aborted && generation === this.generation)
-        this.publish({ ...this.snapshot, pending: false, error: formatTauriError(error) });
+        this.publish({ ...this.snapshot, pending: false, error: plainStudioSourceError(formatTauriError(error)) });
     }
   }
   private install(fit: RelationshipFit, scope: string) {

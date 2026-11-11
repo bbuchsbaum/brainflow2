@@ -576,6 +576,9 @@ fn load_role_input_values(
 
 /// Indexed reductions require matching world frames as well as dimensions.
 /// The absolute tolerance is for header float rounding, never registration.
+/// The comparison is `nifti_loader::affines_match` (1e-5 on the 3×3 block,
+/// 1e-3 mm on the origin), which the Set studio grid audit and Population
+/// sampling use too, so the three cannot drift apart.
 fn validate_grid_affines(reference: &[f32], candidate: &[f32]) -> Result<(), String> {
     for affine in [reference, candidate] {
         if affine.len() != 16 || affine.iter().any(|value| !value.is_finite()) {
@@ -590,11 +593,10 @@ fn validate_grid_affines(reference: &[f32], candidate: &[f32]) -> Result<(), Str
             return Err("Population input has a singular world affine.".to_string());
         }
     }
-    if reference
-        .iter()
-        .zip(candidate)
-        .any(|(a, b)| (f64::from(*a) - f64::from(*b)).abs() > 1e-5)
-    {
+    if !nifti_loader::affines_match(
+        &nifti_loader::VoxelToWorld::from_column_slice(reference),
+        &nifti_loader::VoxelToWorld::from_column_slice(candidate),
+    ) {
         return Err(
             "Population inputs have different world affines; explicit resampling is required."
                 .to_string(),
@@ -1535,6 +1537,28 @@ mod population_reducers {
         let mut invalid = identity;
         invalid[12] = f32::NAN;
         assert!(validate_grid_affines(&invalid, &invalid).is_err());
+    }
+
+    /// The same rule as the grid audit and Population sampling
+    /// (`nifti_loader::affines_match`): an origin one f32 step away is the
+    /// same frame, a voxel axis 1.2e-5 away is not.
+    #[test]
+    fn world_affines_are_compared_as_the_grid_audit_compares_them() {
+        // Column-major: 12..15 is the origin.
+        let mut reference: [f32; 16] = [
+            2.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, -96.0, -132.0, -78.0, 1.0,
+        ];
+        let mut stepped = reference;
+        stepped[13] = f32::from_bits(reference[13].to_bits() + 1);
+        assert!((stepped[13] - reference[13]).abs() > 1e-5);
+        assert!(validate_grid_affines(&reference, &stepped).is_ok());
+        let mut moved = reference;
+        moved[13] += 1.2e-3;
+        assert!(validate_grid_affines(&reference, &moved).is_err());
+        reference[12] = 0.0;
+        let mut turned = reference;
+        turned[4] += 1.2e-5;
+        assert!(validate_grid_affines(&reference, &turned).is_err());
     }
 
     #[test]

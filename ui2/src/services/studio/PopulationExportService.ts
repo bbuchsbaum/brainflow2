@@ -1,3 +1,4 @@
+import { awaitRequestSources, noteRequestRefusal } from './StudioSourceFetchService';
 import { populationPlotService } from './PopulationPlotService';
 import { populationRelationshipService } from './PopulationRelationshipService';
 import { resolvePopulationParticipants, groupParticipantMembers } from './populationParticipants';
@@ -104,6 +105,9 @@ export async function invokeCancelable<T>(
   signal: AbortSignal,
 ): Promise<T> {
   signal.throwIfAborted();
+  // A remote set's images are fetched before the ticket's two minutes start.
+  const fetching = awaitRequestSources(args.request, signal);
+  if (fetching) await fetching;
   const ticket = { id: crypto.randomUUID(), expiresAtMs: Date.now() + 120_000 };
   const cancel = () => {
     void getTransport()
@@ -113,6 +117,10 @@ export async function invokeCancelable<T>(
   signal.addEventListener('abort', cancel, { once: true });
   try {
     return await getTransport().invoke<T>(command, { ...args, ticket });
+  } catch (error) {
+    // A refusal of an unfetched image goes to the fetch, which offers Retry.
+    noteRequestRefusal(error, args.request);
+    throw error;
   } finally {
     signal.removeEventListener('abort', cancel);
   }

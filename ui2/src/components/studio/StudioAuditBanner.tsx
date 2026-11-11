@@ -1,9 +1,6 @@
-import React from 'react';
 import { Chip, StatusPill, type StatusKind } from '@/components/ui/bf';
-import type {
-  SpatialFieldSetSummary,
-  StudioAuditSeverity,
-} from '@/types/studio';
+import type { SpatialFieldSetSummary, StudioAuditSeverity } from '@/types/studio';
+import { useStudioReadiness } from '@/hooks/useStudioReadiness';
 
 interface WorkspaceReadiness {
   state: 'ready' | 'review' | 'blocked';
@@ -23,27 +20,37 @@ interface StudioAuditBannerProps {
   inline?: boolean;
 }
 
+/**
+ * What the import found, at set level and once: whether the set can be read
+ * together (the state of its image grids), how many images matched, and any
+ * that did not. Counts of zero are not shown; a clean set reads
+ * "Ready to compare · 105 images". The grid state lives here, not in every
+ * pane.
+ */
 export function StudioAuditBanner({ activeSet, readiness, inline = false }: StudioAuditBannerProps) {
+  const grids = useStudioReadiness('compare');
   if (!activeSet || !readiness) {
     return null;
   }
 
   const audit = activeSet.ingestAudit;
-  const totalRows = audit.join.matchedRows + audit.join.unmatchedRows;
-  const matchedPct =
-    totalRows > 0 ? Math.round((audit.join.matchedRows / totalRows) * 100) : 100;
-  const supportCoveragePct = audit.support.readyForCompare ? 100 : null;
-
-  const tone = toneClasses(readiness.state);
+  const pill = statePill(readiness, grids.phase, !!activeSet.savedPopulation);
+  const grid =
+    audit.support.alignmentClass === 'same-grid' && audit.support.supportLabel
+      ? audit.support.supportLabel
+      : null;
+  const images = `${audit.join.matchedRows} ${audit.join.matchedRows === 1 ? 'image' : 'images'}`;
 
   const summary = [
-    readiness.eyebrow,
-    `Matched ${audit.join.matchedRows}${totalRows > 0 ? ` (${matchedPct}%)` : ''}`,
-    `Unmatched ${audit.join.unmatchedRows}`,
-    `Duplicates ${audit.join.duplicateKeys}`,
-    `Alignment ${audit.support.alignmentClass}`,
-    `Support ${audit.support.supportLabel}${supportCoveragePct != null ? ` (${supportCoveragePct}%)` : ''}`,
-  ].join(' · ');
+    pill.label,
+    pill.detail,
+    images,
+    audit.join.unmatchedRows > 0 ? `${audit.join.unmatchedRows} unmatched` : null,
+    audit.join.duplicateKeys > 0 ? `${audit.join.duplicateKeys} duplicates` : null,
+    grid ? `Grid ${grid}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <section
@@ -52,50 +59,49 @@ export function StudioAuditBanner({ activeSet, readiness, inline = false }: Stud
       className={
         inline
           ? 'flex min-w-0 flex-1 flex-nowrap items-center gap-2 overflow-hidden text-bf-sm [&>*]:shrink-0'
-          : `mx-3 mt-3 flex flex-wrap items-center gap-2 rounded-sm border px-3 py-1.5 text-bf-sm ${tone.container}`
+          : `mx-3 mt-3 flex flex-wrap items-center gap-2 rounded-sm border px-3 py-1.5 text-bf-sm ${toneClasses(readiness.state)}`
       }
     >
-      <StatusPill status={readinessStatus(readiness.state)}>{readiness.eyebrow}</StatusPill>
-      <span className="h-4 w-px bg-border" aria-hidden />
-      <AuditFact
-        label="Matched"
-        value={`${audit.join.matchedRows}`}
-        suffix={totalRows > 0 ? `(${matchedPct}%)` : undefined}
-        // Matched rows are a count, not a caution: stay neutral unless the
-        // join failed outright. Unmatched rows carry the warning tone.
-        severity={audit.join.severity === 'error' ? 'error' : 'ok'}
-      />
-      <AuditFact
-        label="Unmatched"
-        value={`${audit.join.unmatchedRows}`}
-        severity={audit.join.unmatchedRows > 0 ? 'warning' : 'ok'}
-      />
-      <AuditFact
-        label="Duplicates"
-        value={`${audit.join.duplicateKeys}`}
-        severity={audit.join.duplicateKeys > 0 ? 'warning' : 'ok'}
-      />
-      <AuditFact
-        label="Alignment"
-        value={audit.support.alignmentClass}
-        severity={audit.support.severity}
-        wide
-      />
-      <AuditFact
-        label="Support"
-        value={audit.support.supportLabel}
-        suffix={supportCoveragePct != null ? `(${supportCoveragePct}%)` : undefined}
-        severity={audit.support.severity}
-        wide
-      />
+      <StatusPill status={pill.status} title={pill.detail ?? undefined} data-phase={grids.phase}>
+        {pill.label}
+      </StatusPill>
+      <AuditFact value={images} severity={audit.join.severity === 'error' ? 'error' : 'ok'} />
+      {audit.join.unmatchedRows > 0 ? (
+        <AuditFact value={`${audit.join.unmatchedRows} unmatched`} severity="warning" />
+      ) : null}
+      {audit.join.duplicateKeys > 0 ? (
+        <AuditFact value={`${audit.join.duplicateKeys} duplicates`} severity="warning" />
+      ) : null}
+      {grid ? <AuditFact label="Grid" value={grid} wide /> : null}
     </section>
   );
 }
 
-function readinessStatus(state: WorkspaceReadiness['state']): StatusKind {
-  if (state === 'ready') return 'success';
-  if (state === 'review') return 'warning';
-  return 'failed';
+/**
+ * The set's one status. A set whose grids are unchecked or being checked is
+ * waiting, not at fault: only a check that failed, images that cannot be
+ * read together, or a blocked import carry a status colour.
+ */
+function statePill(
+  readiness: WorkspaceReadiness,
+  phase: ReturnType<typeof useStudioReadiness>['phase'],
+  savedPopulation: boolean,
+): { status: StatusKind; label: string; detail: string | null } {
+  if (savedPopulation) return { status: 'success', label: readiness.eyebrow, detail: null };
+  if (readiness.state === 'blocked')
+    return { status: 'failed', label: readiness.eyebrow, detail: readiness.message };
+  switch (phase) {
+    case 'ready':
+      return { status: 'success', label: 'Ready to compare', detail: null };
+    case 'checking':
+      return { status: 'running', label: 'Checking image grids', detail: null };
+    case 'needs-check':
+      return { status: 'queued', label: 'Image grids not checked', detail: null };
+    case 'check-failed':
+      return { status: 'warning', label: 'Grid check failed', detail: null };
+    default:
+      return { status: 'warning', label: 'Browse only', detail: readiness.message };
+  }
 }
 
 /**
@@ -105,24 +111,21 @@ function readinessStatus(state: WorkspaceReadiness['state']): StatusKind {
 function AuditFact({
   label,
   value,
-  suffix,
   severity = 'ok',
   wide,
 }: {
-  label: string;
+  label?: string;
   value: string;
-  suffix?: string;
   severity?: StudioAuditSeverity;
   wide?: boolean;
 }) {
   const content = (
     <>
-      <span className="text-muted-foreground">{label}</span>{' '}
-      <span className="font-mono tabular-nums">{value}</span>
-      {suffix ? <span className="font-mono tabular-nums text-muted-foreground"> {suffix}</span> : null}
+      {label ? <span className="text-muted-foreground">{label} </span> : null}
+      <span className="tabular-nums">{value}</span>
     </>
   );
-  const title = `${label} ${value}${suffix ? ` ${suffix}` : ''}`;
+  const title = label ? `${label} ${value}` : value;
   if (severity === 'ok') {
     return (
       <Chip title={title} className={wide ? 'max-w-[260px]' : undefined}>
@@ -144,18 +147,11 @@ function AuditFact({
 function toneClasses(state: WorkspaceReadiness['state']) {
   switch (state) {
     case 'ready':
-      return {
-        container: 'border-border bg-card text-foreground',
-      };
+      return 'border-border bg-card text-foreground';
     case 'review':
-      return {
-        container: 'border-bf-warning/50 bg-card text-foreground',
-      };
+      return 'border-bf-warning/50 bg-card text-foreground';
     case 'blocked':
     default:
-      return {
-        container:
-          'border-destructive/40 bg-bf-danger-soft text-foreground',
-      };
+      return 'border-destructive/40 bg-bf-danger-soft text-foreground';
   }
 }

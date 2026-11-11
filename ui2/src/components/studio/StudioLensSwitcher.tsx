@@ -39,7 +39,7 @@ export function StudioLensSwitcher({
     <div
       className={
         bare
-          ? 'flex shrink-0 flex-nowrap items-center gap-2'
+          ? 'flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1'
           : 'flex flex-wrap items-center gap-3 rounded-sm border border-border bg-card px-3 py-1.5'
       }
     >
@@ -75,17 +75,16 @@ export function StudioLensSwitcher({
 
       {activeLens === 'compare' ? (
         <>
-          <span className="h-4 w-px bg-border" aria-hidden />
           <label className="flex min-w-0 items-center gap-2 text-bf-sm text-muted-foreground">
             <span className={`text-bf-xs font-medium ${bare ? 'sr-only' : ''}`}>
-              Compare mode
+              Compare with
             </span>
             <Select
-              className="w-auto max-w-[16rem]"
+              className="w-auto min-w-0 max-w-[16rem]"
               value={compareCohort?.id ?? ''}
               onValueChange={(value) => onSelectCompareCohort(value || null)}
             >
-              <option value="">Current vs … (select cohort)</option>
+              <option value="">Current vs … (choose a group)</option>
               {cohorts.map((cohort) => (
                 <option key={cohort.id} value={cohort.id}>
                   {`Current vs ${cohort.label} (n=${cohort.memberCount})`}

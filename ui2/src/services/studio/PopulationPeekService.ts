@@ -1,3 +1,4 @@
+import { plainStudioSourceError } from '@/services/studio/studioSourceErrors';
 /**
  * The relationship scatter's hover peek (W1 UI, "Scope decision" in
  * docs/plans/neurotabs-contributors-and-space.md).
@@ -168,7 +169,7 @@ export class PopulationPeekService {
       (error) => {
         if (!current()) return;
         settle(() =>
-          this.publish({ ...this.snapshot, pending: false, error: formatTauriError(error) }),
+          this.publish({ ...this.snapshot, pending: false, error: plainStudioSourceError(formatTauriError(error)) }),
         );
       },
     );

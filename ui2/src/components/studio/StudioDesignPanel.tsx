@@ -79,6 +79,8 @@ export function StudioDesignPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [distanceSort, distanceKey]);
 
+  // The image the set is showing; there is no action that picks one from here.
+  const activeFeatureId = useSetStudioStore((state) => state.selection.activeFeatureId);
   const setActiveMember = useSetStudioStore((state) => state.setActiveMember);
   const setCompareCohort = useSetStudioStore((state) => state.setCompareCohort);
   const setActiveScopeCohort = useSetStudioStore((state) => state.setActiveScopeCohort);
@@ -278,6 +280,7 @@ export function StudioDesignPanel() {
       }
       cohorts={cohortList}
       activeMemberId={activeMemberId}
+      activeImage={activeFeatureId}
       activeCompareCohortId={compareCohort?.id ?? null}
       activeScopeCohortId={scopeCohort?.id ?? null}
       activeIssueMemberIds={activeIssueMemberIds}

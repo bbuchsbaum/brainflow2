@@ -1,0 +1,53 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-11-10T14:00:00Z" },
+  "title": "Brainflow dataset cards",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 820,
+      "h": 700,
+      "title": "1 Browser: marker and hover summary"
+    },
+    "DatasetCard.dc.html": {
+      "x": 900,
+      "y": 0,
+      "w": 480,
+      "h": 980,
+      "title": "2 Dataset card, pinned"
+    },
+    "CollectionCard.dc.html": {
+      "x": 1460,
+      "y": 0,
+      "w": 620,
+      "h": 720,
+      "title": "3 Folder of analyses"
+    },
+    "SidecarCard.dc.html": {
+      "x": 2160,
+      "y": 0,
+      "w": 500,
+      "h": 620,
+      "title": "4 File sidecar"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "DatasetCard.dc.html",
+    "CollectionCard.dc.html",
+    "SidecarCard.dc.html"
+  ],
+  "notes": {
+    "t1": {
+      "x": 0,
+      "y": -300,
+      "text": "Dataset cards",
+      "kind": "title1",
+      "maxW": 2660
+    }
+  },
+  "designSystems": []
+}

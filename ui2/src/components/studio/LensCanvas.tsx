@@ -13,6 +13,10 @@ import type {
 import { CompareLens } from './CompareLens';
 import { DeckLens } from './DeckLens';
 import { PopulationLens } from './PopulationLens';
+import { useStudioReadiness } from '@/hooks/useStudioReadiness';
+import { StudioReadinessNotice } from './StudioReadinessNotice';
+import { StudioSourceFetchNotice } from './StudioSourceFetchNotice';
+import { usePopulationSourcesLocal } from '@/hooks/useStudioSourceFetch';
 
 interface LensCanvasProps {
   populationProbeController?: PopulationProbeController;
@@ -43,6 +47,24 @@ interface LensCanvasProps {
   onOpenCompareView: () => void;
   onClearScope: () => void;
   visibleMemberIds?: string[];
+}
+
+/**
+ * Population once its images can be read. A set on a remote mount has only
+ * the images something has opened on this computer; the rest are fetched
+ * first, and the fetch is shown in place of the maps. A local set renders
+ * the lens at once.
+ */
+function PopulationWhenLocal({
+  probeController,
+}: {
+  probeController?: PopulationProbeController;
+}) {
+  return usePopulationSourcesLocal() ? (
+    <PopulationLens probeController={probeController} />
+  ) : (
+    <StudioSourceFetchNotice lens="population" variant="panel" />
+  );
 }
 
 /**
@@ -80,10 +102,18 @@ export function LensCanvas({
   onClearScope,
   visibleMemberIds,
 }: LensCanvasProps) {
+  // A set that cannot be read together yet (its grids unchecked or being
+  // checked, or on different grids) gets one calm state for the whole
+  // Population lens, not a pair of empty image wells under an error.
+  const populationReadiness = useStudioReadiness('population');
   return (
     <div className="flex h-full min-h-0 flex-col">
       {activeLens === 'population' ? (
-        <PopulationLens probeController={populationProbeController} />
+        populationReadiness.phase === 'ready' ? (
+          <PopulationWhenLocal probeController={populationProbeController} />
+        ) : (
+          <StudioReadinessNotice lens="population" variant="panel" />
+        )
       ) : activeLens === 'compare' ? (
         <CompareLens
           activeSet={activeSet}

@@ -1,3 +1,7 @@
+import {
+  awaitRequestSources,
+  noteRequestRefusal,
+} from '@/services/studio/StudioSourceFetchService';
 import { attachObservationMetadata } from '@/plotting/attachObservationMetadata';
 /**
  * SampleProvider — resolves a {@link SampleRequest} (a locus over a dataset)
@@ -254,7 +258,15 @@ export class SampleProvider {
     signal?: AbortSignal,
   ): Promise<T> {
     signal?.throwIfAborted();
-    if (!signal) return getTransport().invoke<T>(command, args);
+    // A remote set's images are fetched before the ticket's two minutes start.
+    const fetching = awaitRequestSources(args, signal);
+    if (fetching) await fetching;
+    // A refusal of an unfetched image goes to the fetch, which offers Retry.
+    const refusal = (error: unknown): never => {
+      noteRequestRefusal(error, args);
+      throw error;
+    };
+    if (!signal) return getTransport().invoke<T>(command, args).catch(refusal);
     const ticket = { id: crypto.randomUUID(), expiresAtMs: Date.now() + 120_000 };
     let onAbort: () => void = () => {};
     const aborted = new Promise<never>((_, reject) => {
@@ -270,7 +282,10 @@ export class SampleProvider {
       signal.addEventListener('abort', onAbort, { once: true });
     });
     try {
-      return await Promise.race([getTransport().invoke<T>(command, { ...args, ticket }), aborted]);
+      return await Promise.race([
+        getTransport().invoke<T>(command, { ...args, ticket }).catch(refusal),
+        aborted,
+      ]);
     } finally {
       signal.removeEventListener('abort', onAbort);
     }

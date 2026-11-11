@@ -201,6 +201,33 @@ describe('DisplayLifecycleOrchestrator', () => {
     expect(mockQueueState.markComplete).not.toHaveBeenCalled();
   });
 
+  it('says a dropped remote connection in plain words and offers Reconnect in the status bar', async () => {
+    const { useFileBrowserStore } = await import('@/stores/fileBrowserStore');
+    const { resetRemoteConnectionStore, useRemoteConnectionStore } = await import('@/stores/remoteConnectionStore');
+    resetRemoteConnectionStore();
+    const root = '/cache/remote_mounts/cache-aaa';
+    useFileBrowserStore.setState({
+      entries: [{
+        id: root, name: 'trillium', path: root, type: 'directory', depth: 0, children: [],
+        mountSource: { kind: 'remote', mountId: 'm1', host: 'trillium.alliancecan.ca', remotePath: '/scratch/brad' },
+      } as never],
+      recents: [], pinned: [],
+    });
+    const path = `${root}/sub-04/same_item.nii.gz`;
+    mockApiService.loadFile.mockRejectedValueOnce({ Io: { code: 8218, details: 'SSH error: SSH session disconnected' } });
+    const { DisplayLifecycleOrchestrator } = await import('../DisplayLifecycleOrchestrator');
+    await DisplayLifecycleOrchestrator.getInstance().loadFile({ path, ingress: 'programmatic' });
+    expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification', expect.objectContaining({
+      type: 'error',
+      message: 'Failed to load same_item.nii.gz: the connection to trillium.alliancecan.ca was lost',
+      subject: 'same_item.nii.gz',
+      action: { label: 'Reconnect', run: expect.any(Function) },
+    }));
+    // The Files header learns the mount is down from the same failure.
+    expect(useRemoteConnectionStore.getState().down).toEqual({ [root]: true });
+    useFileBrowserStore.setState({ entries: [] });
+  });
+
   it('resolves older volume failures when a newer load succeeds in the same view', async () => {
     const state = mockViewStateStoreState as unknown as { activeWorkspaceKey?: string; workspaceViewStates?: Map<string, unknown> };
     state.activeWorkspaceKey = 'ws-1';

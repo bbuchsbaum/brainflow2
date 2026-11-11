@@ -1,3 +1,4 @@
+import { plainStudioSourceError } from '@/services/studio/studioSourceErrors';
 import type { PopulationMask, PopulationMemberSource } from '@/types/population';
 import { studioMetadata } from './studioMetadata';
 import {
@@ -8,7 +9,7 @@ import {
 import { formatTauriError } from '@/utils/formatTauriError';
 import { sampleProvider } from '@/services/SampleProvider';
 import { resolvePopulationContext } from './populationContext';
-import { setImportReadiness } from './importContract';
+import { populationReadinessIssue } from './populationReadiness';
 import type { SampleFrame, SampleRequest } from '@/plotting';
 import type { PopulationProbe, PopulationState } from '@/types/population';
 import type { PopulationContextHost } from './populationContext';
@@ -150,15 +151,8 @@ export function buildPopulationSource(
   if (!set) return { source: null, issue: null };
   const context = resolvePopulationContext(state);
   if (context.issue) return { source: null, issue: context.issue };
-  if (
-    set.supportKind !== 'volume' ||
-    (!set.savedPopulation && setImportReadiness(set) !== 'compare_ready')
-  ) {
-    return {
-      source: null,
-      issue: 'Population probes require volume observations with an audited common support.',
-    };
-  }
+  const readiness = populationReadinessIssue(set);
+  if (readiness) return { source: null, issue: readiness.message };
   const configuredMask = state.population.mask;
   if (configuredMask && configuredMask.setId !== set.id)
     return { source: null, issue: 'The selected population mask belongs to another dataset.' };
@@ -390,7 +384,7 @@ export class PopulationProbeController {
         this.publish({
           ...this.snapshot,
           pending: false,
-          error: formatTauriError(error),
+          error: plainStudioSourceError(formatTauriError(error)),
         });
     } finally {
       if (this.activeAbort === abort) this.activeAbort = null;

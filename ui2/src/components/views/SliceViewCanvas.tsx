@@ -68,6 +68,7 @@ import { isClickOnData, useLayerEdgeBounds } from "./clickDataBounds";
 import { useColorbarGroup, useViewportFrameStore } from "./viewportFrame/viewportFrameStore";
 import { ColorbarFit, placeColorbarBlock } from "./viewportFrame/colorbarPlacement";
 import { measureColorbar } from "./viewportFrame/colorbarMeasure";
+import { ViewportColorbarStrip } from "./viewportFrame/ViewportColorbarStrip";
 import { dataRectOnPane, paneRectFromKey, paneRectKey } from "./viewportFrame/paneGeometry";
 import {
   OrientationLabels,
@@ -478,7 +479,11 @@ function SliceViewCanvasBody({
   // colorbar uses (the volume's on-screen bounds vs the pane): one view per
   // colorbar group hosts it, chosen with hysteresis (viewportFrameStore).
   // The side letters are centred on the whole panel, slider included.
-  const { group: colorbarGroup } = useColorbarGroup();
+  const {
+    group: colorbarGroup,
+    compactOnImageBelow = 0,
+    offImage: colorbarOffImage = false,
+  } = useColorbarGroup();
   const sideLetterY = (canvasHeight + SLIDER_HEIGHT) / 2;
   // The block's forms, measured once per layer (review W4) and with the same
   // inputs in every view: only the host samples a caret value, so measuring
@@ -501,11 +506,17 @@ function SliceViewCanvasBody({
         avoidPoint: crosshairPoint,
         topReserve: topRightReserve,
         sideLetterY,
+        compactOnImageBelow,
+        offImage: colorbarOffImage,
       },
       colorbarForms,
     );
-    if (!placed) return { fit: ColorbarFit.None, room: 0 };
-    return { fit: placed.fit, room: placed.fit === ColorbarFit.Corner ? 0 : Math.round(placed.room) };
+    if (!placed) return { fit: ColorbarFit.None, room: 0, below: false };
+    return {
+      fit: placed.fit,
+      room: placed.fit === ColorbarFit.Corner ? 0 : Math.round(placed.room),
+      below: placed.slot === "below",
+    };
   }, [
     hasLayers,
     colorbarForms,
@@ -516,11 +527,22 @@ function SliceViewCanvasBody({
     canvasHeight,
     topRightReserve,
     sideLetterY,
+    compactOnImageBelow,
+    colorbarOffImage,
   ]);
   // While a resize or zoom runs (a splitter drag) the colorbar holds its
   // slot and its view; it chooses again once quiet (the image and the pane
   // disagree mid-drag, and re-choosing flickered the bar across the brain).
   const colorbarHold = useSyncExternalStore(subscribeRenderRatio, renderInteractionActive);
+  // An off-image legend with no margin to sit in is drawn as a strip beside
+  // the slice slider, under the canvas. Held through a resize like the slot.
+  const colorbarBelowSettled = useRef(false);
+  const colorbarBelow = colorbarHold
+    ? colorbarBelowSettled.current
+    : colorbarOffImage && !!colorbarFit?.below;
+  useEffect(() => {
+    if (!colorbarHold) colorbarBelowSettled.current = colorbarBelow;
+  }, [colorbarHold, colorbarBelow]);
   useEffect(() => {
     if (colorbarHold) return;
     const setSlot = useViewportFrameStore.getState().setSlot;
@@ -833,7 +855,7 @@ function SliceViewCanvasBody({
             rangeMm={headerRangeMm}
           />
         )}
-        {showColorbar && colorbarLayer && (
+        {showColorbar && colorbarLayer && !colorbarBelow && (
           <ViewportColorbar
             layer={colorbarLayer}
             width={width}
@@ -845,6 +867,8 @@ function SliceViewCanvasBody({
             sideLetterY={sideLetterY}
             hold={colorbarHold}
             value={colorbarReading?.value ?? null}
+            compactOnImageBelow={compactOnImageBelow}
+            offImage={colorbarOffImage}
           />
         )}
 
@@ -880,17 +904,22 @@ function SliceViewCanvasBody({
       {/* Slider positioned at the bottom */}
       {hasLayers && (
         <div
-          className="absolute bottom-0 left-0 right-0"
+          className="absolute bottom-0 left-0 right-0 flex items-stretch"
           style={{ height: `${SLIDER_HEIGHT}px` }}
         >
-          <SliceSlider
-            viewType={viewId}
-            value={sliderValue}
-            min={sliderBounds.min}
-            max={sliderBounds.max}
-            step={sliderBounds.step}
-            onChange={handleSliderChange}
-          />
+          <div className="min-w-0 flex-1">
+            <SliceSlider
+              viewType={viewId}
+              value={sliderValue}
+              min={sliderBounds.min}
+              max={sliderBounds.max}
+              step={sliderBounds.step}
+              onChange={handleSliderChange}
+            />
+          </div>
+          {showColorbar && colorbarLayer && colorbarBelow && (
+            <ViewportColorbarStrip layer={colorbarLayer} rowWidth={width} />
+          )}
         </div>
       )}
 

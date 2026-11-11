@@ -749,12 +749,10 @@ fn sample_row(
         mask.validate_grid(volume)?;
     }
     let (dimensions, affine) = grid(volume)?;
-    if dimensions != plan.dimensions
-        || affine
-            .iter()
-            .zip(plan.affine.iter())
-            .any(|(a, b)| (a - b).abs() > 1e-5)
-    {
+    // The Set studio grid audit (`field_table`'s `TableSupportSignature`)
+    // decides "one grid" from headers through this same comparison, so a set
+    // it passes is not refused here for its grid.
+    if dimensions != plan.dimensions || !nifti_loader::affines_match(&affine, &plan.affine) {
         return Err(input(
             "Population sources have different voxel grids or world affines.",
         ));
@@ -1988,6 +1986,58 @@ mod tests {
             .evaluate(req, &state, SampleCancellation::default())
             .await
             .is_err());
+    }
+
+    /// Set studio audits a set's grid from file headers; Population checks it
+    /// again on the loaded volumes. Both go through
+    /// `nifti_loader::affines_match`, so they agree at the tolerance's edge:
+    /// what the headers call one grid is sampled, and what they call two is
+    /// refused.
+    #[tokio::test]
+    async fn population_slice_grid_check_agrees_with_the_header_audit() {
+        // The origin tolerance is `GRID_ORIGIN_TOLERANCE_MM` (1e-3 mm): a
+        // shift above the 3×3 block's 1e-5 is still one grid.
+        for (shift, same_grid) in [
+            (0.9e-5f32, true),
+            (1.2e-5, true),
+            (0.9e-3, true),
+            (1.2e-3, false),
+            (10.0, false),
+        ] {
+            let sources = vec![
+                TestSource::new(&[3, 3, 3], &[1.; 27]),
+                TestSource::new(&[3, 3, 3], &[2.; 27]),
+            ];
+            let mut bytes = std::fs::read(&sources[1].path).unwrap();
+            let origin = f32::from_le_bytes(bytes[292..296].try_into().unwrap());
+            assert_eq!(origin, 0.0, "the shift must not be absorbed by rounding");
+            bytes[292..296].copy_from_slice(&shift.to_le_bytes()); // sform translation
+            std::fs::write(&sources[1].path, bytes).unwrap();
+
+            let headers = sources
+                .iter()
+                .map(|source| nifti_loader::read_header_summary(&source.path).unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(headers[0].dim, headers[1].dim);
+            assert_eq!(
+                nifti_loader::affines_match(&headers[0].affine, &headers[1].affine),
+                same_grid,
+                "header audit at shift {shift}"
+            );
+
+            let state = BridgeState::default().unwrap();
+            let result = state
+                .population_slice
+                .evaluate(request(&sources), &state, SampleCancellation::default())
+                .await;
+            match result {
+                Ok(_) => assert!(same_grid, "population accepted shift {shift}"),
+                Err(error) => {
+                    assert!(!same_grid, "population refused shift {shift}: {error}");
+                    assert!(error.to_string().contains("different voxel grids"));
+                }
+            }
+        }
     }
 
     #[tokio::test]

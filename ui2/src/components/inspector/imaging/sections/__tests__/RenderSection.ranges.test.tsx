@@ -372,5 +372,22 @@ describe('Inspector label layers (P3 item 4)', () => {
     expect(screen.getByText('Opacity')).toBeInTheDocument();
     expect(screen.getByText('From label table')).toBeInTheDocument();
   });
+
+  it('offers no window, threshold or colormap for a mask layer, which is drawn as a flat fill', () => {
+    viewStore.current.getState().setViewState((draft: { layers: Array<VL & { layerMode?: string }> }) => {
+      draft.layers[0].layerMode = 'mask';
+    });
+    render(<RenderSection item={item} />);
+    expect(screen.queryByRole('slider', { name: 'Intensity low' })).toBeNull();
+    expect(screen.queryByRole('slider', { name: 'Threshold low' })).toBeNull();
+    expect(screen.queryByText('Colormap')).toBeNull();
+    expect(screen.getByText('Opacity')).toBeInTheDocument();
+  });
+
+  it('offers the colormap for a scalar layer', () => {
+    render(<RenderSection item={item} />);
+    expect(screen.getByRole('slider', { name: 'Intensity low' })).toBeInTheDocument();
+    expect(screen.getByText('Colormap')).toBeInTheDocument();
+  });
 });
 

@@ -12,6 +12,12 @@
  * - surface overlay load
  */
 
+import {
+  findRemoteMountFor,
+  noteRemoteConnectionFailure,
+  reconnectRemoteMount,
+} from './RemoteReconnectService';
+import { connectionLostTitle } from '@/utils/remoteConnectionError';
 import { trackSingleLoad } from './loadSelection';
 import { getTransport } from './transport';
 import type { WorkspaceBrowserTransport } from './browser/WorkspaceBrowserTransport';
@@ -467,9 +473,17 @@ export class DisplayLifecycleOrchestrator {
       const failure = toError(error);
       useLoadingQueueStore.getState().markError(queueId, failure);
       this.eventBus.emit('file.error', { path, error: failure });
+      // A dropped remote session is said as one, with the way back to it.
+      const connectionLost = noteRemoteConnectionFailure(path, failure);
+      const lostMount = connectionLost ? findRemoteMountFor(path) : null;
       this.eventBus.emit('ui.notification', {
         type: 'error',
-        message: loadFailureMessage(filename, failure),
+        message: connectionLost
+          ? `Failed to load ${filename}: ${connectionLostTitle(lostMount?.source.host).replace(/^The/, 'the')}`
+          : loadFailureMessage(filename, failure),
+        ...(lostMount
+          ? { action: { label: 'Reconnect', run: () => void reconnectRemoteMount(path) } }
+          : {}),
         subject: filename,
         // No free GPU slot is a refusal: float its full sentence (N31).
         ...(gpuTextureSlotsFullLimit(failure) !== null ? { alert: true } : {}),

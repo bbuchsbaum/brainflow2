@@ -14,6 +14,21 @@
   transition: background-color var(--bf-motion-fast) ease;
 }
 
+/* Each row is its own size container, so a row's contents can answer to the
+   row's width without an observer per row. On the row, not the tree: layout
+   containment would re-anchor anything `position: fixed` inside the tree. */
+.file-tree-item {
+  container: fb-tree-row / inline-size;
+}
+
+/* A narrow panel: the folder name keeps the row, and a count marker
+   ("3 analyses") drops its unit. The button's name still says what it is. */
+@container fb-tree-row (max-width: 300px) {
+  .file-tree-item .dataset-marker-unit {
+    display: none;
+  }
+}
+
 .file-tree-item[data-drag-source='file'] {
   cursor: grab;
 }

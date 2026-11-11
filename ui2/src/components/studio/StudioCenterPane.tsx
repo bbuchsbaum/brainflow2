@@ -17,6 +17,7 @@ import type {
 } from '@/types/studio';
 import { LensCanvas } from './LensCanvas';
 import { StudioLensSwitcher } from './StudioLensSwitcher';
+import { StudioBackgroundControl } from './StudioBackgroundControl';
 import { StudioStrip } from './StudioStrip';
 import { StudioTimeRow } from './StudioTimeRow';
 import { PopulationProbePanel } from './PopulationProbePanel';
@@ -262,14 +263,20 @@ export function StudioCenterPane() {
   return (
     // A stable scroll gutter: the column scrolls from its right edge and
     // margins while a wheel over a map steps that map's slice (QA N13).
+    // It scrolls down only: chrome wraps to the column's width, so nothing
+    // is ever reached by scrolling sideways.
     <div
       ref={setColumn}
       data-studio-column
-      className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1 [scrollbar-gutter:stable]"
+      className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]"
     >
       <div
         ref={setToolbar}
-        className="sticky top-0 z-20 flex min-w-0 shrink-0 flex-wrap items-center gap-2 rounded-sm border border-border bg-card px-2 py-1 lg:flex-nowrap"
+        // Wraps to the column's width (not the window's): the centre column
+        // is narrow in a wide window, where a viewport breakpoint kept this
+        // on one line and clipped it. Its height is measured, so the lens
+        // below gives up exactly what a second row takes.
+        className="sticky top-0 z-20 flex min-w-0 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-sm border border-border bg-card px-2 py-1"
         aria-label="Set studio toolbar"
       >
         <StudioLensSwitcher
@@ -281,8 +288,18 @@ export function StudioCenterPane() {
           cohorts={cohortList}
           onSelectCompareCohort={setCompareCohort}
         />
-        <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
-        <div ref={setSlot} className="flex min-w-0 flex-1 flex-nowrap items-center justify-end gap-2" />
+        {/* One home for the set's background: it serves all three lenses. */}
+        {activeSet?.supportKind === 'volume' ? (
+          <>
+            <StudioBackgroundControl />
+          </>
+        ) : null}
+        {/* The lens's own controls: beside the switcher while they fit, else
+            a row of their own, wrapping there if they must. */}
+        <div
+          ref={setSlot}
+          className="flex min-w-0 flex-auto flex-wrap items-center justify-end gap-x-2 gap-y-1"
+        />
       </div>
 
       <StudioToolbarSlotContext.Provider value={slot}>

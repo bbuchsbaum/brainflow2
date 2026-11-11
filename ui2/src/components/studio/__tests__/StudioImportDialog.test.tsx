@@ -782,7 +782,7 @@ describe('StudioImportDialog', () => {
     useSetStudioStore.getState().setImportPreviewResult('regex', [makeDiscoveryCandidate()], 'backend');
     render(<StudioImportDialog />);
 
-    fireEvent.keyDown(screen.getByRole('checkbox', { name: 'Sample headers' }), { key: 'Enter' });
+    fireEvent.keyDown(screen.getByRole('checkbox', { name: 'Check image grids before opening' }), { key: 'Enter' });
 
     expect(useSetStudioStore.getState().importDialog.isOpen).toBe(true);
   });

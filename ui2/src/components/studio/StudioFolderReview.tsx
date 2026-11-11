@@ -1,10 +1,11 @@
 import { displayFolderFile } from '@/services/studio/folderSource';
 import { useEffect, useState } from 'react';
-import { FolderOpen, RefreshCw } from 'lucide-react';
-import { Button, Notice, NumberField, Select, TextField } from '@/components/ui/bf';
+import { Check, FolderOpen, RefreshCw } from 'lucide-react';
+import { Button, Checkbox, Notice, NumberField, Select, TextField } from '@/components/ui/bf';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { getSetIngestionService } from '@/services/studio/SetIngestionService';
 import { canImportCandidate } from '@/services/studio/importContract';
+import { folderReviewReasonLine, folderReviewSummary } from '@/services/studio/folderOpenDecision';
 
 const PAGE_SIZE = 40;
 
@@ -12,14 +13,22 @@ const PAGE_SIZE = 40;
 export function StudioFolderReview() {
   const dialog = useSetStudioStore((state) => state.importDialog);
   const candidates = useSetStudioStore((state) => state.importCandidates);
+  // Why this review is shown, when the folder was asked to be opened in one step.
+  const reviewReason = useSetStudioStore((state) =>
+    state.studioFolderReviewReason?.root === state.importDialog.discoveryRoot
+      ? state.studioFolderReviewReason.reason
+      : null,
+  );
   const service = getSetIngestionService();
   useEffect(() => service.retainFolderReview(), [service]);
   const [path, setPath] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  const [opening, setOpening] = useState(false);
   const candidate = dialog.selectedCandidateId ? candidates[dialog.selectedCandidateId] : null;
   const summary = dialog.ontologyPreview;
   const source =
     dialog.folderSource?.root === dialog.discoveryRoot ? dialog.folderSource : undefined;
+  const remote = !!source && source.displayPath !== source.root;
   const discovery = candidate?.discovery;
   const busy = dialog.isLoading || dialog.isOntologyLoading;
   const proposal = summary?.candidates.find((item) => item.filePattern === dialog.filePattern);
@@ -32,6 +41,14 @@ export function StudioFolderReview() {
     (count, group) =>
       count +
       images.filter((image) => !group.bindings.some((binding) => binding.role === image)).length,
+    0,
+  );
+  const repeated = groups.reduce(
+    (count, group) =>
+      count +
+      images.filter(
+        (image) => group.bindings.filter((binding) => binding.role === image).length > 1,
+      ).length,
     0,
   );
   const truncated = summary?.truncated || discovery?.truncated;
@@ -48,7 +65,12 @@ export function StudioFolderReview() {
             <FolderOpen size={18} />
             Open set
           </h1>
-          <Button variant="ghost" size="sm" onClick={() => void service.chooseFolderReview()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            // Already reviewing: another folder is reviewed too, not opened unseen.
+            onClick={() => void service.chooseFolderReview({ review: true })}
+          >
             Change folder…
           </Button>
         </div>
@@ -68,13 +90,16 @@ export function StudioFolderReview() {
           role="status"
           aria-live="polite"
         >
-          <span>
-            {dialog.isOntologyLoading
-              ? 'Finding images…'
-              : dialog.isLoading
-                ? 'Checking organization…'
-                : `${groups.length} members · ${images.length} images`}
-          </span>
+          <div className="min-w-0">
+            <span>
+              {dialog.isOntologyLoading
+                ? 'Finding images…'
+                : dialog.isLoading
+                  ? 'Checking organization…'
+                  : folderReviewSummary(groups.length, images.length, missing, repeated)}
+            </span>
+            {reviewReason && !busy && <p>{folderReviewReasonLine(reviewReason)}</p>}
+          </div>
           <Button
             variant="secondary"
             size="sm"
@@ -146,8 +171,9 @@ export function StudioFolderReview() {
             >
               <table className="w-full border-collapse text-left text-bf-md">
                 <caption className="sr-only">
-                  Members as rows and images as columns. Select an available image to inspect its
-                  source path.
+                  Members as rows and images as columns. A check mark is an image that is present;
+                  select it to see its source path. Missing images and images with more than one
+                  file are written out.
                 </caption>
                 <thead className="bg-muted">
                   <tr>
@@ -171,9 +197,12 @@ export function StudioFolderReview() {
                           <td key={image} className="p-2">
                             {bindings.length ? (
                               <Button
-                                variant="link"
+                                variant={bindings.length > 1 ? 'link' : 'ghost'}
                                 className="min-h-6"
                                 size="sm"
+                                title={
+                                  bindings.length > 1 ? undefined : 'Available: show source path'
+                                }
                                 onClick={() =>
                                   setPath(
                                     bindings
@@ -185,12 +214,18 @@ export function StudioFolderReview() {
                                 }
                                 aria-label={`${group.memberId}, ${image}: ${bindings.length > 1 ? `${bindings.length} files` : 'Available'}`}
                               >
-                                {bindings.length > 1
-                                  ? `${bindings.length} files — review`
-                                  : 'Available'}
+                                {bindings.length > 1 ? (
+                                  `${bindings.length} files: review`
+                                ) : (
+                                  // Present is the rule: a quiet mark. Words are for exceptions.
+                                  <Check
+                                    aria-hidden
+                                    className="h-3.5 w-3.5 text-muted-foreground"
+                                  />
+                                )}
                               </Button>
                             ) : (
-                              <span className="px-2 text-muted-foreground">Missing</span>
+                              <span className="px-2 font-medium text-foreground">Missing</span>
                             )}
                           </td>
                         );
@@ -226,13 +261,17 @@ export function StudioFolderReview() {
             )}
             {missing > 0 && (
               <p className="mt-3 text-bf-md text-muted-foreground">
-                {missing} missing image assignments. Available images can still be browsed.
+                {missing} {missing === 1 ? 'image is' : 'images are'} missing. The images that are
+                present can still be browsed.
               </p>
             )}
           </>
         )}
         {path && (
-          <div className="mt-3 rounded-sm border border-border p-3 text-bf-sm" aria-label="Image source">
+          <div
+            className="mt-3 rounded-sm border border-border p-3 text-bf-sm"
+            aria-label="Image source"
+          >
             <div className="mb-2 flex items-center justify-between">
               <strong>Source path</strong>
               <Button size="sm" variant="ghost" onClick={() => setPath(null)}>
@@ -298,31 +337,58 @@ export function StudioFolderReview() {
               />
             </label>
             <Button
-              variant="secondary" size="sm"
+              variant="secondary"
+              size="sm"
               disabled={busy || !dialog.discoveryRoot.trim()}
               onClick={() => void service.openImportPreview('regex')}
             >
               Check filename matching
             </Button>
+            <Checkbox
+              className="text-bf-sm"
+              checked={dialog.discoverySampleHeaders}
+              disabled={busy}
+              onCheckedChange={(checked) => void service.setFolderReviewGridCheck(checked)}
+            >
+              Check image grids before opening
+            </Checkbox>
             <p className="text-bf-sm text-muted-foreground">
-              Discovery lists files without downloading images. Image information is checked when a
-              member is opened; population operations check their required inputs separately.
+              {dialog.discoverySampleHeaders
+                ? remote
+                  ? 'Every image header is read over the connection to confirm the images share one grid; no image is downloaded. Population and Compare need this; it takes longer on large folders.'
+                  : 'Every image header is read to confirm the images share one grid. Population and Compare need this; it takes longer on large folders.'
+                : remote
+                  ? 'Files are listed without downloading images, and each image is downloaded when its member is opened. Population and Compare stay unavailable until the image grids are checked.'
+                  : 'Files are listed without reading images, and each image is read when its member is opened. Population and Compare stay unavailable until the image grids are checked.'}
             </p>
           </div>
         </details>
       </div>
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-background p-4">
         <p className="min-w-0 flex-1 text-bf-sm text-muted-foreground">
-          {candidate && !canImportCandidate(candidate)
-            ? candidate.contract.reason
-            : 'Open for browsing.'}
+          {opening
+            ? 'Checking files before opening…'
+            : busy
+              ? 'Checking files…'
+              : candidate && !canImportCandidate(candidate)
+                ? candidate.contract.reason
+                : 'Open for browsing.'}
         </p>
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={() => service.cancelReview()}>
             Cancel
           </Button>
-          <Button variant="primary" size="sm" disabled={!canOpen} onClick={() => void service.confirmReview()}>
-            Open set
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!canOpen || opening}
+            aria-busy={opening || undefined}
+            onClick={() => {
+              setOpening(true);
+              void service.confirmReview().finally(() => setOpening(false));
+            }}
+          >
+            {opening ? 'Opening…' : 'Open set'}
           </Button>
         </div>
       </footer>

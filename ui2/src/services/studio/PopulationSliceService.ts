@@ -1,3 +1,8 @@
+import {
+  awaitRequestSources,
+  noteRequestRefusal,
+} from '@/services/studio/StudioSourceFetchService';
+import { plainStudioSourceError } from '@/services/studio/studioSourceErrors';
 import { inferenceMethod, inferenceChannel, inferenceActive } from './inferenceCatalog';
 import { inferenceIssue, importedInferenceIssue } from './populationInference';
 import type { PopulationInferenceSpec } from '@/types/population';
@@ -13,6 +18,7 @@ import { getTransport } from '@/services/transport';
 import { formatTauriError } from '@/utils/formatTauriError';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useSetStudioStore } from '@/stores/setStudioStore';
+import { activeStudioBackground, populationUnderlaySource } from './studioBackground';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
 import { buildPopulationSource, populationSupportKey } from './PopulationProbeController';
 import { resolvePopulation } from './populationContext';
@@ -204,6 +210,9 @@ export function checkedPopulationSliceData(result: unknown): PopulationSliceData
 const native: Dependencies = {
   async evaluate(request, signal) {
     signal.throwIfAborted();
+    // A remote set's images are fetched before the ticket's two minutes start.
+    const fetching = awaitRequestSources(request, signal);
+    if (fetching) await fetching;
     const ticket = { id: crypto.randomUUID(), expiresAtMs: Date.now() + 120_000 };
     const cancel = () => {
       void Promise.resolve()
@@ -218,6 +227,10 @@ const native: Dependencies = {
       });
       signal.throwIfAborted();
       return checkedPopulationSliceData(result);
+    } catch (error) {
+      // A refusal of an unfetched image goes to the fetch, which offers Retry.
+      noteRequestRefusal(error, request);
+      throw error;
     } finally {
       signal.removeEventListener('abort', cancel);
     }
@@ -227,6 +240,9 @@ const native: Dependencies = {
   },
   async peak(request, signal) {
     signal.throwIfAborted();
+    // A remote set's images are fetched before the ticket's two minutes start.
+    const fetching = awaitRequestSources(request, signal);
+    if (fetching) await fetching;
     const ticket = { id: crypto.randomUUID(), expiresAtMs: Date.now() + 120_000 };
     const cancel = () => {
       void Promise.resolve()
@@ -477,31 +493,13 @@ function reusableUnderlay(
   return cutoutsMatch ? { values: shown.values, cutouts: shown.cutouts } : { values: shown.values };
 }
 
-/** Anatomy per declared template space (TemplateFlow IDs the app resolves). */
-const SPACE_UNDERLAYS: Record<string, string> = {
-  MNI152NLin2009cAsym: 'template:MNI152NLin2009cAsym_brain_1mm',
-  MNI152NLin6Asym: 'template:MNI152NLin6Asym_T1w_1mm',
-  MNIColin27: 'template:MNIColin27_T1w_native',
-  MNI305: 'template:MNI305_T1w_native',
-};
 /**
- * The anatomy image drawn under a set's population maps, or why there is
- * none. Neither NeuroTabs manifests nor set summaries carry a reference image,
- * so only a support that declares a known template space ("<space> (<grid>)")
- * gets that template. An undeclared, subject-native or unknown space gets the
- * dark pane: a template under native data would misregister. Natively the
- * template must also cover the population grid, or it is reported missing.
+ * The anatomy image drawn under a set's population maps is the set's
+ * background (studioBackground.ts): the user's choice, else the template of
+ * the set's declared space. Natively the template must also cover the
+ * population grid, or it is reported missing.
  */
-export function populationUnderlaySource(supportLabel: string | null | undefined): {
-  sourcePath: string | null;
-  issue: string | null;
-} {
-  const space = /^(\S+) \(/.exec(supportLabel ?? '')?.[1];
-  if (!space) return { sourcePath: null, issue: 'space not declared' };
-  if (!Object.hasOwn(SPACE_UNDERLAYS, space))
-    return { sourcePath: null, issue: `no template for ${space}` };
-  return { sourcePath: SPACE_UNDERLAYS[space], issue: null };
-}
+export { populationUnderlaySource };
 
 /** A short status hint when a shown population map has no anatomy under it. */
 export function populationAnatomyStatus(display: Pick<PopulationSliceDisplay, 'query' | 'data'>) {
@@ -631,9 +629,8 @@ export function buildPopulationSliceQuery(
       inferenceIssue(inference, aggregation, reference?.aggregation);
     if (testIssue) return { query: null, issue: testIssue };
   }
-  const underlay = populationUnderlaySource(
-    state.sets[state.selection.activeSetId ?? '']?.supportLabel,
-  );
+  // The user's background choice wins over the space default; "None" too.
+  const underlay = activeStudioBackground(state);
   const request: PopulationSliceRequest = {
     ...viewOptions,
     ...(underlay.sourcePath ? { underlay: { sourcePath: underlay.sourcePath } } : {}),
@@ -1412,7 +1409,7 @@ export class PopulationSliceService {
       this.startPeak(query);
     } catch (error) {
       if (this.active && version === this.generation)
-        this.publish({ ...this.snapshot, pending: false, error: formatTauriError(error) });
+        this.publish({ ...this.snapshot, pending: false, error: plainStudioSourceError(formatTauriError(error)) });
     } finally {
       if (this.abort === abort) this.abort = null;
       this.busy = false;

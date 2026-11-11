@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-fetch-studio-sources"
+description = "Enables the fetch_studio_sources command without any pre-configured scope."
+commands.allow = ["fetch_studio_sources"]
+
+[[permission]]
+identifier = "deny-fetch-studio-sources"
+description = "Denies the fetch_studio_sources command without any pre-configured scope."
+commands.deny = ["fetch_studio_sources"]

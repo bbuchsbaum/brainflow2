@@ -85,44 +85,46 @@ export function InspectorPane({
       const parts = artifact.sourcePath.split(/[\\/]/);
       return parts[parts.length - 1] || artifact.sourcePath;
     }
-    return artifact.materializationKey ?? 'No binding key';
+    return artifact.materializationKey ?? 'No file';
   };
 
   const materializedLabel = (artifact: StudioArtifactSummary | null): string => {
     if (!artifact) {
-      return 'Not materialized';
+      return 'Not computed';
     }
     if (artifact.materializedAtMs) {
       return formatTimestamp(artifact.materializedAtMs);
     }
     if (artifact.cacheStatus === 'source') {
-      return 'Source-backed';
+      return 'Read from the image file';
     }
     if (artifact.cacheStatus === 'failed') {
-      return 'Materialization failed';
+      return 'Could not be computed';
     }
     if (artifact.cacheStatus === 'synthetic') {
-      return 'Synthetic preview';
+      return 'Example image';
     }
-    return artifact.bindingKind === 'derived_field' ? 'Pending or not cached' : 'Source-backed';
+    return artifact.bindingKind === 'derived_field'
+      ? 'Not computed yet'
+      : 'Read from the image file';
   };
 
   const cacheLabel = (artifact: StudioArtifactSummary | null): string => {
     switch (artifact?.cacheStatus) {
       case 'source':
-        return 'Source-backed';
+        return 'Read from the image file';
       case 'hit':
-        return 'Cache hit';
+        return 'Reused from cache';
       case 'miss':
-        return 'Cache miss';
+        return 'Computed';
       case 'stale':
-        return 'Rebuilt stale cache';
+        return 'Recomputed (the cached copy was out of date)';
       case 'forced':
-        return 'Forced rematerialization';
+        return 'Recomputed';
       case 'synthetic':
-        return 'Synthetic preview';
+        return 'Example image';
       case 'failed':
-        return 'Materialization failed';
+        return 'Could not be computed';
       case 'unavailable':
         return 'Unavailable';
       default:
@@ -253,10 +255,10 @@ export function InspectorPane({
                   { label: 'Active', value: activeArtifact?.title ?? activeMemberId ?? 'No member selected' },
                   {
                     label: 'Source',
-                    value: activeArtifact?.sourcePath ?? activeMember?.sourcePath ?? 'No bound file path',
+                    value: activeArtifact?.sourcePath ?? activeMember?.sourcePath ?? 'No file',
                   },
                   {
-                    label: 'Expression',
+                    label: 'Computed as',
                     value: activeArtifact?.recipe ?? activeExpression?.recipe ?? 'Deck(member)',
                   },
                   { label: 'Compare', value: activeCompareLabel, mono: false },
@@ -264,7 +266,7 @@ export function InspectorPane({
                   { label: 'Cache', value: cacheLabel(activeArtifact), mono: false },
                   {
                     label: 'Provenance',
-                    value: activeArtifact?.provenancePath ?? 'No manifest-backed provenance path',
+                    value: activeArtifact?.provenancePath ?? 'None recorded',
                   },
                 ]}
               />
@@ -275,8 +277,16 @@ export function InspectorPane({
                 <KeyValue
                   columns={1}
                   items={[
-                    { label: 'Support', value: activeSet.supportLabel },
-                    { label: 'Alignment', value: activeSet.alignmentClass },
+                    {
+                      label: 'Image grids',
+                      value:
+                        activeSet.alignmentClass === 'same-grid'
+                          ? `One grid · ${activeSet.supportLabel}`
+                          : activeSet.alignmentClass === 'mixed'
+                            ? 'Different grids'
+                            : 'Not checked',
+                      mono: false,
+                    },
                     {
                       label: 'Import',
                       value: `${activeSet.ingestAudit.join.matchedRows} matched · ${activeSet.ingestAudit.join.unmatchedRows} unmatched`,

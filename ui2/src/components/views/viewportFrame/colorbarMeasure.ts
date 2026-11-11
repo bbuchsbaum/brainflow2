@@ -4,7 +4,7 @@
  * scale), and its two forms for the placement rule (colorbarPlacement.ts).
  */
 import { statisticVariable } from '@/utils/statistic';
-import { formatLayerValue } from '@/utils/valueFormat';
+import { formatLayerValue, formatReadoutValue } from '@/utils/valueFormat';
 import {
   colorbarTicks,
   colormapVerticalGradient,
@@ -31,6 +31,11 @@ export interface ColorbarLayer {
    * set by `resolveColorbarLayer`.
    */
   nameLabel?: string | null;
+  /**
+   * Tick and value labels keep three significant digits below 1 (a Studio
+   * viewer: a ±0.0145 window must not read "0.01").
+   */
+  preciseTicks?: boolean;
 }
 
 export const BAR_W = 8;
@@ -92,15 +97,20 @@ export function measureColorbar(
   // "z*" already marks a guessed statistic; the tooltip spells it out.
   const fromNameChars = 0;
   const cmap = colormapVerticalGradient(layer.colormap);
-  const exprParts = thresholdExpressionParts(layer.threshold, statisticVariable(layer.units));
   const [wMin, wMax] = layer.intensity;
   const band = hiddenBand(layer.intensity, layer.threshold);
   const capTop = !!band && band[1] >= 1 && !!layer.dataRange && layer.dataRange.max > wMax;
   const capBottom = !!band && band[0] <= 0 && !!layer.dataRange && layer.dataRange.min < wMin;
   const capTopH = capTop ? CAP_H + CAP_GAP : 0;
   const capBottomH = capBottom ? CAP_H + CAP_GAP : 0;
+  const format = layer.preciseTicks ? formatReadoutValue : formatLayerValue;
+  const exprParts = thresholdExpressionParts(
+    layer.threshold,
+    statisticVariable(layer.units),
+    format,
+  );
   const hasValue = value !== null && Number.isFinite(value);
-  const valueLabel = hasValue ? formatLayerValue(value as number) : null;
+  const valueLabel = hasValue ? format(value as number) : null;
 
   const measure = (barH: number, compactForm = false) => {
     const allTicks = colorbarTicks(
@@ -109,6 +119,7 @@ export function measureColorbar(
       Math.max(barH, 1),
       12,
       layer.dataRange,
+      format,
     );
     // Compact (a narrow pane): the bar with its two window ends only.
     const ticks = compactForm ? allTicks.filter((t) => t.kind === 'window') : allTicks;

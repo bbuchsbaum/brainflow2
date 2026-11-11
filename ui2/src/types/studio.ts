@@ -104,7 +104,43 @@ export type SpatialFieldSetSummary = BackendSpatialFieldSetSummary & {
   };
   sourceKind?: StudioSessionSourceKind;
   importContract?: StudioImportContract | null;
+  /** How a folder-opened set was found, kept so its image grids can be checked later. */
+  discoveryRequest?: StudioSetDiscoveryRequest;
+  /**
+   * Where a folder-opened set lives, as the user knows it: the connection
+   * (a remote mount's label) and the folder's path there. The set's `name`
+   * is the folder's own name; this is its secondary text and tooltip.
+   */
+  sourceLocation?: { label?: string; path: string };
 };
+
+export interface StudioSetDiscoveryRequest {
+  root: string;
+  filePattern: string;
+  includePatterns: string[];
+  excludePatterns: string[];
+  rolePatterns: StudioDiscoveryRolePattern[];
+  requiredRoles: string[];
+  maxDepth: number | null;
+  maxFiles: number;
+}
+
+/** An in-place check of the active set's image grids (not part of the import dialog). */
+export interface StudioGridCheckState {
+  status: 'idle' | 'checking' | 'failed';
+  message: string | null;
+  /**
+   * A failed check that was stopped part-way and whose headers the backend
+   * kept: asking again continues it (a remote mount whose check timed out).
+   */
+  resumable?: boolean;
+  /**
+   * The check failed because the remote connection is down: a path on that
+   * mount (the set's folder), so the notice can offer Reconnect and the check
+   * runs again when the mount is back.
+   */
+  connectionLostPath?: string;
+}
 
 export interface StudioSelection {
   activeSetId: string | null;
@@ -172,18 +208,50 @@ export type StudioComparePaneBinding = Omit<BackendStudioComparePaneBinding, 'ma
   materializedAtMs: number | null;
 };
 
+/**
+ * What a Compare pane is still waiting for. Nothing has failed: an input is
+ * not available yet (`grid-check`, `no-member`, `no-group`, `no-comparison`,
+ * `no-mean`) or the set cannot provide it (`different-grids`, `not-confirmed`).
+ */
+export type StudioComparePaneNotReadyKind =
+  | 'grid-check'
+  | 'different-grids'
+  | 'not-confirmed'
+  | 'no-group'
+  | 'no-member'
+  | 'no-comparison'
+  | 'no-mean'
+  /** A remote set's images are not on this computer yet. */
+  | 'fetch';
+
 export type StudioComparePaneSpec = Omit<BackendStudioComparePaneSpec, 'id' | 'binding'> & {
   id: StudioComparePaneId;
   binding: StudioComparePaneBinding | null;
+  /**
+   * Set when the pane has nothing to show because an input is missing, as
+   * opposed to a computation that failed (`status: 'blocked'` without it).
+   */
+  notReady?: { kind: StudioComparePaneNotReadyKind; message: string } | null;
 };
+
+/** One line saying how a folder was opened as a set without the review. */
+export interface StudioOpenNotice {
+  setId: string;
+  message: string;
+  /** The folder, so "Review…" can bring its review up. */
+  root: string;
+}
+
+/** Why a folder asked to be opened in one step stopped at its review. */
+export interface StudioFolderReviewReason {
+  root: string;
+  /** A sentence: "More than one organisation fits this folder." */
+  reason: string;
+}
 
 export type StudioMaterializationJobKind = 'compare-panes';
 export type StudioMaterializationJobState =
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
-  | 'stale';
+  'running' | 'completed' | 'failed' | 'cancelled' | 'stale';
 
 export interface StudioMaterializationJobDescriptor {
   id: string;

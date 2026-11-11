@@ -47,6 +47,15 @@ describe('module layer kinds', () => {
     expect(planLayerPlacement([{ id: 't1', type: 'anatomical' }], layer)).toEqual({ index: 1, opacity: 0.35 });
   });
 
+  it('draws a mask-typed layer as a flat mask only when its data are not known to be continuous', () => {
+    const mask = { type: 'mask' as const };
+    expect(layerRenderMode(mask)).toBe('mask');
+    expect(layerRenderMode(mask, false, true)).toBe('mask');
+    expect(layerRenderMode(mask, false, false)).toBe('scalar');
+    expect(layerRenderMode({ type: 'label' as const }, false, false)).toBe('label');
+    expect(layerRenderMode({ type: 'anatomical' as const }, true, false)).toBe('label');
+  });
+
   it('falls back to the saved core type after disable, and refuses new unavailable kinds', () => {
     act(() => useModuleSettingsStore.getState().setModuleEnabled(manifest.id, false));
     const layer = { type: 'label' as const, layerKind: kind.id };

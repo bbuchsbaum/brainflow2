@@ -1,11 +1,13 @@
 pub mod atlas_roi;
 mod bids_commands;
 mod bids_index;
+mod dataset_card;
 mod population_mask;
 mod population_plot_export;
 mod population_sampling;
 mod population_slice;
 mod set_sample_cache;
+mod studio_source_fetch;
 pub use atlas_roi::AtlasRoiLocation;
 use population_sampling::{SampleCancellation, SampleTicket};
 pub mod parcel_overlay;
@@ -143,6 +145,7 @@ pub use clusters::{
     ClusterSummary, ClusterTable, ComputeClustersRequest, ExtentStatistic, ExtentWithheld, FwhmMm,
     RftExtentRequest, SubPeak,
 };
+use dataset_card::{get_dataset_card, get_sidecar_card, probe_dataset_markers};
 use image_export::save_image_bytes;
 pub use region_locus::{LabelSource, RegionLocus};
 use temporal_metric::compute_temporal_metric_plane;
@@ -1299,7 +1302,10 @@ pub struct BridgeState {
     // Byte-bounded decoded payloads; source snapshot identity is retained for plots.
     pub set_sample_cache: set_sample_cache::SetSampleCache,
     population_sampling: population_sampling::PopulationSampling,
+    studio_source_fetches: Arc<studio_source_fetch::StudioSourceFetches>,
     population_slice: population_slice::PopulationSliceEngine,
+    // Dataset markers and cards of browsed folders, validated against listings.
+    dataset_cards: dataset_card::DatasetCardCache,
     // Precomputed volume->surface samplers keyed by sampler handle (vol2surf M5).
     // Built once per (surface, template grid); reused across timepoints/volumes.
     pub surface_samplers: Arc<Mutex<HashMap<String, SurfaceSamplerEntry>>>,
@@ -1352,7 +1358,9 @@ impl BridgeState {
             pending_remote_auth: Arc::new(Mutex::new(HashMap::new())),
             set_sample_cache: set_sample_cache::SetSampleCache::default(),
             population_sampling: population_sampling::PopulationSampling::default(),
+            studio_source_fetches: Arc::default(),
             population_slice: population_slice::PopulationSliceEngine::default(),
+            dataset_cards: dataset_card::DatasetCardCache::default(),
             surface_samplers: Arc::new(Mutex::new(HashMap::new())),
             resident_image_sets: Arc::new(Mutex::new(HashMap::new())),
             render_skipped_layers: Arc::new(Mutex::new(HashMap::new())),
@@ -1682,7 +1690,64 @@ fn remote_cache_metadata_matches(
         && metadata.remote_modified_unix_secs == remote_stat_modified_unix_secs(remote_stat)
 }
 
+/// The one code for "the SSH session serving this mount is gone", whatever
+/// operation found out. The UI offers Reconnect on it.
+pub(crate) const REMOTE_SESSION_LOST_CODE: u16 = 8266;
+
+/// What the transport says when the connection under a channel ended. A
+/// request that timed out on a session that is still up is not among them,
+/// nor is "Channel send error", which `remotely` retries on a live session.
+const REMOTE_TRANSPORT_GONE: &[&str] = &[
+    "session closed",
+    "sender dropped",
+    "disconnected",
+    "connection closed by the remote side",
+    "could not reach the event loop",
+    "broken pipe",
+    "connection reset",
+    "connection aborted",
+    "not connected",
+    "unexpected eof",
+    "unexpected end of file",
+    "early eof",
+];
+
+/// Whether `err` says the session or its transport is gone, as opposed to a
+/// refused login, a missing file or a slow answer on a live session.
+fn remote_session_lost(err: &remotely::Error) -> bool {
+    use remotely::error::SshError;
+    let transport_gone = |reason: &str| {
+        let reason = reason.to_ascii_lowercase();
+        REMOTE_TRANSPORT_GONE
+            .iter()
+            .any(|marker| reason.contains(marker))
+    };
+    match err {
+        remotely::Error::Context { source, .. } => remote_session_lost(source),
+        remotely::Error::Ssh(SshError::Disconnected) => true,
+        // An established channel that failed: the SFTP stream ended under a
+        // request, or a new channel could not be opened on a dead transport.
+        remotely::Error::Ssh(SshError::ChannelError(reason)) => {
+            (reason.starts_with("SFTP transport error:")
+                || reason.starts_with("failed to open channel:"))
+                && transport_gone(reason)
+        }
+        remotely::Error::Ssh(SshError::Protocol(reason)) => transport_gone(reason),
+        _ => false,
+    }
+}
+
+/// Codes of the sign-in itself. A handshake the server hung up on never had a
+/// session to lose, so it keeps its own code.
+const REMOTE_HANDSHAKE_CODES: [u16; 3] = [8221, 8224, 8227];
+
 fn map_remotely_error(err: remotely::Error, code: u16) -> BridgeError {
+    if !REMOTE_HANDSHAKE_CODES.contains(&code) && remote_session_lost(&err) {
+        return BridgeError::Io {
+            code: REMOTE_SESSION_LOST_CODE,
+            details: err.to_string(),
+        };
+    }
     match &err {
         remotely::Error::Readiness(remotely::error::ReadinessError::RemotePathNotDirectory {
             ..
@@ -2211,8 +2276,105 @@ async fn materialize_remote_file_if_needed(state: &BridgeState, path: &Path) -> 
     let Some((mount, remote_path)) = resolve_remote_mount_for_local_path(state, path).await else {
         return Ok(());
     };
+    materialize_remote_file_on(state, mount, remote_path, path).await
+}
 
-    let _cache_admission = remote_cache::ADMISSION.lock().await;
+/// Whether the cached copy at `path` is the remote file `remote_stat`
+/// describes: the same length, and a sidecar recording that size and mtime.
+async fn remote_cache_copy_is_current(
+    mount: &RemoteMountEntry,
+    remote_path: &str,
+    path: &Path,
+    remote_stat: &remotely::fs::Metadata,
+) -> BridgeResult<bool> {
+    if !tokio::fs::metadata(path)
+        .await
+        .is_ok_and(|metadata| metadata.len() == remote_stat.size)
+    {
+        return Ok(false);
+    }
+    let metadata_path = remote_cache_metadata_path(mount, path)?;
+    Ok(load_remote_file_cache_metadata(&metadata_path)
+        .await?
+        .is_some_and(|metadata| {
+            remote_cache_metadata_matches(
+                &metadata,
+                &mount.mount_id,
+                &mount.host,
+                mount.port,
+                &mount.user,
+                remote_path,
+                remote_stat,
+            )
+        }))
+}
+
+/// Whether `path` holds a cached copy of `remote_path` with its sidecar. Says
+/// nothing about whether the server's file has changed since: for when the
+/// server cannot be asked.
+async fn remote_cache_copy_exists(
+    mount: &RemoteMountEntry,
+    remote_path: &str,
+    path: &Path,
+) -> bool {
+    let Ok(local) = tokio::fs::metadata(path).await else {
+        return false;
+    };
+    let Ok(metadata_path) = remote_cache_metadata_path(mount, path) else {
+        return false;
+    };
+    load_remote_file_cache_metadata(&metadata_path)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|metadata| {
+            local.is_file()
+                && ((metadata.version == 1 && metadata.mount_id == mount.mount_id)
+                    || metadata.version == 2)
+                && metadata.host == mount.host
+                && metadata.port == mount.port
+                && metadata.user == mount.user
+                && metadata.remote_path == remote_path
+                && metadata.remote_size == local.len()
+        })
+}
+
+/// [`materialize_remote_file_if_needed`] on a mount the caller captured, so a
+/// batch that began on one mount never continues on the mount that replaced it.
+async fn materialize_remote_file_on(
+    state: &BridgeState,
+    mount: RemoteMountEntry,
+    remote_path: String,
+    path: &Path,
+) -> BridgeResult<()> {
+    materialize_remote_file_for(state, mount, remote_path, path, None).await
+}
+
+/// [`materialize_remote_file_on`] that `owner` can stop: while it waits for
+/// cache admission (nothing has been written yet), before it makes room, and
+/// during the download it starts itself. It never stops a transfer of the
+/// same file that someone else started.
+async fn materialize_remote_file_for(
+    state: &BridgeState,
+    mount: RemoteMountEntry,
+    remote_path: String,
+    path: &Path,
+    mut owner: Option<tokio::sync::watch::Receiver<bool>>,
+) -> BridgeResult<()> {
+    let _cache_admission = match owner.as_mut() {
+        None => remote_cache::ADMISSION.lock().await,
+        Some(owner) => tokio::select! {
+            biased;
+            _ = remote_transfer::wait_cancelled(owner) => {
+                return Err(remote_transfer::download_cancelled())
+            }
+            admission = remote_cache::ADMISSION.lock() => admission,
+        },
+    };
+    let stopped_by_owner = || owner.as_ref().is_some_and(|owner| *owner.borrow());
+    if stopped_by_owner() {
+        return Err(remote_transfer::download_cancelled());
+    }
     if mount.transfers.is_stopped() {
         return Err(remote_transfer::error("Remote mount has been unmounted"));
     }
@@ -2220,23 +2382,12 @@ async fn materialize_remote_file_if_needed(state: &BridgeState, path: &Path) -> 
     let metadata_path = remote_cache_metadata_path(&mount, path)?;
     let remote_stat = remote_transfer::stat_owned(mount.clone(), remote_path.clone()).await?;
 
-    if tokio::fs::metadata(path)
-        .await
-        .is_ok_and(|metadata| metadata.len() == remote_stat.size)
-    {
-        if let Some(metadata) = load_remote_file_cache_metadata(&metadata_path).await? {
-            if remote_cache_metadata_matches(
-                &metadata,
-                &mount.mount_id,
-                &mount.host,
-                mount.port,
-                &mount.user,
-                &remote_path,
-                &remote_stat,
-            ) {
-                return Ok(());
-            }
-        }
+    if remote_cache_copy_is_current(&mount, &remote_path, path, &remote_stat).await? {
+        return Ok(());
+    }
+    // Nothing is evicted for a fetch that was stopped while it was checked.
+    if stopped_by_owner() {
+        return Err(remote_transfer::download_cancelled());
     }
 
     if let Some(parent) = path.parent() {
@@ -2267,12 +2418,13 @@ async fn materialize_remote_file_if_needed(state: &BridgeState, path: &Path) -> 
     })
     .await
     .map_err(|e| remote_transfer::error(&e.to_string()))??;
-    remote_transfer::download_owned(
+    remote_transfer::download_owned_for(
         mount.clone(),
         remote_path.clone(),
         path.to_path_buf(),
         remote_stat.size,
         Duration::from_secs(90),
+        owner.clone(),
     )
     .await?;
 
@@ -2303,6 +2455,17 @@ async fn materialize_remote_file_if_needed(state: &BridgeState, path: &Path) -> 
     Ok(())
 }
 
+/// `(client, mount_id, origin_label)`: name that mount in the session's
+/// recovery notices.
+type RemoteRecoveryHook = Box<dyn Fn(&RemoteClient, &str, &str) + Send + Sync>;
+
+/// What a mount tells the app about: transfer progress, and recovery notices
+/// for a session it opened.
+struct RemoteMountHooks {
+    progress: Arc<dyn Fn(remote_transfer::Progress) + Send + Sync>,
+    recovery: RemoteRecoveryHook,
+}
+
 async fn finalize_remote_mount<R: Runtime>(
     state: &BridgeState,
     request: NormalizedRemoteMountRequest,
@@ -2310,8 +2473,78 @@ async fn finalize_remote_mount<R: Runtime>(
     shared: bool,
     app: tauri::AppHandle<R>,
 ) -> BridgeResult<RemoteMountConnectResult> {
-    let mount_id = uuid::Uuid::new_v4().to_string();
     let cache_root = remote_cache_root()?;
+    let progress_app = app.clone();
+    let hooks = RemoteMountHooks {
+        progress: Arc::new(move |progress| {
+            let _ = progress_app.emit("remote-file-progress", progress);
+        }),
+        recovery: Box::new(move |client, mount_id, origin_label| {
+            install_remote_recovery_hook(client, mount_id, origin_label, &app);
+        }),
+    };
+    register_remote_mount(state, request, client, shared, cache_root, hooks).await
+}
+
+/// A mount taken out of the registry whose work has ended. While it lives no
+/// transfer is admitted to the cache, so the cache can be purged under it.
+struct RetiredRemoteMount {
+    mount: RemoteMountEntry,
+    /// `(mount_id, origin_label)` of a mount that still uses the session.
+    heir: Option<(String, String)>,
+    _cache_admission: tokio::sync::MutexGuard<'static, ()>,
+    _drain: tokio::sync::OwnedSemaphorePermit,
+}
+
+/// Take a mount out of the registry and wait for its work to end. `None` when
+/// the id is not mounted. The session and the cache are left to the caller.
+async fn retire_remote_mount(
+    state: &BridgeState,
+    mount_id: &str,
+) -> BridgeResult<Option<RetiredRemoteMount>> {
+    // Another mount of the same host may share this SSH session; it keeps it.
+    let (removed, heir) = {
+        let mut mounts = state.remote_mounts.lock().await;
+        let removed = mounts.remove(mount_id);
+        let heir = removed.as_ref().and_then(|removed| {
+            mounts
+                .values()
+                .find(|other| Arc::ptr_eq(&other.client, &removed.client))
+                .map(|other| (other.mount_id.clone(), other.origin_label.clone()))
+        });
+        (removed, heir)
+    };
+    let Some(mount) = removed else {
+        return Ok(None);
+    };
+
+    mount.transfers.stop();
+    let cache_admission = remote_cache::ADMISSION.lock().await;
+    // New admissions fail; draining all permits proves every transfer writer
+    // finished its staging cleanup before unmount can purge the cache.
+    let drain = mount
+        .op_semaphore
+        .clone()
+        .acquire_many_owned(REMOTE_MOUNT_MAX_CONCURRENT_OPS as u32)
+        .await
+        .map_err(|_| remote_transfer::error("Remote mount operation gate closed"))?;
+    Ok(Some(RetiredRemoteMount {
+        mount,
+        heir,
+        _cache_admission: cache_admission,
+        _drain: drain,
+    }))
+}
+
+async fn register_remote_mount(
+    state: &BridgeState,
+    request: NormalizedRemoteMountRequest,
+    client: Arc<RemoteClient>,
+    shared: bool,
+    cache_root: PathBuf,
+    hooks: RemoteMountHooks,
+) -> BridgeResult<RemoteMountConnectResult> {
+    let mount_id = uuid::Uuid::new_v4().to_string();
     tokio::fs::create_dir_all(&cache_root)
         .await
         .map_err(|e| BridgeError::Io {
@@ -2328,19 +2561,40 @@ async fn finalize_remote_mount<R: Runtime>(
         &request.user,
         &request.remote_path,
     ));
-    {
+    let existing = {
         let mounts = state.remote_mounts.lock().await;
-        if let Some(existing) = mounts.values().find(|mount| mount.local_root == local_root) {
-            let info = remote_mount_info_from_entry(existing);
-            drop(mounts);
+        mounts
+            .values()
+            .find(|mount| mount.local_root == local_root)
+            .cloned()
+    };
+    if let Some(existing) = existing {
+        // The session just handed in is the existing mount's own: nothing to
+        // replace. Otherwise a mount whose session still answers is kept.
+        if Arc::ptr_eq(&existing.client, &client) || existing.client.is_connected().await {
             // A session borrowed from another mount stays open for it.
-            if !shared {
+            if !shared && !Arc::ptr_eq(&existing.client, &client) {
                 client
                     .close()
                     .await
                     .map_err(|e| map_remotely_error(e, 8229))?;
             }
-            return Ok(RemoteMountConnectResult::Connected { mount: info });
+            return Ok(RemoteMountConnectResult::Connected {
+                mount: remote_mount_info_from_entry(&existing),
+            });
+        }
+        // Its session is gone: the sign-in that just succeeded replaces it
+        // under the same cache folder, and the cached files stay.
+        if let Some(dead) = retire_remote_mount(state, &existing.mount_id).await? {
+            match &dead.heir {
+                Some((heir_id, heir_label)) => {
+                    (hooks.recovery)(&dead.mount.client, heir_id, heir_label)
+                }
+                // Nothing is left to say to a session that already ended.
+                None => {
+                    let _ = dead.mount.client.close().await;
+                }
+            }
         }
     }
     tokio::fs::create_dir_all(&local_root)
@@ -2418,7 +2672,7 @@ async fn finalize_remote_mount<R: Runtime>(
 
     // A shared session already reports recovery for the mount that opened it.
     if !shared {
-        install_remote_recovery_hook(&client, &mount_id, &origin_label, &app);
+        (hooks.recovery)(&client, &mount_id, &origin_label);
     }
 
     let mount_entry = RemoteMountEntry {
@@ -2434,9 +2688,7 @@ async fn finalize_remote_mount<R: Runtime>(
         client: Arc::clone(&client),
         op_semaphore: Arc::new(tokio::sync::Semaphore::new(REMOTE_MOUNT_MAX_CONCURRENT_OPS)),
         transfers: Arc::new(remote_transfer::Control::default()),
-        progress: Arc::new(move |progress| {
-            let _ = app.emit("remote-file-progress", progress);
-        }),
+        progress: hooks.progress,
     };
 
     {
@@ -4112,40 +4364,17 @@ async fn remote_mount_unmount<R: Runtime>(
     state: State<'_, BridgeState>,
     app: tauri::AppHandle<R>,
 ) -> BridgeResult<ReleaseResult> {
-    // Another mount of the same host may share this SSH session; it keeps it.
-    let (removed, heir) = {
-        let mut mounts = state.remote_mounts.lock().await;
-        let removed = mounts.remove(&mount_id);
-        let heir = removed.as_ref().and_then(|removed| {
-            mounts
-                .values()
-                .find(|other| Arc::ptr_eq(&other.client, &removed.client))
-                .map(|other| (other.mount_id.clone(), other.origin_label.clone()))
-        });
-        (removed, heir)
-    };
-
-    let Some(mount) = removed else {
+    let Some(retired) = retire_remote_mount(state.inner(), &mount_id).await? else {
         return Err(BridgeError::Input {
             code: 8228,
             details: format!("Unknown remote mount id: {mount_id}"),
         });
     };
-
-    mount.transfers.stop();
-    let _cache_admission = remote_cache::ADMISSION.lock().await;
-    // New admissions fail; draining all permits proves every transfer writer
-    // finished its staging cleanup before unmount can purge the cache.
-    let _drain = mount
-        .op_semaphore
-        .clone()
-        .acquire_many_owned(REMOTE_MOUNT_MAX_CONCURRENT_OPS as u32)
-        .await
-        .map_err(|_| remote_transfer::error("Remote mount operation gate closed"))?;
-    if let Some((heir_id, heir_label)) = heir {
+    let mount = &retired.mount;
+    if let Some((heir_id, heir_label)) = &retired.heir {
         // Recovery notices for the shared session now name a mount that is
         // still there.
-        install_remote_recovery_hook(&mount.client, &heir_id, &heir_label, &app);
+        install_remote_recovery_hook(&mount.client, heir_id, heir_label, &app);
     } else {
         mount
             .client
@@ -4185,6 +4414,30 @@ async fn remote_mount_unmount<R: Runtime>(
         freed: false,
         message: format!("Unmounted remote folder '{}'", mount.display_name),
     })
+}
+
+/// Fetch the remote image files a Set studio computation is about to read.
+/// Local sources need nothing. Progress arrives as `studio-source-fetch-progress`.
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.fetch_studio_sources")]
+async fn fetch_studio_sources<R: Runtime>(
+    request: studio_source_fetch::StudioSourceFetchRequest,
+    state: State<'_, BridgeState>,
+    app: tauri::AppHandle<R>,
+) -> BridgeResult<studio_source_fetch::StudioSourceFetchResult> {
+    let (_registration, cancel) = state.studio_source_fetches.begin(&request.fetch_id)?;
+    studio_source_fetch::fetch_sources(state.inner(), &request, cancel, &move |progress| {
+        let _ = app.emit("studio-source-fetch-progress", progress);
+    })
+    .await
+}
+
+#[command]
+async fn cancel_studio_source_fetch(
+    fetch_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<bool> {
+    Ok(state.studio_source_fetches.cancel(&fetch_id))
 }
 
 #[command]
@@ -4284,15 +4537,30 @@ fn is_remote_neuroimaging_path(path: &str) -> bool {
         || path.ends_with(".func.gii")
 }
 
+/// A remote file as its directory listing described it.
+struct RemoteListedFile {
+    remote_path: String,
+    /// Not following links, so a symlink's size is the link's own.
+    metadata: remotely::fs::Metadata,
+}
+
+struct RemoteDiscoveryListing {
+    files: Vec<field_table::DiscoveryInventoryFile>,
+    truncated: bool,
+    /// Keyed by [`field_table::DiscoveryInventoryFile::source_path`].
+    listed: HashMap<String, RemoteListedFile>,
+}
+
 async fn list_remote_discovery_inventory_files(
     mount: &RemoteMountEntry,
     local_root: &Path,
     remote_root: &str,
     max_depth: Option<usize>,
     max_inventory_files: usize,
-) -> BridgeResult<(Vec<field_table::DiscoveryInventoryFile>, bool)> {
+) -> BridgeResult<RemoteDiscoveryListing> {
     let mut queue = VecDeque::from([(remote_root.to_string(), PathBuf::new())]);
     let mut files = Vec::new();
+    let mut listed = HashMap::new();
     let mut truncated = false;
     let mut visited = 0usize;
 
@@ -4335,18 +4603,245 @@ async fn list_remote_discovery_inventory_files(
                 break 'scan;
             }
 
+            let source_path = local_root
+                .join(&child_relative)
+                .to_string_lossy()
+                .to_string();
+            listed.insert(
+                source_path.clone(),
+                RemoteListedFile {
+                    remote_path: child_remote,
+                    metadata: entry.metadata,
+                },
+            );
             files.push(field_table::DiscoveryInventoryFile {
-                source_path: local_root
-                    .join(&child_relative)
-                    .to_string_lossy()
-                    .to_string(),
+                source_path,
                 relative_path: relative_label,
             });
         }
     }
 
     files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
-    Ok((files, truncated))
+    Ok(RemoteDiscoveryListing {
+        files,
+        truncated,
+        listed,
+    })
+}
+
+/// True for the files whose header a remote audit can read: single-file
+/// NIfTI, plain or gzipped. The lister also admits GIfTI, which the local
+/// audit rejects as unreadable, so those are reported without any I/O.
+fn is_remote_nifti_path(path: &str) -> bool {
+    let path = path.to_lowercase();
+    path.ends_with(".nii") || path.ends_with(".nii.gz")
+}
+
+/// The header of a file already in the local remote cache, if the cached copy
+/// is still the file the listing saw. Staleness is judged as a full load judges
+/// it: local length, and the sidecar's remote size and modification time.
+async fn cached_remote_header(
+    mount: &RemoteMountEntry,
+    local_path: &Path,
+    listed: &RemoteListedFile,
+) -> Option<nifti_loader::HeaderSummary> {
+    let local = tokio::fs::metadata(local_path).await.ok()?;
+    if !local.is_file() || local.len() != listed.metadata.size {
+        return None;
+    }
+    let metadata_path = remote_cache_metadata_path(mount, local_path).ok()?;
+    let sidecar = load_remote_file_cache_metadata(&metadata_path)
+        .await
+        .ok()??;
+    if !remote_cache_metadata_matches(
+        &sidecar,
+        &mount.mount_id,
+        &mount.host,
+        mount.port,
+        &mount.user,
+        &listed.remote_path,
+        &listed.metadata,
+    ) {
+        return None;
+    }
+    let local_path = local_path.to_path_buf();
+    tokio::task::spawn_blocking(move || nifti_loader::read_header_summary(&local_path).ok())
+        .await
+        .ok()?
+}
+
+/// A remote file as a header audit identifies it: the mount, the path, and
+/// the size and modification time its listing gave.
+type RemoteHeaderKey = (String, String, u16, String, String, u64, u64);
+
+/// Headers read by audits that did not finish (their preview was cancelled
+/// or its ticket expired), so the next audit of the same files reads only the
+/// rest. An audit that finishes takes its files out again: a later audit
+/// reads every header afresh, as before.
+static INTERRUPTED_AUDIT_HEADERS: std::sync::LazyLock<
+    std::sync::Mutex<HashMap<RemoteHeaderKey, nifti_loader::HeaderSummary>>,
+> = std::sync::LazyLock::new(Default::default);
+
+/// Above this many kept headers the store is emptied rather than grown.
+const INTERRUPTED_AUDIT_HEADERS_MAX: usize = 100_000;
+
+/// `None` for a file whose listing gave no modification time: nothing says a
+/// header read earlier is still that file's.
+fn remote_header_key(mount: &RemoteMountEntry, file: &RemoteListedFile) -> Option<RemoteHeaderKey> {
+    Some((
+        mount.mount_id.clone(),
+        mount.host.clone(),
+        mount.port,
+        mount.user.clone(),
+        file.remote_path.clone(),
+        file.metadata.size,
+        remote_stat_modified_unix_secs(&file.metadata)?,
+    ))
+}
+
+fn interrupted_audit_headers(
+) -> std::sync::MutexGuard<'static, HashMap<RemoteHeaderKey, nifti_loader::HeaderSummary>> {
+    INTERRUPTED_AUDIT_HEADERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Read the NIfTI header of every bound member file of a remote discovery.
+///
+/// Only the start of each file crosses the wire, under the mount's operation
+/// permits; files already in the local cache are read there. Nothing is written
+/// to the cache and no transfer is registered, so dropping this future (the
+/// preview's cancellation) or losing the mount leaves nothing to reclaim. The
+/// headers read before such a drop are kept in memory, and the next audit of
+/// the same files (same path, size and modification time) continues from them.
+async fn audit_remote_discovery_headers(
+    state: &BridgeState,
+    mount: &RemoteMountEntry,
+    root_path: &Path,
+    source_paths: &[String],
+    listed: &HashMap<String, RemoteListedFile>,
+) -> field_table::DiscoveryHeaderAudit {
+    // Messages name a file as the member rows do: by its path under the
+    // chosen folder, not by where the cache would keep it.
+    let shown = |source_path: &str| {
+        Path::new(source_path)
+            .strip_prefix(root_path)
+            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| source_path.to_string())
+    };
+    let mut headers = HashMap::with_capacity(source_paths.len());
+    let mut from_cache = 0usize;
+    let mut continued = 0usize;
+    let mut kept_keys = Vec::new();
+    let mut to_stream = Vec::new();
+    for source_path in source_paths {
+        if headers.contains_key(source_path) {
+            continue;
+        }
+        if !is_remote_nifti_path(source_path) {
+            headers.insert(
+                source_path.clone(),
+                Err(format!(
+                    "{}: not a NIfTI volume (.nii or .nii.gz)",
+                    shown(source_path)
+                )),
+            );
+            continue;
+        }
+        // Every bound file came out of the listing; one that did not is left
+        // without an entry, which the audit reports as not read.
+        let Some(file) = listed.get(source_path) else {
+            continue;
+        };
+        match cached_remote_header(mount, Path::new(source_path), file).await {
+            Some(header) => {
+                from_cache += 1;
+                headers.insert(source_path.clone(), Ok(header));
+            }
+            None => {
+                let key = remote_header_key(mount, file);
+                let kept = key
+                    .as_ref()
+                    .and_then(|key| interrupted_audit_headers().get(key).cloned());
+                kept_keys.extend(key.clone());
+                match kept {
+                    Some(header) => {
+                        continued += 1;
+                        headers.insert(source_path.clone(), Ok(header));
+                    }
+                    None => to_stream.push((source_path.clone(), file.remote_path.clone(), key)),
+                }
+            }
+        }
+    }
+
+    let remote_paths: Vec<String> = to_stream
+        .iter()
+        .map(|(_, remote, _)| remote.clone())
+        .collect();
+    let stream_keys: Vec<Option<RemoteHeaderKey>> =
+        to_stream.iter().map(|(_, _, key)| key.clone()).collect();
+    let keep: remote_transfer::HeaderSink = Arc::new(move |index, header| {
+        if let Some(Some(key)) = stream_keys.get(index) {
+            let mut kept = interrupted_audit_headers();
+            if kept.len() >= INTERRUPTED_AUDIT_HEADERS_MAX {
+                kept.clear();
+            }
+            kept.insert(key.clone(), header.clone());
+        }
+    });
+    let streamed =
+        remote_transfer::read_headers_owned_each(mount.clone(), remote_paths, Some(keep)).await;
+    // Not dropped: this audit has every header it will get, so nothing of it
+    // is left for a later one to continue from.
+    {
+        let mut kept = interrupted_audit_headers();
+        for key in &kept_keys {
+            kept.remove(key);
+        }
+    }
+    let mut streamed_count = 0usize;
+    let mut failed_count = 0usize;
+    for ((source_path, _, _), result) in to_stream.into_iter().zip(streamed) {
+        match &result {
+            Ok(_) => streamed_count += 1,
+            Err(_) => failed_count += 1,
+        }
+        let result = result.map_err(|error| format!("{}: {error}", shown(&source_path)));
+        headers.insert(source_path, result);
+    }
+
+    // The headers describe the mount captured before any I/O. If it was
+    // unmounted or replaced meanwhile, they describe nothing the user still has.
+    let still_mounted = !mount.transfers.is_stopped()
+        && resolve_remote_mount_for_local_path(state, root_path)
+            .await
+            .is_some_and(|(current, _)| current.mount_id == mount.mount_id);
+    let failure = (!still_mounted).then(|| {
+        format!(
+            "Remote mount {} was unmounted or replaced while image headers were being read; reconnect the remote folder and preview again.",
+            mount.origin_label
+        )
+    });
+
+    let mut note = format!(
+        "Read {streamed_count} image header(s) over the remote mount and {from_cache} from the local cache; no image was downloaded."
+    );
+    if continued > 0 {
+        note.push_str(&format!(
+            " {continued} image header(s) were kept from a check that was stopped."
+        ));
+    }
+    if failed_count > 0 {
+        note.push_str(&format!(
+            " {failed_count} image header(s) could not be read."
+        ));
+    }
+    field_table::DiscoveryHeaderAudit {
+        notes: vec![note],
+        headers,
+        failure,
+    }
 }
 
 fn inactive_remote_discovery_inventory(
@@ -4393,7 +4888,11 @@ async fn remote_discovery_inventory_for_request(
 
     let requested_max_files = request.discovery_max_files.unwrap_or(200).max(1);
     let max_inventory_files = requested_max_files.saturating_mul(8).max(200);
-    let (files, inventory_truncated) = list_remote_discovery_inventory_files(
+    let RemoteDiscoveryListing {
+        files,
+        truncated: inventory_truncated,
+        listed,
+    } = list_remote_discovery_inventory_files(
         &mount,
         &root_path,
         &remote_root,
@@ -4424,48 +4923,30 @@ async fn remote_discovery_inventory_for_request(
     };
 
     if request.discovery_sample_headers.unwrap_or(false) {
+        // Group first, without headers, to learn which files the set binds.
         let mut grouping_request = request.clone();
         grouping_request.discovery_sample_headers = Some(false);
-        let sample_source_path = field_table::preview_import_candidates_with_discovery_inventory(
-            grouping_request,
-            Some(inventory.clone()),
-        )
-        .into_iter()
-        .next()
-        .and_then(|candidate| {
-            candidate
-                .set
-                .member_summaries
-                .into_iter()
-                .find_map(|member| member.source_path)
-        });
-
-        if let Some(sample_source_path) = sample_source_path {
-            let sample_path = PathBuf::from(&sample_source_path);
-            match materialize_remote_file_if_needed(state, &sample_path).await {
-                Ok(()) => {
-                    inventory.sample_header = Some(field_table::DiscoverySampleHeader {
-                        source_path: sample_source_path.clone(),
-                        local_path: sample_path.clone(),
-                        note: format!(
-                            "Staged one remote sample header from '{}' for validation; other preview files were listed only.",
-                            sample_source_path
-                        ),
-                    });
-                }
-                Err(error) => {
-                    inventory.sample_header_error = Some(format!(
-                        "Failed to stage remote sample header '{}' from mount {}: {}",
-                        sample_source_path, mount.mount_id, error
-                    ));
-                }
-            }
-        } else {
-            inventory.sample_header_error = Some(format!(
-                "Remote discovery for root '{}' found no grouped sample file to stage from mount {}.",
-                root, mount.mount_id
-            ));
-        }
+        let bound_source_paths: Vec<String> =
+            field_table::preview_import_candidates_with_discovery_inventory(
+                grouping_request,
+                Some(inventory.clone()),
+            )
+            .into_iter()
+            .next()
+            .and_then(|candidate| candidate.discovery)
+            .map(|discovery| {
+                discovery
+                    .groups
+                    .into_iter()
+                    .flat_map(|group| group.bindings)
+                    .map(|binding| binding.source_path)
+                    .collect()
+            })
+            .unwrap_or_default();
+        inventory.header_audit = Some(
+            audit_remote_discovery_headers(state, &mount, &root_path, &bound_source_paths, &listed)
+                .await,
+        );
     }
 
     Ok(Some(inventory))
@@ -4483,7 +4964,11 @@ async fn remote_discovery_inventory_for_folder_ontology_request(
 
     let requested_max_files = request.max_files.unwrap_or(500).max(1);
     let max_inventory_files = requested_max_files.saturating_mul(8).max(500);
-    let (files, inventory_truncated) = list_remote_discovery_inventory_files(
+    let RemoteDiscoveryListing {
+        files,
+        truncated: inventory_truncated,
+        ..
+    } = list_remote_discovery_inventory_files(
         &mount,
         &root_path,
         &remote_root,
@@ -11166,7 +11651,11 @@ async fn resolve_member_source_path(
         drop(template_service);
         Ok(cache_path)
     } else {
-        Ok(PathBuf::from(source_path))
+        // A remote member that nothing has fetched is said to be that, not
+        // left to fail in the decoder as a missing file.
+        let path = PathBuf::from(source_path);
+        studio_source_fetch::require_local(state, &path).await?;
+        Ok(path)
     }
 }
 

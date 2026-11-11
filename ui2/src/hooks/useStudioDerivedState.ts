@@ -347,9 +347,8 @@ export function deriveWorkspaceReadiness(activeSet: SpatialFieldSetSummary | nul
     return {
       state: 'ready' as const,
       eyebrow: 'Compare ready',
-      title: 'This set is ready for cohort-relative reading',
-      message:
-        'Alignment and join audit are clean enough to trust Compare as the primary workflow.',
+      title: 'This set is ready to compare',
+      message: 'Every image is on one grid and every file matched a member.',
       className: 'border-bf-success/40 bg-card text-foreground',
     };
   }
@@ -357,10 +356,10 @@ export function deriveWorkspaceReadiness(activeSet: SpatialFieldSetSummary | nul
   if (readiness === 'inspect_only') {
     return {
       state: 'blocked' as const,
-      eyebrow: 'Audit attention',
-      title: 'Inspect this set before relying on Compare',
+      eyebrow: 'Needs attention',
+      title: 'Look through this set before comparing',
       message:
-        'Blocking ingest or support problems are present. Use Deck and the audit panels to inspect the set first.',
+        'Some images could not be matched or read. Browse the set in Deck and check the import details first.',
       className: 'border-bf-danger/30 bg-bf-danger-soft text-foreground',
     };
   }
@@ -370,17 +369,17 @@ export function deriveWorkspaceReadiness(activeSet: SpatialFieldSetSummary | nul
       state: 'blocked' as const,
       eyebrow: 'Import blocked',
       title: 'Fix import errors before relying on this set',
-      message: activeSet.importContract?.reason ?? 'The import contract marks this set as blocked.',
+      message: activeSet.importContract?.reason ?? 'This set could not be imported as it is.',
       className: 'border-bf-danger/30 bg-bf-danger-soft text-foreground',
     };
   }
 
   return {
     state: 'review' as const,
-    eyebrow: 'Deck first',
-    title: 'Warnings are present; review before compare',
+    eyebrow: 'Browse only',
+    title: 'Review this set before comparing',
     message:
-      'Studio can still browse this set, but unmatched rows, duplicate keys, or support warnings mean Compare should be treated as provisional.',
+      'The set can be browsed. Compare and Population need every image on one grid and every file matched to a member.',
     className: 'border-bf-warning/50 bg-card text-foreground',
   };
 }

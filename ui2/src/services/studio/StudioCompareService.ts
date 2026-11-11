@@ -1,6 +1,7 @@
 import type {
   SpatialFieldSetSummary,
   StudioCohortSummary,
+  StudioComparePaneNotReadyKind,
   StudioComparePaneSpec,
   StudioFieldExpressionSummary,
   StudioMemberSummary,
@@ -9,6 +10,13 @@ import type {
 import type { BackendTransport } from '@/services/transport';
 import { getTransport } from '@/services/transport';
 import { isSetCompareReady } from '@/services/studio/importContract';
+import { studioReadiness } from '@/services/studio/studioReadiness';
+import {
+  getStudioSourceFetchService,
+  plainStudioSourceError,
+  StudioSourceFetchError,
+  type StudioSource,
+} from '@/services/studio/StudioSourceFetchService';
 import type {
   StudioCompareMaterializeRequest,
   StudioComparePaneSpec as BackendStudioComparePaneSpec,
@@ -161,6 +169,178 @@ function defaultReducerSpecs(
   ];
 }
 
+/** What each kind of missing input reads as, in a pane. */
+export const NOT_READY_TEXT: Record<StudioComparePaneNotReadyKind, string> = {
+  'grid-check': 'Image grids have not been checked yet.',
+  'different-grids': 'These images are on different grids, so they cannot be averaged.',
+  'not-confirmed': 'These images were not confirmed to be on one grid, so they cannot be averaged.',
+  'no-group': 'Choose what to compare the member with.',
+  'no-member': 'Choose a member to compare.',
+  'no-comparison': 'Choose a comparison.',
+  'no-mean': 'Needs the mean, which could not be computed.',
+  fetch: 'Needs images that have not been fetched from the remote folder yet.',
+};
+
+type ComparePaneArgs = {
+  activeSet: SpatialFieldSetSummary | null;
+  activeMember: StudioMemberSummary | null;
+  compareCohort: StudioCohortSummary | null;
+  activeExpression: StudioFieldExpressionSummary | null;
+};
+
+/** Why the set as a whole cannot be averaged yet, if it cannot. */
+function setNotReady(
+  activeSet: SpatialFieldSetSummary | null,
+): { kind: StudioComparePaneNotReadyKind; message: string } | null {
+  if (!activeSet || isSetCompareReady(activeSet)) return null;
+  // The grid check's own progress is the lens's to show (studioReadiness
+  // with the live check state); here it is only "not checked" or not.
+  const readiness = studioReadiness(activeSet, { status: 'idle', message: null }, 'compare');
+  if (readiness.phase === 'needs-check' || readiness.phase === 'check-failed')
+    return { kind: 'grid-check', message: readiness.short };
+  const mixed =
+    (activeSet.ingestAudit?.support?.alignmentClass ?? activeSet.alignmentClass) === 'mixed';
+  return { kind: mixed ? 'different-grids' : 'not-confirmed', message: readiness.short };
+}
+
+const FAILED_PREFIX = /^(Cohort mean|Residual|Z-score) materialization failed:\s*/;
+const FAILED_SUBJECT: Record<string, string> = {
+  'Cohort mean': 'The mean',
+  Residual: 'The residual',
+  'Z-score': 'The z-score map',
+};
+
+/**
+ * Pane specs as the Studio shows them, whoever built them (the backend's
+ * materialization or the local builder).
+ *
+ * A pane whose inputs are not available yet (grids unchecked, no member, no
+ * group or comparison chosen, no mean to subtract) is marked `notReady` with
+ * a plain sentence saying what is needed. It has not failed, whatever status
+ * the builder gave it. A pane left `blocked` without `notReady` is a real
+ * failure, and keeps the builder's reason in plain words. Titles and
+ * subtitles say each fact once: the pane's subject, then what it computes.
+ */
+export function presentComparePaneSpecs(
+  args: ComparePaneArgs,
+  specs: StudioComparePaneSpec[],
+): StudioComparePaneSpec[] {
+  const { activeSet, activeMember, compareCohort, activeExpression } = args;
+  const hasMember = Boolean(activeMember?.sourcePath);
+  const set = setNotReady(activeSet);
+  const meanReady = Boolean(specs.find((pane) => pane.id === 'cohort-mean')?.binding?.ready);
+  const waiting = (
+    kind: StudioComparePaneNotReadyKind,
+    message = NOT_READY_TEXT[kind],
+  ): StudioComparePaneSpec['notReady'] => ({ kind, message });
+  return specs.map((pane) => {
+    if (pane.id === 'current')
+      return {
+        ...pane,
+        subtitle: 'Current member',
+        reason: hasMember ? 'Shows this member’s image.' : 'This member has no image file.',
+        notReady: null,
+      };
+    const subtitle =
+      pane.id === 'cohort-mean'
+        ? 'Mean'
+        : pane.id === 'residual'
+          ? 'Current − mean'
+          : pane.id === 'zscore'
+            ? '(Current − mean) / SD'
+            : pane.subtitle;
+    if (pane.binding?.ready) return { ...pane, subtitle, notReady: null };
+    let notReady: StudioComparePaneSpec['notReady'] = null;
+    if (!compareCohort) notReady = waiting('no-group');
+    else if (set) notReady = set;
+    else if (pane.id === 'residual' && !hasMember) notReady = waiting('no-member');
+    else if (pane.id === 'zscore' && !activeExpression) notReady = waiting('no-comparison');
+    else if (pane.id === 'zscore' && !hasMember) notReady = waiting('no-member');
+    else if (pane.id !== 'cohort-mean' && pane.status === 'blocked' && !meanReady)
+      notReady = waiting('no-mean');
+    if (notReady) return { ...pane, subtitle, reason: notReady.message, notReady };
+    const failed = FAILED_PREFIX.exec(pane.reason);
+    return {
+      ...pane,
+      subtitle,
+      // Why, in plain words: a missing image is named, not shown as the
+      // decoder's nested I/O error.
+      reason: failed
+        ? `${FAILED_SUBJECT[failed[1]]} could not be computed: ${plainStudioSourceError(
+            pane.reason.slice(failed[0].length),
+            (path) => sourceNameForPath(activeSet, path),
+          )}`
+        : pane.reason,
+      notReady: null,
+    };
+  });
+}
+
+/** "sub-1014: same_item.nii.gz" for a member's image file, else null. */
+function sourceNameForPath(
+  activeSet: SpatialFieldSetSummary | null,
+  path: string,
+): string | null {
+  const member = activeSet?.memberSummaries.find(
+    (candidate) =>
+      candidate.sourcePath === path ||
+      candidate.bindings?.some((binding) => binding.sourcePath === path),
+  );
+  const file = path.split(/[\\/]/).filter(Boolean).pop();
+  return member && file ? `${member.id}: ${file}` : null;
+}
+
+/**
+ * The panes when the images of a remote set are not on this computer: the
+ * member's own pane as it is, and each computed pane saying what it waits
+ * for (a fetch that is stopped or unconfirmed) or why the fetch failed.
+ */
+function comparePanesWithoutSources(
+  args: ComparePaneArgs,
+  error: StudioSourceFetchError,
+): StudioComparePaneSpec[] {
+  return buildStudioComparePaneSpecs(args).map((pane) => {
+    if (pane.id === 'current' || pane.binding?.ready || pane.notReady) return pane;
+    if (error.kind !== 'failed')
+      return {
+        ...pane,
+        status: 'blocked' as const,
+        reason: NOT_READY_TEXT.fetch,
+        notReady: { kind: 'fetch' as const, message: NOT_READY_TEXT.fetch },
+      };
+    return pane.id === 'cohort-mean'
+      ? {
+          ...pane,
+          status: 'blocked' as const,
+          reason: `The mean could not be computed: ${error.message}`,
+          notReady: null,
+        }
+      : {
+          ...pane,
+          status: 'blocked' as const,
+          reason: NOT_READY_TEXT['no-mean'],
+          notReady: { kind: 'no-mean' as const, message: NOT_READY_TEXT['no-mean'] },
+        };
+  });
+}
+
+/** The image files a Compare request reads: the group's and the member's. */
+function compareFetchSources(
+  request: StudioCompareMaterializeRequest,
+  activeSet: SpatialFieldSetSummary | null,
+): StudioSource[] {
+  if (!request.compareReady || !request.compareCohortId) return [];
+  const paths = [...request.cohortMemberSourcePaths];
+  if (request.activeMemberSourcePath) paths.push(request.activeMemberSourcePath);
+  return paths.map((path) => ({
+    path,
+    label: activeSet?.memberSummaries.find((member) =>
+      member.sourcePath === path ||
+      member.bindings?.some((binding) => binding.sourcePath === path),
+    )?.id,
+  }));
+}
+
 export function buildStudioComparePaneSpecs(args: {
   activeSet: SpatialFieldSetSummary | null;
   activeMember: StudioMemberSummary | null;
@@ -177,15 +357,13 @@ options?: {
   const cohortSelected = Boolean(compareCohort);
   const useDemoBindings = isDemoSourceSet(activeSet) && compareReady && cohortSelected;
 
-  return [
+  return presentComparePaneSpecs(args, [
     {
       id: 'current',
       title: activeMember?.id ?? 'Current member',
-      subtitle: activeSet?.supportLabel ?? 'Unknown support',
+      subtitle: 'Current member',
       status: hasMemberPath ? 'live' : 'blocked',
-      reason: hasMemberPath
-        ? 'Bound to a concrete member source path.'
-        : 'This member has no source path binding yet.',
+      reason: hasMemberPath ? 'Shows this member’s image.' : 'This member has no image file.',
       recipe: activeMember ? `member(${activeMember.id})` : null,
       binding: {
         kind: 'member_source',
@@ -195,27 +373,25 @@ options?: {
         materializedAtMs: null,
         cacheStatus: 'source',
         cacheMessage: hasMemberPath
-          ? 'Bound directly to the active member source path.'
-          : 'No member source path is available.',
+          ? 'Read directly from the member’s image file.'
+          : 'This member has no image file.',
         provenancePath: null,
       },
     },
     {
       id: 'cohort-mean',
-      title: compareCohort?.label ?? 'Cohort mean',
-      subtitle: compareCohort
-        ? `${compareCohort.memberCount} members`
-        : 'Select a cohort to enable derived panes',
+      title: compareCohort?.label ?? 'Group mean',
+      subtitle: 'Mean',
       status: cohortSelected ? (compareReady ? (useDemoBindings ? 'live' : 'pending') : 'blocked') : 'blocked',
       reason: !cohortSelected
-        ? 'No cohort selected.'
+        ? NOT_READY_TEXT['no-group']
         : syntheticFallback && useDemoBindings
-          ? 'Showing a synthetic demo cohort preview because backend materialization failed.'
+          ? 'Showing an example mean because the mean could not be computed.'
         : useDemoBindings
-          ? 'Using the seeded demo cohort artifact.'
+          ? 'Showing the example mean.'
         : compareReady
-          ? 'Waiting for derived cohort materialization.'
-          : 'Set ingest audit does not yet permit compare-safe reductions.',
+          ? 'The mean is being computed.'
+          : NOT_READY_TEXT['not-confirmed'],
       recipe: compareCohort ? `mean(cohort:${compareCohort.id})` : null,
       binding: {
         kind: 'derived_field',
@@ -227,33 +403,33 @@ options?: {
           ? (syntheticFallback ? 'synthetic' : 'hit')
           : 'unavailable',
         cacheMessage: !cohortSelected
-          ? 'No cohort selected.'
+          ? NOT_READY_TEXT['no-group']
           : syntheticFallback && useDemoBindings
             ? 'Backend materialization failed; showing a synthetic demo cohort preview.'
           : useDemoBindings
-            ? 'Using the seeded demo cohort artifact.'
+            ? 'Showing the example mean.'
             : compareReady
-              ? 'Backend materialization has not produced a cache entry yet.'
-              : 'Compare-safe reductions are unavailable for this set.',
+              ? 'The mean has not been computed yet.'
+              : NOT_READY_TEXT['not-confirmed'],
         provenancePath: null,
       },
     },
     {
       id: 'residual',
       title: 'Residual',
-      subtitle: activeMember ? `${activeMember.id} - cohort mean` : 'Current minus cohort mean',
+      subtitle: 'Current − mean',
       status:
         cohortSelected && compareReady && hasMemberPath
           ? (useDemoBindings ? 'live' : 'pending')
           : 'blocked',
       reason:
         syntheticFallback && useDemoBindings
-          ? 'Showing a synthetic demo residual preview because backend materialization failed.'
+          ? 'Showing an example residual because the residual could not be computed.'
           : useDemoBindings
-          ? 'Using the seeded demo residual artifact.'
+          ? 'Showing the example residual.'
           : cohortSelected && compareReady && hasMemberPath
-          ? 'Waiting for derived residual handle.'
-          : 'Needs a bound current member and compare-safe cohort.',
+          ? 'The residual is being computed.'
+          : NOT_READY_TEXT[hasMemberPath ? 'not-confirmed' : 'no-member'],
       recipe: compareCohort && activeMember ? `residual(member:${activeMember.id}, cohort:${compareCohort.id})` : null,
       binding: {
         kind: 'derived_field',
@@ -271,29 +447,29 @@ options?: {
           syntheticFallback && useDemoBindings
             ? 'Backend materialization failed; showing a synthetic demo residual preview.'
             : useDemoBindings
-            ? 'Using the seeded demo residual artifact.'
+            ? 'Showing the example residual.'
             : cohortSelected && compareReady && hasMemberPath
-              ? 'Backend materialization has not produced a residual cache entry yet.'
-              : 'Residual materialization is not available yet.',
+              ? 'The residual has not been computed yet.'
+              : 'The residual is not available yet.',
         provenancePath: null,
       },
     },
     {
       id: 'zscore',
       title: 'Z-score',
-      subtitle: activeExpression?.label ?? 'Cohort-relative comparison',
+      subtitle: '(Current − mean) / SD',
       status:
         cohortSelected && compareReady && Boolean(activeExpression)
           ? (useDemoBindings ? 'live' : 'pending')
           : 'blocked',
       reason:
         syntheticFallback && useDemoBindings
-          ? 'Showing a synthetic demo comparison preview because backend materialization failed.'
+          ? 'Showing an example z-score map because the z-scores could not be computed.'
           : useDemoBindings
-          ? 'Using the seeded demo comparison artifact.'
+          ? 'Showing the example z-score map.'
           : cohortSelected && compareReady && Boolean(activeExpression)
-          ? 'Expression is defined; waiting for materialized compare output.'
-          : 'Needs an active comparison expression and compare-safe cohort.',
+          ? 'The z-scores are being computed.'
+          : NOT_READY_TEXT[activeExpression ? 'not-confirmed' : 'no-comparison'],
       recipe: activeExpression?.recipe ?? null,
       binding: {
         kind: 'derived_field',
@@ -310,14 +486,14 @@ options?: {
           syntheticFallback && useDemoBindings
             ? 'Backend materialization failed; showing a synthetic demo comparison preview.'
             : useDemoBindings
-            ? 'Using the seeded demo comparison artifact.'
+            ? 'Showing the example z-score map.'
             : cohortSelected && compareReady && Boolean(activeExpression)
-              ? 'Backend materialization has not produced a z-score cache entry yet.'
-              : 'Z-score materialization is not available yet.',
+              ? 'The z-scores have not been computed yet.'
+              : 'The z-score map is not available yet.',
         provenancePath: null,
       },
     },
-  ];
+  ]);
 }
 
 export class StudioCompareService {
@@ -339,8 +515,26 @@ export class StudioCompareService {
   }): Promise<StudioComparePaneSpec[]> {
     const request = this.buildRequest(args);
 
+    // On a remote mount only the images something has opened are on this
+    // computer: fetch the ones this request reads first. A local set has
+    // nothing pending and goes straight on.
+    const fetching = getStudioSourceFetchService().pending(
+      compareFetchSources(request, args.activeSet),
+      options?.signal,
+    );
+    if (fetching) {
+      try {
+        await fetching;
+      } catch (error) {
+        if (error instanceof StudioSourceFetchError)
+          return comparePanesWithoutSources(args, error);
+        throw error;
+      }
+    }
+
     try {
-      return await this.materializeComparePanesViaJob(request, options?.signal);
+      const panes = await this.materializeComparePanesViaJob(request, options?.signal);
+      return presentComparePaneSpecs(args, panes.map(toUiComparePaneSpec));
     } catch (jobError) {
       if (isAbortError(jobError)) {
         throw jobError;
@@ -353,7 +547,7 @@ export class StudioCompareService {
         'materialize_set_studio_compare_panes',
         { request }
       );
-      return panes.map(toUiComparePaneSpec);
+      return presentComparePaneSpecs(args, panes.map(toUiComparePaneSpec));
     } catch (error) {
       console.warn('[StudioCompareService] Falling back to local compare-pane builder:', error);
       return buildStudioComparePaneSpecs(args, { syntheticFallback: true });
@@ -363,7 +557,7 @@ export class StudioCompareService {
   private async materializeComparePanesViaJob(
     request: StudioCompareMaterializeRequest,
     signal?: AbortSignal
-  ): Promise<StudioComparePaneSpec[]> {
+  ): Promise<BackendStudioComparePaneSpec[]> {
     const jobId = await this.transport.invoke<string>('start_set_studio_compare_materialization', {
       request,
     });
@@ -412,7 +606,7 @@ export class StudioCompareService {
           if (!status.result) {
             throw new Error(`Materialization job ${jobId} completed without a result.`);
           }
-          return status.result.map(toUiComparePaneSpec);
+          return status.result;
         }
         if (status.state === 'failed') {
           throw new Error(status.error ?? status.message ?? `Materialization job ${jobId} failed.`);

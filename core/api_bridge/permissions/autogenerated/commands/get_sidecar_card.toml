@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-sidecar-card"
+description = "Enables the get_sidecar_card command without any pre-configured scope."
+commands.allow = ["get_sidecar_card"]
+
+[[permission]]
+identifier = "deny-get-sidecar-card"
+description = "Denies the get_sidecar_card command without any pre-configured scope."
+commands.deny = ["get_sidecar_card"]

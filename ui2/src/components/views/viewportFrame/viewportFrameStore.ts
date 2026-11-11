@@ -41,6 +41,21 @@ export interface ColorbarGroup {
    * Studio viewer: its member, even as the base layer). Null: the usual rule.
    */
   describeLayerId: string | null;
+  /**
+   * Below this pane size the colorbar never covers the image in its full
+   * form (colorbarPlacement.ts `compactOnImageBelow`). Omitted: the usual rule.
+   */
+  compactOnImageBelow?: number;
+  /**
+   * The colorbar never covers the image (colorbarPlacement.ts `offImage`):
+   * a free margin, else the strip in the slice slider's row.
+   */
+  offImage?: boolean;
+  /**
+   * Tick and value labels keep three significant digits below 1 ("0.0145",
+   * not "0.01"): a Studio viewer, whose maps often have a small window.
+   */
+  preciseTicks?: boolean;
 }
 
 /**

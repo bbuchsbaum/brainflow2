@@ -180,6 +180,9 @@ function VolumeRenderRows({
   const colormap = own("colormap") ?? viewLayer.colormap ?? "";
   const blendMode = viewLayer.blendMode ?? "alpha";
   const layerMode = viewLayer.layerMode ?? "scalar";
+  // A mask layer is a flat fill of its non-zero voxels: the renderer applies
+  // no intensity window, threshold or colormap to it, so none is offered.
+  const windowed = layerMode === "scalar";
   const interpolation = viewLayer.interpolation ?? "linear";
   const outline = viewLayer.outline ?? DEFAULT_OUTLINE;
 
@@ -261,7 +264,7 @@ function VolumeRenderRows({
 
       {/* Label volumes are categorical: colours come from the label table,
           so there is no intensity window or threshold to set. */}
-      {layerMode !== "label" ? (
+      {windowed ? (
       <InspectorRange
         label="Intensity"
         low={intensity[0]}
@@ -273,11 +276,11 @@ function VolumeRenderRows({
         onChange={(low, high) => setLayerField("intensity", [low, high])}
       />
       ) : null}
-      {layerMode !== "label" ? (
+      {windowed ? (
         <OverrideMark compare={compare} layerId={layerId} field="intensity" label="Intensity" />
       ) : null}
 
-      {kind === "overlay" && layerMode !== "label" && !epiImage && declaredCapabilities?.thresholdable !== false ? (
+      {kind === "overlay" && windowed && !epiImage && declaredCapabilities?.thresholdable !== false ? (
         <InspectorRange
           label="Threshold"
           mode="hidden"
@@ -292,7 +295,7 @@ function VolumeRenderRows({
         />
       ) : null}
       {kind === "overlay" &&
-      layerMode !== "label" &&
+      windowed &&
       declaredCapabilities?.thresholdable !== false &&
       metadata?.statisticDefaultThreshold &&
       Math.abs(threshold[0] + metadata.statisticDefaultThreshold) < 1e-6 &&
@@ -303,7 +306,7 @@ function VolumeRenderRows({
           Default threshold (the file sets none); the cluster table uses the same.
         </p>
       ) : null}
-      {kind === "overlay" && layerMode !== "label" && !epiImage && declaredCapabilities?.thresholdable !== false ? (
+      {kind === "overlay" && windowed && !epiImage && declaredCapabilities?.thresholdable !== false ? (
         <OverrideMark compare={compare} layerId={layerId} field="threshold" label="Threshold" />
       ) : null}
 
@@ -359,7 +362,7 @@ function VolumeRenderRows({
             </>
           )}
         </FieldRow>
-      ) : declaredCapabilities?.colormappable !== false ? (
+      ) : windowed && declaredCapabilities?.colormappable !== false ? (
         <ColormapBlock
           value={colormap}
           windowSpan={ruler.windowSpan}
@@ -367,7 +370,7 @@ function VolumeRenderRows({
           onChange={(next) => setLayerField("colormap", next)}
         />
       ) : null}
-      {layerMode !== "label" && declaredCapabilities?.colormappable !== false ? (
+      {windowed && declaredCapabilities?.colormappable !== false ? (
         <OverrideMark compare={compare} layerId={layerId} field="colormap" label="Colormap" />
       ) : null}
 

@@ -372,3 +372,160 @@ describe('holdColorbarSlot (splitter drag flicker)', () => {
     expect(held.left).toBe(662);
   });
 });
+
+describe('placeColorbarBlock: a small pane that keeps the full block off the image', () => {
+  // A Studio Compare pane in a narrow centre column: about 250 x 320 px,
+  // the brain filling it.
+  const pane: ColorbarPaneInput = {
+    width: 250,
+    height: 320,
+    imageRect: { left: 0, top: 0, right: 250, bottom: 320 },
+    sideLetterY: 160,
+  };
+
+  it('by the usual rule the full block lands on the image, on a scrim', () => {
+    const p = placeColorbarBlock(pane, FORMS)!;
+    expect(p.compact).toBe(false);
+    expect(p.scrim).toBe(true);
+  });
+
+  it('with `compactOnImageBelow` it is the compact bar, clear of every orientation letter', () => {
+    const input = { ...pane, compactOnImageBelow: 360 };
+    const p = placeColorbarBlock(input, FORMS)!;
+    expect(p.compact).toBe(true);
+    expectClear(p, input, COMPACT);
+    // A slim bar at the pane's edge: no caption, no name, narrower than the block.
+    expect(COMPACT.boxWidth(p.barH)).toBeLessThan(FULL.boxWidth(p.barH));
+    const box = boxOf(p, COMPACT);
+    expect(Math.min(box.left, input.width - box.right)).toBeLessThanOrEqual(32);
+  });
+
+  it('still gives the full block a free margin that holds it', () => {
+    // The same small pane with the image to the left and room beside it.
+    const input: ColorbarPaneInput = {
+      width: 340,
+      height: 240,
+      imageRect: { left: 0, top: 0, right: 240, bottom: 240 },
+      compactOnImageBelow: 360,
+    };
+    const p = placeColorbarBlock(input, FORMS)!;
+    expect(p.compact).toBe(false);
+    expect(p.fit).toBe(ColorbarFit.FullMargin);
+    expect(p.scrim).toBe(false);
+    expect(overlaps(boxOf(p), input.imageRect!)).toBe(false);
+  });
+
+  it('leaves a pane at or above the size alone', () => {
+    const large: ColorbarPaneInput = {
+      width: 600,
+      height: 400,
+      imageRect: { left: 0, top: 0, right: 600, bottom: 400 },
+      compactOnImageBelow: 360,
+    };
+    expect(placeColorbarBlock(large, FORMS)!.compact).toBe(false);
+  });
+});
+
+describe('an off-image legend: the Studio Deck and Compare pane A', () => {
+  // The Deck's centre column: a 91 x 109 voxel coronal-sized image fit to a
+  // 530 x 560 px canvas (5.14 px per voxel), centred. It leaves a margin of
+  // about 31 px on the left and on the right, and none above or below.
+  const deck = (width: number, height = 560): ColorbarPaneInput => {
+    const scale = Math.min(width / 91, height / 109);
+    const w = 91 * scale;
+    const h = 109 * scale;
+    return {
+      width,
+      height,
+      imageRect: {
+        left: (width - w) / 2,
+        top: (height - h) / 2,
+        right: (width + w) / 2,
+        bottom: (height + h) / 2,
+      },
+      avoidPoint: { x: width / 2, y: height / 2 },
+      offImage: true,
+    };
+  };
+  const formOf = (p: { compact: boolean }) => (p.compact ? COMPACT : FULL);
+
+  it('by the usual rule this pane puts the block on the image, on a scrim', () => {
+    const p = placeColorbarBlock({ ...deck(530), offImage: false }, FORMS)!;
+    expect(p.slot).toMatch(/^corner-/);
+    expect(p.scrim).toBe(true);
+    expect(overlaps(boxOf(p, formOf(p)), deck(530).imageRect!)).toBe(true);
+  });
+
+  it('with margins too slim for either block it goes below the canvas, not onto the image', () => {
+    const pane = deck(530);
+    expect(pane.imageRect!.left).toBeCloseTo(31.3, 0);
+    const p = placeColorbarBlock(pane, FORMS)!;
+    expect(p.slot).toBe('below');
+    expect(p.fit).toBe(ColorbarFit.Below);
+    expect(p.fit).not.toBe(ColorbarFit.None);
+    expect(p.scrim).toBe(false);
+    // Nothing of it is inside the canvas area.
+    expect(p.top).toBe(pane.height);
+    expect(p.barH).toBe(0);
+  });
+
+  it('takes the free margin beside the image as soon as one holds the compact bar, then the full block', () => {
+    // 40 px of compact block + 12 px gap + 8 px edge = 60 px of margin.
+    const compact = placeColorbarBlock(deck(590), FORMS)!;
+    expect(compact.slot).toBe('right');
+    expect(compact.compact).toBe(true);
+    expect(compact.fit).toBe(ColorbarFit.CompactMargin);
+    expect(compact.scrim).toBe(false);
+    expect(overlaps(boxOf(compact, COMPACT), deck(590).imageRect!)).toBe(false);
+    expectClear(compact, deck(590), COMPACT);
+
+    const full = placeColorbarBlock(deck(640), FORMS)!;
+    expect(full.slot).toBe('right');
+    expect(full.compact).toBe(false);
+    expect(full.fit).toBe(ColorbarFit.FullMargin);
+    expect(overlaps(boxOf(full), deck(640).imageRect!)).toBe(false);
+    expectClear(full, deck(640));
+  });
+
+  it('a margin above or below a wide image counts too', () => {
+    // Compare pane A, wider than tall for this image: letterboxed left/right
+    // by 90 px, enough for the full block.
+    const pane = deck(480, 360);
+    const p = placeColorbarBlock(pane, FORMS)!;
+    expect(p.slot).not.toBe('below');
+    expect(overlaps(boxOf(p, formOf(p)), pane.imageRect!)).toBe(false);
+  });
+
+  it('never covers an image pixel, whatever the pane size', () => {
+    for (let width = 120; width <= 900; width += 13) {
+      for (const height of [140, 240, 360, 560, 700]) {
+        const pane = deck(width, height);
+        const p = placeColorbarBlock(pane, FORMS);
+        expect(p).not.toBeNull();
+        if (p!.slot === 'below') continue;
+        expect(p!.slot).not.toMatch(/^corner-/);
+        expect(p!.scrim).toBe(false);
+        expect(overlaps(boxOf(p!, formOf(p!)), pane.imageRect!)).toBe(false);
+      }
+    }
+  });
+
+  it('a zoomed image that fills the pane leaves the strip below, and holding keeps it there', () => {
+    const pane: ColorbarPaneInput = {
+      width: 530,
+      height: 560,
+      imageRect: { left: -200, top: -200, right: 730, bottom: 760 },
+      offImage: true,
+    };
+    expect(placeColorbarBlock(pane, FORMS)!.slot).toBe('below');
+    const held = holdColorbarSlot({ ...pane, ...COMPACT }, { slot: 'below', barH: 0 });
+    expect(held).toMatchObject({ slot: 'below', scrim: false, top: 560 });
+  });
+
+  it('other views are unchanged: without `offImage` there is no `below` slot', () => {
+    for (let width = 120; width <= 900; width += 13) {
+      const pane = { ...deck(width), offImage: false };
+      expect(placeColorbarBlock(pane, FORMS)?.slot).not.toBe('below');
+    }
+  });
+});

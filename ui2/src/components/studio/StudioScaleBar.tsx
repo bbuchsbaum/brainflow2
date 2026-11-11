@@ -25,6 +25,7 @@ export function StudioScaleBar({
   colormap,
   label,
   paneHeight,
+  format = formatLayerValue,
 }: {
   min: number;
   max: number;
@@ -33,6 +34,8 @@ export function StudioScaleBar({
   colormap: string;
   label: string;
   paneHeight: number;
+  /** How a tick value is written (the Studio: enough digits for a small window). */
+  format?: (value: number) => string;
 }) {
   const strip = colormapVerticalGradient(colormap);
   const barH = Math.min(MAX_BAR_H, Math.floor(paneHeight * 0.4));
@@ -43,13 +46,13 @@ export function StudioScaleBar({
     hidden && hidden[1] > hidden[0]
       ? [Math.max(0, f(hidden[0])), Math.min(1, f(hidden[1]))]
       : null;
-  const labelChars = Math.max(...ticks.map((t) => formatLayerValue(t).length));
+  const labelChars = Math.max(...ticks.map((t) => format(t).length));
   const width = BAR_W + MARK_W + LABEL_GAP + Math.ceil(labelChars * CHAR_W);
   return (
     <div
       role="img"
-      aria-label={`Colorbar for ${label}: ${strip.label}, ${formatLayerValue(min)} to ${formatLayerValue(max)}${
-        band ? `, ${formatLayerValue(hidden![0])} to ${formatLayerValue(hidden![1])} hidden` : ''
+      aria-label={`Colorbar for ${label}: ${strip.label}, ${format(min)} to ${format(max)}${
+        band ? `, ${format(hidden![0])} to ${format(hidden![1])} hidden` : ''
       }`}
       data-testid="studio-scale-bar"
       data-colormap={colormap}
@@ -88,7 +91,7 @@ export function StudioScaleBar({
                 height: LABEL_H,
               }}
             >
-              {formatLayerValue(tick)}
+              {format(tick)}
             </span>
           </div>
         );

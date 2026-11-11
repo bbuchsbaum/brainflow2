@@ -31,6 +31,7 @@ import type {
   TsvWizardStep,
 } from '@/types/studio';
 import { canImportCandidate, isCompareReadyContract } from '@/services/studio/importContract';
+import { folderSetName } from '@/services/studio/folderOpenDecision';
 
 // ---------------------------------------------------------------------------
 // Shared defaults (moved verbatim from the previous importSlice implementation)
@@ -547,7 +548,34 @@ export interface StudioBootstrapPayload {
   materialization?: Partial<StudioMaterializationStatus>;
 }
 
-function bootstrapPayloadForCandidate(candidate: StudioImportCandidate): StudioBootstrapPayload {
+/**
+ * What a set opened from a folder is called, and where it lives. The name is
+ * the folder's own (`enc_rep_rsa`), not the connection it was reached over
+ * and not the preview's working title ("… / Discovery Import"); the
+ * connection and path are kept beside it as secondary text. Table and
+ * manifest sets keep the name their import gave them.
+ */
+function folderSetIdentity(
+  root: string,
+  source: StudioImportDialogState['folderSource'],
+): Pick<SpatialFieldSetSummary, 'name' | 'sourceLocation'> | null {
+  const name = folderSetName(root);
+  if (!name) return null;
+  const located = source && source.root === root ? source : null;
+  return {
+    name,
+    sourceLocation: {
+      ...(located?.label ? { label: located.label } : {}),
+      path: located?.displayPath ?? root,
+    },
+  };
+}
+
+function bootstrapPayloadForCandidate(
+  candidate: StudioImportCandidate,
+  folderSource?: StudioImportDialogState['folderSource'],
+): StudioBootstrapPayload {
+  const discovery = candidate.mode === 'regex' ? candidate.discovery : null;
   const compareReady = isCompareReadyContract(candidate.contract);
   const activeLens =
     compareReady && candidate.set.supportKind === 'volume'
@@ -569,13 +597,29 @@ function bootstrapPayloadForCandidate(candidate: StudioImportCandidate): StudioB
       ...candidate.set,
       sourceKind: candidate.set.sourceKind ?? 'imported',
       importContract: candidate.contract,
+      ...(discovery ? (folderSetIdentity(discovery.root, folderSource) ?? {}) : {}),
+      ...(discovery
+        ? {
+            discoveryRequest: {
+              root: discovery.root,
+              filePattern: discovery.filePattern,
+              includePatterns: discovery.includePatterns,
+              excludePatterns: discovery.excludePatterns,
+              rolePatterns: discovery.rolePatterns,
+              requiredRoles: discovery.requiredRoles,
+              maxDepth: discovery.maxDepth,
+              maxFiles: discovery.maxFiles,
+            },
+          }
+        : {}),
     },
     features: candidate.features,
     cohorts: candidate.cohorts,
     expressions: candidate.expressions,
     selection: {
       activeLens,
-      activeMemberId: candidate.set.memberIds[2] ?? candidate.set.memberIds[0] ?? null,
+      // A newly opened set starts on its first member, in the order shown.
+      activeMemberId: candidate.set.memberIds[0] ?? null,
       compareCohortId: candidate.set.savedCohortIds[0] ?? null,
       activeExpressionId: preferredExpressionId,
     },
@@ -1103,7 +1147,10 @@ export function importReducer(context: ImportContext, event: ImportEvent): Impor
         return result(context);
       }
       return result({ ...context, isOpen: false }, [
-        { type: 'BOOTSTRAP_STUDIO', payload: bootstrapPayloadForCandidate(candidate) },
+        {
+          type: 'BOOTSTRAP_STUDIO',
+          payload: bootstrapPayloadForCandidate(candidate, context.folderSource),
+        },
       ]);
     }
 

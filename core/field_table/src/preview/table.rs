@@ -251,7 +251,7 @@ pub(super) fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImp
             Ok(signature) => {
                 let support_label = table_support_label(&signature);
                 if let Some(existing_signature) = &support_signature {
-                    if existing_signature != &signature {
+                    if signature.difference_from(existing_signature).is_some() {
                         support_mismatch_subjects.push(detail.subject_id.clone());
                         continue;
                     }

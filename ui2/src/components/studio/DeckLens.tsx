@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
 import type { SpatialFieldSetSummary, StudioFeatureSummary } from '@/types/studio';
 import { Button, Chip, Pager } from '@/components/ui/bf';
-import { setImportReadiness } from '@/services/studio/importContract';
 import { StudioRenderAdapter } from './StudioRenderAdapter';
+import { StudioMemberLoadOverlay } from './StudioMemberLoadOverlay';
 import { StudioToolbarPortal } from './StudioToolbarSlot';
 import { StudioPlaneToggle } from './StudioPlaneToggle';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -43,23 +43,16 @@ export function DeckLens({
   const memberIds = visibleMemberIds ?? activeSet?.memberIds ?? [];
   const memberIndex = activeMemberId ? memberIds.indexOf(activeMemberId) : -1;
 
+  // The member, then the image shown. The set-wide grid state is the set
+  // header's to say, once (it was repeated here as "… on headers not sampled").
+  const subtitle = activeFeature?.label ?? '';
   const footer = useMemo(() => {
     if (!activeSet || !activeMemberId) {
-      return 'Import a set to start browsing members.';
+      return 'Open a set to start browsing members.';
     }
-    const readiness = setImportReadiness(activeSet);
-    const supportState =
-      readiness === 'compare_ready'
-        ? 'compare-safe'
-        : readiness === 'inspect_only'
-          ? 'inspect-only'
-          : readiness === 'blocked'
-            ? 'import blocked'
-            : 'review required';
-    return `${activeMemberId} · ${activeSet.supportLabel} · ${supportState}`;
-  }, [activeMemberId, activeSet]);
+    return [activeMemberId, activeFeature?.label].filter(Boolean).join(' · ');
+  }, [activeMemberId, activeSet, activeFeature?.label]);
 
-  const subtitle = `${activeFeature?.label ?? 'No feature'} on ${activeSet?.supportLabel ?? 'unknown support'}`;
   const chips = [
     searchLabel ? `Search ${searchLabel}` : null,
     sortLabel ? `Sort ${sortLabel}` : null,
@@ -70,7 +63,10 @@ export function DeckLens({
     <div className="flex h-full flex-col">
       {/* The member line and pager join the Studio toolbar row (QA N13). */}
       <StudioToolbarPortal>
-        <div className="flex min-w-0 flex-nowrap items-center gap-2" aria-label="Deck">
+        <div
+          className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-x-2 gap-y-1"
+          aria-label="Deck"
+        >
           <StudioPlaneToggle />
           <div className="min-w-0 truncate text-bf-sm" title={`${footer}${chips.length ? ` · ${chips.join(' · ')}` : ''}`}>
             <span className="font-medium text-foreground">{activeMemberId ?? 'No active member'}</span>{' '}
@@ -108,7 +104,7 @@ export function DeckLens({
         </div>
       </StudioToolbarPortal>
 
-      <div className="min-h-0 flex-1 overflow-hidden rounded-sm border border-border bg-bf-bg-canvas">
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-sm border border-border bg-bf-bg-canvas">
         <StudioRenderAdapter
           supportKind={activeSet?.supportKind}
           title={activeMemberId ?? 'No active member'}
@@ -117,6 +113,7 @@ export function DeckLens({
           plane={plane}
           memberSourcePath={activeMemberSourcePath ?? null}
         />
+        <StudioMemberLoadOverlay sourcePath={activeMemberSourcePath ?? null} />
       </div>
     </div>
   );

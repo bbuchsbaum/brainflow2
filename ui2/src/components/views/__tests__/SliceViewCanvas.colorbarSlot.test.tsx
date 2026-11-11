@@ -135,4 +135,43 @@ describe('SliceViewCanvas colorbar slot', () => {
     unmount();
     expect(useViewportFrameStore.getState().slots['studio-test']).toBeUndefined();
   });
+
+  it('an off-image group draws the legend beside the slice slider when the image fills the pane', async () => {
+    const { SliceViewCanvas } = await import('../SliceViewCanvas');
+    const { container, unmount } = render(
+      <ColorbarGroupContext.Provider value={{ group: 'studio-deck', describeLayerId: null, offImage: true }}>
+        <SliceViewCanvas viewId="coronal" width={300} height={300} />
+      </ColorbarGroupContext.Provider>,
+    );
+    drawn();
+    // Still this group's host: the legend is shown, once.
+    const slot = useViewportFrameStore.getState().slots['studio-deck']?.coronal;
+    expect(slot?.fit).toBe(ColorbarFit.Below);
+    expect(useViewportFrameStore.getState().hosts['studio-deck']?.plane).toBe('coronal');
+    const bars = container.querySelectorAll('[data-testid="viewport-colorbar"]');
+    expect(bars).toHaveLength(1);
+    const strip = bars[0] as HTMLElement;
+    expect(strip.dataset.placement).toBe('below');
+    // In the 24 px row under the canvas, with the slider; not in the canvas area.
+    const row = strip.parentElement!;
+    expect(row.style.height).toBe(`${SLIDER_HEIGHT}px`);
+    expect(row.querySelector('[role="slider"]')).not.toBeNull();
+    expect(strip.className).not.toMatch(/\babsolute\b/);
+    // The window ends and the hidden interval are still told.
+    expect(strip.textContent).toContain('6');
+    expect(strip.querySelector('[data-testid="viewport-colorbar-hidden-band"]')).not.toBeNull();
+    expect(strip.getAttribute('aria-label')).toMatch(/^Colorbar for z: /);
+    unmount();
+  });
+
+  it('other groups keep the legend in the canvas area (a corner when the image fills the pane)', async () => {
+    const { SliceViewCanvas } = await import('../SliceViewCanvas');
+    const { container, unmount } = render(<SliceViewCanvas viewId="axial" width={300} height={300} />);
+    drawn();
+    const bars = container.querySelectorAll('[data-testid="viewport-colorbar"]');
+    expect(bars).toHaveLength(1);
+    expect((bars[0] as HTMLElement).dataset.placement).toMatch(/^corner-/);
+    expect((bars[0] as HTMLElement).className).toMatch(/\babsolute\b/);
+    unmount();
+  });
 });
