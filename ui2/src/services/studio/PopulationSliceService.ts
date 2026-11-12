@@ -1402,6 +1402,15 @@ export class PopulationSliceService {
       orientation: target.orientation,
       plane: data.plane,
       values: data.focused,
+      // The background on the peek's own plane, in the grey window the lens
+      // shows it with, so the preview reads like a montage tile.
+      underlay:
+        data.underlay && data.underlay.values.length === w * h
+          ? populationUnderlayGrey(
+              data.underlay.values,
+              base.data.underlay ? populationUnderlayWindow(base.data.underlay.values) : undefined,
+            )
+          : null,
       revisionKey: populationRevisionKey(data.sources, data.maskRevision),
     };
   }
@@ -1452,7 +1461,8 @@ export class PopulationSliceService {
             : [...ids.slice(Math.max(0, index - 1), Math.max(0, index - 1) + count)];
         data = checkedPopulationSliceData(
           await this.dependencies.evaluate(
-            { ...query.request, contextKey, focusOnly: reuse, focusWindow },
+            // A reused plane keeps the shown anatomy: do not sample it again.
+            { ...query.request, contextKey, focusOnly: reuse, focusWindow, ...(reuse ? { underlay: null } : {}) },
             abort.signal,
           ),
         );
@@ -1682,6 +1692,8 @@ export interface PopulationPeekRaster {
   orientation: PopulationOrientation;
   plane: ViewPlane;
   values: (number | null)[];
+  /** Background grey (0–1, NaN off the anatomy) on the same plane; null without one. */
+  underlay?: Float32Array | null;
   /** Source and mask revisions the raster was read from (`populationRevisionKey`). */
   revisionKey: string;
 }

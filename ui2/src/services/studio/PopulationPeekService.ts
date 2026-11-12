@@ -54,6 +54,8 @@ export class PopulationPeekService {
   private wanted: PopulationPeekTarget | null = null;
   private evaluate: PopulationPeekEvaluate | null;
   private readonly capacity: number;
+  /** Neighbouring slices to read while idle, nearest first (`prefetch`). */
+  private ahead: PopulationPeekTarget[] = [];
   constructor(
     evaluate: PopulationPeekEvaluate | null = null,
     capacity = POPULATION_PEEK_CACHE_SIZE,
@@ -85,6 +87,7 @@ export class PopulationPeekService {
     if (scope === this.scope) return;
     this.scope = scope;
     this.cache.clear();
+    this.ahead = [];
     this.cancel();
     const wanted = this.wanted;
     if (!wanted) {
@@ -102,6 +105,8 @@ export class PopulationPeekService {
    * burst costs at most two native evaluations.
    */
   request(target: PopulationPeekTarget | null) {
+    // The caller asks again once this target is shown (`prefetch`).
+    this.ahead = [];
     this.wanted = target;
     if (!target) {
       this.cancel();
@@ -155,9 +160,13 @@ export class PopulationPeekService {
       if (wanted && populationPeekKey(wanted) === key) publish();
       else if (wanted) {
         const cached = this.cache.get(populationPeekKey(wanted));
-        if (cached) this.publish({ target: wanted, raster: cached, pending: false, error: null });
-        else this.start(wanted);
+        // A finished prefetch publishes nothing while the wanted slice is shown.
+        if (cached) {
+          if (this.snapshot.raster !== cached || this.snapshot.pending)
+            this.publish({ target: wanted, raster: cached, pending: false, error: null });
+        } else this.start(wanted);
       }
+      this.pump();
     };
     this.evaluate(target, abort.signal).then(
       (raster) => {
@@ -174,6 +183,31 @@ export class PopulationPeekService {
       },
     );
   }
+  /**
+   * Read `targets` (the shown member's neighbouring slices, nearest first)
+   * into the cache while nothing else is in flight, so stepping the peek's
+   * slice shows a cached raster at once. A prefetch is an ordinary request
+   * that publishes nothing unless it becomes the wanted target; any new
+   * request drops the rest, and nothing is queued while a slice loads.
+   */
+  prefetch(targets: readonly PopulationPeekTarget[]) {
+    // Only once the wanted slice is shown: a step still loading comes first.
+    if (this.snapshot.pending) return;
+    const member = this.wanted?.memberId;
+    this.ahead = targets.filter(
+      (t) => t.memberId === member && !this.cache.has(populationPeekKey(t)),
+    );
+    this.pump();
+  }
+  private pump() {
+    if (this.inflight || !this.evaluate || this.scope === null) return;
+    while (this.ahead.length) {
+      const next = this.ahead.shift()!;
+      if (next.memberId !== this.wanted?.memberId || this.cache.has(populationPeekKey(next))) continue;
+      this.start(next);
+      return;
+    }
+  }
   /** Abort the request in flight; its response, if any, is dropped. */
   cancel() {
     this.generation++;
@@ -183,6 +217,7 @@ export class PopulationPeekService {
     if (this.snapshot.pending) this.publish({ ...this.snapshot, pending: false });
   }
   dispose() {
+    this.ahead = [];
     this.cancel();
     this.cache.clear();
     this.wanted = null;

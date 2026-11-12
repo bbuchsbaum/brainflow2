@@ -112,13 +112,33 @@ export function StudioReadinessNotice({
           <>
             <span className="mx-auto block max-w-[46ch]">{readiness.detail}</span>
             {checking ? (
-              <span
-                role="progressbar"
-                aria-label="Checking image grids"
-                className="mx-auto mt-3 block h-0.5 w-48 max-w-full overflow-hidden bg-bf-border-subtle"
-              >
-                <span className="block h-full w-full animate-pulse bg-primary" />
-              </span>
+              readiness.progress ? (
+                // Counted: a bar that fills as the headers are read.
+                <span
+                  role="progressbar"
+                  aria-label="Checking image grids"
+                  aria-valuemin={0}
+                  aria-valuemax={readiness.progress.total}
+                  aria-valuenow={readiness.progress.read}
+                  aria-valuetext={`${readiness.progress.read} of ${readiness.progress.total} image headers read`}
+                  className="mx-auto mt-3 block h-0.5 w-48 max-w-full overflow-hidden bg-bf-border-subtle"
+                >
+                  <span
+                    className="block h-full bg-primary motion-safe:transition-[width] motion-safe:duration-200"
+                    style={{
+                      width: `${Math.round((100 * readiness.progress.read) / readiness.progress.total)}%`,
+                    }}
+                  />
+                </span>
+              ) : (
+                <span
+                  role="progressbar"
+                  aria-label="Checking image grids"
+                  className="mx-auto mt-3 block h-0.5 w-48 max-w-full overflow-hidden bg-bf-border-subtle"
+                >
+                  <span className="block h-full w-full animate-pulse bg-primary" />
+                </span>
+              )
             ) : null}
           </>
         }

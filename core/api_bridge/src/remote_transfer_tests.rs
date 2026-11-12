@@ -1505,9 +1505,29 @@ async fn remote_discovery_audits_every_header_without_downloading() {
         .collect();
     assert_eq!(files.len(), 3);
     let listed = listing.listed;
-    let audit = crate::audit_remote_discovery_headers(&state, &mount, &root, &files, &listed).await;
+    // Progress counts every bound header, cached or read, up to the total.
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let record = std::sync::Arc::clone(&seen);
+    let progress: crate::HeaderCheckProgress =
+        std::sync::Arc::new(move |read, total| record.lock().unwrap().push((read, total)));
+    let audit = crate::audit_remote_discovery_headers(
+        &state,
+        &mount,
+        &root,
+        &files,
+        &listed,
+        Some(progress),
+    )
+    .await;
     assert!(audit.failure.is_none());
     assert!(audit.headers.values().all(Result::is_ok));
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.first().map(|(_, total)| *total), Some(3));
+    assert!(
+        seen.windows(2).all(|w| w[0].0 <= w[1].0),
+        "never counts down: {seen:?}"
+    );
+    assert_eq!(seen.last(), Some(&(3, 3)));
     let mut replacement = mount.clone();
     replacement.mount_id = "audit-reconnected".into();
     {
@@ -1515,7 +1535,8 @@ async fn remote_discovery_audits_every_header_without_downloading() {
         mounts.remove("audit");
         mounts.insert("audit-reconnected".into(), replacement);
     }
-    let audit = crate::audit_remote_discovery_headers(&state, &mount, &root, &files, &listed).await;
+    let audit =
+        crate::audit_remote_discovery_headers(&state, &mount, &root, &files, &listed, None).await;
     assert!(audit
         .failure
         .as_ref()
@@ -1526,7 +1547,8 @@ async fn remote_discovery_audits_every_header_without_downloading() {
     state.remote_mounts.lock().await.clear();
     mount.transfers.stop();
     let audit =
-        crate::audit_remote_discovery_headers(&state, &mount, &root, &files[..2], &listed).await;
+        crate::audit_remote_discovery_headers(&state, &mount, &root, &files[..2], &listed, None)
+            .await;
     assert!(audit.failure.is_some());
     assert!(audit.headers[&files[0]]
         .as_ref()
@@ -1645,7 +1667,7 @@ async fn remote_header_audit_continues_after_one_that_was_dropped() {
     };
 
     // The first audit is dropped after 300 ms, as an expired ticket drops it.
-    let first = crate::audit_remote_discovery_headers(&state, &mount, &root, &files, &listed);
+    let first = crate::audit_remote_discovery_headers(&state, &mount, &root, &files, &listed, None);
     assert!(tokio::time::timeout(Duration::from_millis(300), first)
         .await
         .is_err());
@@ -1657,7 +1679,7 @@ async fn remote_header_audit_continues_after_one_that_was_dropped() {
     // The second reads only what the first had not: together they read each
     // header once (plus at most the two reads in flight at the drop).
     let second =
-        crate::audit_remote_discovery_headers(&state, &mount, &root, &files, &listed).await;
+        crate::audit_remote_discovery_headers(&state, &mount, &root, &files, &listed, None).await;
     let second_reads = reads() - after_first;
     assert!(second.failure.is_none());
     assert_eq!(second.headers.len(), total);
@@ -1678,7 +1700,8 @@ async fn remote_header_audit_continues_after_one_that_was_dropped() {
 
     // An audit that finished leaves nothing to continue from.
     let before = reads();
-    let third = crate::audit_remote_discovery_headers(&state, &mount, &root, &files, &listed).await;
+    let third =
+        crate::audit_remote_discovery_headers(&state, &mount, &root, &files, &listed, None).await;
     assert_eq!(reads() - before, total);
     assert_eq!(
         third.notes,
@@ -1689,7 +1712,8 @@ async fn remote_header_audit_continues_after_one_that_was_dropped() {
 
     // A file that changed on the server (another modification time) is not
     // continued from what was read of the old one.
-    let dropped = crate::audit_remote_discovery_headers(&state, &mount, &root, &files, &listed);
+    let dropped =
+        crate::audit_remote_discovery_headers(&state, &mount, &root, &files, &listed, None);
     assert!(tokio::time::timeout(Duration::from_millis(300), dropped)
         .await
         .is_err());
@@ -1697,7 +1721,7 @@ async fn remote_header_audit_continues_after_one_that_was_dropped() {
     let before = reads();
     let changed = listing(AUDIT_MODIFIED as u64 + 60);
     let fourth =
-        crate::audit_remote_discovery_headers(&state, &mount, &root, &files, &changed).await;
+        crate::audit_remote_discovery_headers(&state, &mount, &root, &files, &changed, None).await;
     assert_eq!(reads() - before, total);
     assert!(fourth.headers.values().all(Result::is_ok));
 

@@ -295,8 +295,11 @@ impl PopulationSliceEngine {
         validate(&request)?;
         // The anatomy file is resolved (a template fetched if missing) before
         // admission, so a cold template cache never holds up other slices.
+        // Focus-only reads sample it too when asked (the scatter peek draws
+        // on it); the lens's own focus reads reuse the shown plane's and do
+        // not ask.
         let underlay_path = match &request.underlay {
-            Some(source) if !request.focus_only => Some(tokio::select! {
+            Some(source) => Some(tokio::select! {
                 _ = cancellation.cancelled() => return Err(crate::population_sampling::cancelled()),
                 path = display::underlay_path(source, state) => path,
             }),
@@ -2991,9 +2994,18 @@ mod tests {
             &expected(cutout_plane)
         ));
         assert!(underlay.values.iter().any(|v| v.is_finite()));
-        // Focus-only reads reuse the displayed underlay.
+        // A focus-only read samples the anatomy when it asks (the scatter
+        // peek), on its own plane; the lens's focus reads reuse the shown
+        // plane's anatomy and do not ask, so they get none.
         q.focus_only = true;
-        assert!(evaluate(&state, q.clone()).await.underlay.is_none());
+        let focused = evaluate(&state, q.clone()).await;
+        assert!(close(
+            &focused.underlay.expect("focus-only underlay").values,
+            &expected(&focused.plane)
+        ));
+        let mut reuse = q.clone();
+        reuse.underlay = None;
+        assert!(evaluate(&state, reuse).await.underlay.is_none());
         // A missing anatomy image leaves the maps valid and says why.
         q.focus_only = false;
         q.underlay = Some(display::UnderlayRequest {

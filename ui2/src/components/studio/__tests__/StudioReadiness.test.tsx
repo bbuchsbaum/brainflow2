@@ -107,6 +107,22 @@ describe('Population while the set is not ready', () => {
     expect(service.cancelGridCheck).toHaveBeenCalledTimes(1);
   });
 
+  it('counts the headers read when the backend reports them, with a filling bar', () => {
+    const set = openSet();
+    act(() =>
+      useSetStudioStore
+        .getState()
+        .setGridCheck({ status: 'checking', message: null, progress: { read: 42, total: 105 } }),
+    );
+    render(<LensCanvas {...lensProps} activeLens="population" activeSet={set} />);
+    const state = screen.getByTestId('studio-readiness');
+    expect(state).toHaveTextContent('Read 42 of 105 image headers.');
+    const bar = within(state).getByRole('progressbar', { name: 'Checking image grids' });
+    expect(bar).toHaveAttribute('aria-valuenow', '42');
+    expect(bar).toHaveAttribute('aria-valuemax', '105');
+    expect(bar.firstElementChild).toHaveStyle({ width: '40%' });
+  });
+
   it('becomes the lens by itself when the check lands', () => {
     const set = openSet();
     act(() => useSetStudioStore.getState().setGridCheck({ status: 'checking', message: null }));

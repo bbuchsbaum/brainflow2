@@ -44,6 +44,8 @@ export interface StudioReadiness {
    * mount is back.
    */
   reconnectPath?: string;
+  /** While checking: image headers read so far, when the backend counts them. */
+  progress?: { read: number; total: number };
 }
 
 const READY: StudioReadiness = { phase: 'ready', title: '', detail: '', short: '', action: null };
@@ -93,14 +95,24 @@ export function studioReadiness(
     !!set.discoveryRequest &&
     set.supportKind === 'volume' &&
     (issue?.kind === 'unchecked' || issue?.kind === 'check-failed');
-  if (checkable && gridCheck.status === 'checking')
+  if (checkable && gridCheck.status === 'checking') {
+    const progress = gridCheck.progress ?? undefined;
+    const counted = progress
+      ? `Read ${progress.read} of ${progress.total} image headers. `
+      : 'Reading each image header';
     return {
       phase: 'checking',
       title: 'Checking image grids…',
-      detail: `Reading each image header to confirm the images share one grid. ${name} opens by itself when this finishes; no image is downloaded.`,
-      short: 'Image grids are being checked…',
+      detail: progress
+        ? `${counted}They confirm the images share one grid. ${name} opens by itself when this finishes; no image is downloaded.`
+        : `${counted} to confirm the images share one grid. ${name} opens by itself when this finishes; no image is downloaded.`,
+      short: progress
+        ? `Checking image grids… ${progress.read} of ${progress.total}`
+        : 'Image grids are being checked…',
       action: 'cancel',
+      ...(progress ? { progress } : {}),
     };
+  }
   if (checkable && gridCheck.status === 'failed' && gridCheck.resumable)
     return {
       phase: 'check-failed',

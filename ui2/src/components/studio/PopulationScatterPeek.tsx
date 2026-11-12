@@ -8,7 +8,11 @@ import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
  * shared one; the wheel over the image steps it, the segmented control
  * switches plane, and the value under the pointer is read from the raster.
  */
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  OPEN_IN_VIEWER_NO_SOURCE,
+  openStudioFileInViewer,
+} from '@/services/studio/studioOpenInViewer';
 import { Pin, PinOff, X } from 'lucide-react';
 import { Button, IconButton, SegmentedControl } from '@/components/ui/bf';
 import {
@@ -19,14 +23,18 @@ import {
 } from '@/components/views/sliceViewer';
 import {
   populationAxisLabel,
-  populationRgba,
+  populationHiddenBand,
+  populationOverlayRgba,
   type PopulationOrientation,
 } from '@/services/studio/PopulationSliceService';
+import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
+import { getLineDash } from '@/utils/crosshairUtils';
 import { peekValueAt, type PopulationPeekSnapshot } from '@/services/studio/PopulationPeekService';
 import type { ViewPlane } from '@/types/coordinates';
 import {
   NORMAL_AXIS,
   PEEK_WIDTH,
+  onPlane,
   peekStepPlane,
   steppedPeekView,
   type PopulationPeekView,
@@ -50,6 +58,7 @@ export function PopulationScatterPeek({
   view,
   snapshot,
   effectLimit,
+  sourcePath = null,
   pinned,
   position,
   onViewChange,
@@ -65,6 +74,8 @@ export function PopulationScatterPeek({
   snapshot: PopulationPeekSnapshot;
   /** The lens's shared effect colour range (± limit). */
   effectLimit: number;
+  /** The previewed map's file, for Open in viewer (null when it has none). */
+  sourcePath?: string | null;
   pinned: boolean;
   position: { left: number; top: number };
   onViewChange: (view: PopulationPeekView) => void;
@@ -83,7 +94,14 @@ export function PopulationScatterPeek({
     let cancelled = false;
     const [w, h] = raster.plane.dim_px;
     const pixels = new ImageData(w, h);
-    pixels.data.set(populationRgba(raster.values, effectLimit, true));
+    // Drawn as a montage tile is: values inside the hidden band are not
+    // painted, |v| sets the opacity, and the background shows beneath.
+    pixels.data.set(
+      populationOverlayRgba(raster.values, effectLimit, true, {
+        band: populationHiddenBand(effectLimit),
+        underlay: raster.underlay ?? null,
+      }),
+    );
     void createImageBitmap(pixels).then(
       (bitmap) => {
         if (cancelled) bitmap.close();
@@ -138,7 +156,30 @@ export function PopulationScatterPeek({
       : pointer.value === null
         ? 'No finite value here'
         : `Value ${pointer.value.toPrecision(4)}`;
-  const openInViewerNote = useId();
+  // The shared crosshair, at the point the peek was opened on (its slice
+  // moves only along the normal, so it stays at the same in-plane place).
+  const crosshairSettings = useCrosshairSettingsStore((state) => state.settings);
+  const crosshairStyle = useMemo(
+    () => ({
+      color: crosshairSettings.activeColor,
+      lineWidth: crosshairSettings.activeThickness,
+      lineDash: getLineDash(crosshairSettings.activeStyle, crosshairSettings.activeThickness),
+    }),
+    [crosshairSettings],
+  );
+  // Drawn on the shown plane: that plane sits on voxel centres, which can be
+  // up to half a voxel off the requested point, and the viewport draws only
+  // a point within 0.5 mm of its plane.
+  const shownPlane = image?.plane ?? raster?.plane ?? null;
+  const crosshair = useMemo(
+    () => ({
+      visible: crosshairSettings.visible,
+      world_mm: shownPlane
+        ? onPlane(view.crosshairMm, shownPlane)
+        : ([...view.crosshairMm] as [number, number, number]),
+    }),
+    [crosshairSettings.visible, view.crosshairMm, shownPlane],
+  );
   return (
     <div
       id={id}
@@ -218,6 +259,8 @@ export function PopulationScatterPeek({
           width={IMAGE_SIZE}
           height={IMAGE_SIZE}
           viewPlane={image?.plane ?? raster?.plane}
+          crosshair={crosshair}
+          crosshairStyle={crosshairStyle}
           onCanvasReady={(element) => {
             canvas.current = element;
           }}
@@ -277,16 +320,16 @@ export function PopulationScatterPeek({
       <Button
         variant="secondary"
         size="sm"
-        aria-disabled
-        aria-describedby={openInViewerNote}
-        title="Opening an observation in the viewer is not available yet."
-        onClick={(event) => event.preventDefault()}
+        disabled={!sourcePath?.trim()}
+        title={
+          sourcePath?.trim()
+            ? `Open ${sourcePath.trim()} in a new viewer tab`
+            : OPEN_IN_VIEWER_NO_SOURCE
+        }
+        onClick={() => openStudioFileInViewer(sourcePath)}
       >
         Open in viewer
       </Button>
-      <span id={openInViewerNote} className="sr-only">
-        Not available yet: opening an observation in the viewer arrives in a later release.
-      </span>
     </div>
   );
 }

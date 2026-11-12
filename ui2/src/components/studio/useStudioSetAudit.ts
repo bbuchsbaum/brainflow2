@@ -38,7 +38,7 @@ export function useStudioSetAudit(
   const grids = useStudioReadiness('compare');
   if (!activeSet || !readiness) return null;
   const audit = activeSet.ingestAudit;
-  const status = statePill(readiness, grids.phase, !!activeSet.savedPopulation);
+  const status = statePill(readiness, grids.phase, !!activeSet.savedPopulation, grids.progress);
   const grid =
     audit.support.alignmentClass === 'same-grid' && audit.support.supportLabel
       ? audit.support.supportLabel
@@ -76,6 +76,7 @@ function statePill(
   readiness: WorkspaceReadiness,
   phase: ReturnType<typeof useStudioReadiness>['phase'],
   savedPopulation: boolean,
+  progress?: { read: number; total: number },
 ): { status: StatusKind; label: string; detail: string | null } {
   if (savedPopulation) return { status: 'success', label: readiness.eyebrow, detail: null };
   if (readiness.state === 'blocked')
@@ -84,7 +85,13 @@ function statePill(
     case 'ready':
       return { status: 'success', label: 'Ready to compare', detail: null };
     case 'checking':
-      return { status: 'running', label: 'Checking image grids', detail: null };
+      return {
+        status: 'running',
+        label: progress
+          ? `Checking image grids · ${progress.read}/${progress.total}`
+          : 'Checking image grids',
+        detail: null,
+      };
     case 'needs-check':
       return { status: 'queued', label: 'Image grids not checked', detail: null };
     case 'check-failed':

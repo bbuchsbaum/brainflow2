@@ -86,6 +86,13 @@ export interface VolumeLoadConfig {
   autoSelect?: () => boolean;
 }
 
+/** Whether the workspace shows its crosshair now (the app-wide setting). */
+function crosshairShown(workspaceId: string): boolean {
+  const state = useViewStateStore.getState();
+  const view = state.workspaceViewStates?.get(workspaceId) ?? state.viewState;
+  return view?.crosshair?.visible ?? true;
+}
+
 export class VolumeLoadingService {
   private static instance: VolumeLoadingService | null = null;
   private eventBus: EventBus | null = null;
@@ -341,7 +348,12 @@ export class VolumeLoadingService {
           ...(config.autoSelect ? { autoSelect: config.autoSelect } : {}),
           initialGeometry: {
             views: initialViews,
-            crosshair: { world_mm: initialCrosshair, visible: true },
+            // Loading a volume moves the crosshair; whether it shows stays the
+            // user's setting.
+            crosshair: {
+              world_mm: initialCrosshair,
+              visible: crosshairShown(workspaceId),
+            },
           },
         });
         this.eventBus!.emit('volume.loaded', {

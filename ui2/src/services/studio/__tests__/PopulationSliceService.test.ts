@@ -402,7 +402,8 @@ it('presents cached original focus without resampling or rebuilding the anchored
   await vi.runAllTimersAsync();
   // Expired windows require native freshness validation before reusing the summary.
   expect(evaluate).toHaveBeenCalledTimes(2);
-  expect(evaluate.mock.calls[1][0]).toMatchObject({ focusOnly: true });
+  // A reused plane keeps the shown anatomy: the read does not sample it again.
+  expect(evaluate.mock.calls[1][0]).toMatchObject({ focusOnly: true, underlay: null });
   expect(service.getSnapshot().error).toBeNull();
   service.stop();
   expect(bitmaps.every((image) => vi.mocked(image.close).mock.calls.length === 1)).toBe(true);

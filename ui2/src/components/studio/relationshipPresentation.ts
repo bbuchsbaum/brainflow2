@@ -54,6 +54,8 @@ export const PEEK_DISMISS_DELAY_MS = 150;
 
 /** Outer width of the peek, px; the placement logic keeps it inside its bounds. */
 export const PEEK_WIDTH = 232;
+/** Slices read ahead of the peek in the direction it is being stepped. */
+export const PEEK_PREFETCH_STEPS = 3;
 /** Approximate outer height of the peek, px, for placement. */
 export const PEEK_HEIGHT = 330;
 
@@ -89,6 +91,24 @@ export function peekStepPlane(
   view: PopulationPeekView,
 ): ViewPlane | null {
   return raster && raster.orientation === view.orientation ? raster.plane : null;
+}
+
+/** `point` moved along the plane's normal onto the plane. */
+export function onPlane(
+  point: readonly [number, number, number],
+  plane: Pick<ViewPlane, 'origin_mm' | 'u_mm' | 'v_mm'>,
+): [number, number, number] {
+  const u = plane.u_mm,
+    v = plane.v_mm;
+  const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+  const length = Math.hypot(n[0], n[1], n[2]);
+  if (!length) return [...point] as [number, number, number];
+  const off =
+    ((point[0] - plane.origin_mm[0]) * n[0] +
+      (point[1] - plane.origin_mm[1]) * n[1] +
+      (point[2] - plane.origin_mm[2]) * n[2]) /
+    (length * length);
+  return [point[0] - off * n[0], point[1] - off * n[1], point[2] - off * n[2]];
 }
 
 /** The view after one wheel step (`direction` +1 towards +R/+A/+S). */

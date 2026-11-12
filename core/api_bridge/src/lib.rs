@@ -4716,12 +4716,18 @@ fn interrupted_audit_headers(
 /// preview's cancellation) or losing the mount leaves nothing to reclaim. The
 /// headers read before such a drop are kept in memory, and the next audit of
 /// the same files (same path, size and modification time) continues from them.
+/// Header-check progress: `(read, total)` image headers of the files a set
+/// binds, counting those already cached. Called once before streaming and
+/// after each header read over the mount.
+pub(crate) type HeaderCheckProgress = Arc<dyn Fn(usize, usize) + Send + Sync>;
+
 async fn audit_remote_discovery_headers(
     state: &BridgeState,
     mount: &RemoteMountEntry,
     root_path: &Path,
     source_paths: &[String],
     listed: &HashMap<String, RemoteListedFile>,
+    progress: Option<HeaderCheckProgress>,
 ) -> field_table::DiscoveryHeaderAudit {
     // Messages name a file as the member rows do: by its path under the
     // chosen folder, not by where the cache would keep it.
@@ -4783,7 +4789,17 @@ async fn audit_remote_discovery_headers(
         .collect();
     let stream_keys: Vec<Option<RemoteHeaderKey>> =
         to_stream.iter().map(|(_, _, key)| key.clone()).collect();
+    let already = from_cache + continued;
+    let total = already + to_stream.len();
+    let read = Arc::new(std::sync::atomic::AtomicUsize::new(already));
+    if let Some(progress) = &progress {
+        progress(already, total);
+    }
     let keep: remote_transfer::HeaderSink = Arc::new(move |index, header| {
+        if let Some(progress) = &progress {
+            let done = read.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            progress(done.min(total), total);
+        }
         if let Some(Some(key)) = stream_keys.get(index) {
             let mut kept = interrupted_audit_headers();
             if kept.len() >= INTERRUPTED_AUDIT_HEADERS_MAX {
@@ -4878,6 +4894,7 @@ fn inactive_remote_discovery_inventory(
 async fn remote_discovery_inventory_for_request(
     state: &BridgeState,
     request: &StudioImportPreviewRequest,
+    progress: Option<HeaderCheckProgress>,
 ) -> BridgeResult<Option<field_table::DiscoveryInventory>> {
     let Some(root) = request.discovery_root.as_deref() else {
         return Ok(None);
@@ -4946,8 +4963,15 @@ async fn remote_discovery_inventory_for_request(
             })
             .unwrap_or_default();
         inventory.header_audit = Some(
-            audit_remote_discovery_headers(state, &mount, &root_path, &bound_source_paths, &listed)
-                .await,
+            audit_remote_discovery_headers(
+                state,
+                &mount,
+                &root_path,
+                &bound_source_paths,
+                &listed,
+                progress,
+            )
+            .await,
         );
     }
 
@@ -9807,10 +9831,11 @@ async fn cancelled_local_import_preview_retains_worker_admission() {
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.preview_set_studio_imports")]
-async fn preview_set_studio_imports(
+async fn preview_set_studio_imports<R: Runtime>(
     request: StudioImportPreviewRequest,
     ticket: Option<SampleTicket>,
     state: State<'_, BridgeState>,
+    app: tauri::AppHandle<R>,
 ) -> BridgeResult<Vec<StudioImportCandidate>> {
     // Reuse the bounded query-ticket registry; cancellation stops further remote I/O.
     let cancellation = ticket
@@ -9821,7 +9846,10 @@ async fn preview_set_studio_imports(
     cancellation.check()?;
     tokio::select! {
         _ = cancellation.cancelled() => Err(population_sampling::cancelled()),
-        result = preview_set_studio_imports_impl(request, Some(state.inner())) => result,
+        result = {
+            let progress = header_check_progress(app, &request);
+            preview_set_studio_imports_impl(request, Some(state.inner()), Some(progress))
+        } => result,
     }
 }
 
@@ -9830,16 +9858,33 @@ pub async fn preview_set_studio_imports_for_testing(
     request: StudioImportPreviewRequest,
     state: Option<&BridgeState>,
 ) -> BridgeResult<Vec<StudioImportCandidate>> {
-    preview_set_studio_imports_impl(request, state).await
+    preview_set_studio_imports_impl(request, state, None).await
+}
+
+/// Reports a remote header check as `studio-header-check-progress`
+/// (`{ root, read, total }`), so the UI can count instead of spinning.
+fn header_check_progress<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    request: &StudioImportPreviewRequest,
+) -> HeaderCheckProgress {
+    let root = request.discovery_root.clone().unwrap_or_default();
+    Arc::new(move |read, total| {
+        let _ = app.emit(
+            "studio-header-check-progress",
+            serde_json::json!({ "root": root, "read": read, "total": total }),
+        );
+    })
 }
 
 async fn preview_set_studio_imports_impl(
     request: StudioImportPreviewRequest,
     state: Option<&BridgeState>,
+    progress: Option<HeaderCheckProgress>,
 ) -> BridgeResult<Vec<StudioImportCandidate>> {
     if request.mode == bridge_types::StudioImportMode::Regex {
         if let Some(state) = state {
-            if let Some(inventory) = remote_discovery_inventory_for_request(state, &request).await?
+            if let Some(inventory) =
+                remote_discovery_inventory_for_request(state, &request, progress).await?
             {
                 return Ok(
                     field_table::preview_import_candidates_with_discovery_inventory(

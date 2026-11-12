@@ -140,6 +140,8 @@ export interface StudioGridCheckState {
    * runs again when the mount is back.
    */
   connectionLostPath?: string;
+  /** While checking a remote folder: image headers read so far, of all the set binds. */
+  progress?: { read: number; total: number } | null;
 }
 
 export interface StudioSelection {

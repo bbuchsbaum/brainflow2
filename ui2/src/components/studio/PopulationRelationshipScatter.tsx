@@ -78,8 +78,10 @@ import {
   type ScatterFrame,
 } from './similarityStripLayout';
 import {
+  NORMAL_AXIS,
   PEEK_DISMISS_DELAY_MS,
   PEEK_HOVER_DELAY_MS,
+  PEEK_PREFETCH_STEPS,
   placePeek,
   peekStepPlane,
   steppedPeekView,
@@ -288,6 +290,44 @@ export function PopulationRelationshipScatter({
   useEffect(() => {
     service.request(peek && peekView ? { memberId: peek.memberId, ...peekView } : null);
   }, [service, peek, peekView]);
+  // Once the user steps the peek's slice, read the next slices in the
+  // direction of travel while idle, so further steps are served from cache.
+  // Hovering across points prefetches nothing: that would cost native reads
+  // for slices nobody asked for and hold up the next point's preview.
+  const travel = useRef<{ memberId: string; direction: number } | null>(null);
+  const previousView = useRef<{ memberId: string; view: PopulationPeekView } | null>(null);
+  useEffect(() => {
+    const before = previousView.current;
+    previousView.current = peek && peekView ? { memberId: peek.memberId, view: peekView } : null;
+    if (!peek || !peekView) {
+      travel.current = null;
+      return;
+    }
+    if (travel.current?.memberId !== peek.memberId) travel.current = null;
+    if (
+      before?.memberId !== peek.memberId ||
+      before.view.orientation !== peekView.orientation
+    )
+      return;
+    const axis = NORMAL_AXIS[peekView.orientation].index;
+    const moved = peekView.crosshairMm[axis] - before.view.crosshairMm[axis];
+    if (moved) travel.current = { memberId: peek.memberId, direction: Math.sign(moved) };
+  }, [peek, peekView]);
+  const settledRaster = !snapshot.pending ? snapshot.raster : null;
+  useEffect(() => {
+    const direction = travel.current?.direction;
+    if (!peek || !peekView || !direction || !settledRaster || settledRaster.memberId !== peek.memberId)
+      return;
+    const plane = peekStepPlane(settledRaster, peekView);
+    if (!plane) return;
+    const ahead: PopulationPeekView[] = [];
+    let view = peekView;
+    for (let i = 0; i < PEEK_PREFETCH_STEPS; i++) {
+      view = steppedPeekView(view, direction, plane);
+      ahead.push(view);
+    }
+    service.prefetch(ahead.map((v) => ({ memberId: peek.memberId, ...v })));
+  }, [service, peek, peekView, settledRaster]);
   useEffect(() => () => service.dispose(), [service]);
 
   const timers = useRef<{
@@ -603,6 +643,9 @@ export function PopulationRelationshipScatter({
           view={peekView}
           snapshot={snapshot}
           effectLimit={displayed?.effectLimit ?? 1}
+          sourcePath={
+            displayed?.query.request.members.find((m) => m.memberId === peek.memberId)?.sourcePath ?? null
+          }
           pinned={peek.pinned}
           position={position}
           onViewChange={setPeekView}

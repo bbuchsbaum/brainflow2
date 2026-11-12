@@ -606,6 +606,48 @@ describe('SetIngestionService', () => {
       expect(after.importDialog).toBe(dialog);
     });
 
+    it('counts a remote check\'s headers as the backend reports them, for this folder only', async () => {
+      openUnchecked();
+      const handlers = new Map<string, (event: unknown) => void>();
+      const bus = {
+        listen: (event: string, handler: (event: unknown) => void) => {
+          handlers.set(event, handler);
+          return () => handlers.delete(event);
+        },
+      };
+      (window as unknown as { __harnessEvents?: typeof bus }).__harnessEvents = bus;
+      try {
+        let finish!: (value: StudioImportCandidate[]) => void;
+        const invoke = vi.fn((command: string) =>
+          command === 'preview_set_studio_imports'
+            ? new Promise<StudioImportCandidate[]>((resolve) => {
+                finish = resolve;
+              })
+            : Promise.resolve(null),
+        );
+        const service = new SetIngestionService({ invoke } as unknown as BackendTransport);
+        const pending = service.checkActiveSetGrids();
+        await Promise.resolve();
+        const emit = (payload: unknown) => handlers.get('studio-header-check-progress')?.({ payload });
+        emit({ root: ROOT, read: 3, total: 10 });
+        expect(useSetStudioStore.getState().gridCheck).toMatchObject({
+          status: 'checking',
+          progress: { read: 3, total: 10 },
+        });
+        // Another folder's check, or a malformed count, changes nothing.
+        emit({ root: '/elsewhere', read: 9, total: 10 });
+        emit({ root: ROOT, read: 4, total: 0 });
+        expect(useSetStudioStore.getState().gridCheck.progress).toEqual({ read: 3, total: 10 });
+        finish([withDiscoveryRoot(makeDiscoveryCandidate(), ROOT)]);
+        await pending;
+        expect(useSetStudioStore.getState().gridCheck.progress).toBeUndefined();
+        // The listener is gone with the check.
+        expect(handlers.has('studio-header-check-progress')).toBe(false);
+      } finally {
+        delete (window as unknown as { __harnessEvents?: unknown }).__harnessEvents;
+      }
+    });
+
     it('drops the result when another set was opened while the check ran', async () => {
       openUnchecked();
       const check = gatedCheck();

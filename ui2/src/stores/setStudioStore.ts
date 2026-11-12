@@ -460,7 +460,9 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
     if (
       current.status !== next.status ||
       current.message !== next.message ||
-      !!current.resumable !== !!next.resumable
+      !!current.resumable !== !!next.resumable ||
+      current.progress?.read !== next.progress?.read ||
+      current.progress?.total !== next.progress?.total
     )
       set({ gridCheck: next });
   },

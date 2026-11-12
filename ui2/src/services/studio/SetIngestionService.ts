@@ -1,6 +1,7 @@
 import { noteRemoteConnectionFailure } from '@/services/RemoteReconnectService';
 import { formatTauriError, tauriErrorCode } from '@/utils/formatTauriError';
 import { useAppModeStore } from '@/stores/appModeStore';
+import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import { describeFolderSource } from './folderSource';
 import {
@@ -502,6 +503,22 @@ export class SetIngestionService {
         ? 'cancelled'
         : 'interrupted';
     before.setGridCheck({ status: 'checking', message: null });
+    // A remote folder's headers are read one by one: count them as they land.
+    const progress = safeListen<{ root?: string; read?: number; total?: number }>(
+      'studio-header-check-progress',
+      (event) => {
+        const { root, read, total } = event?.payload ?? {};
+        if (root !== discovery.root || !owns()) return;
+        if (!Number.isInteger(read) || !Number.isInteger(total) || total! <= 0) return;
+        const now = useSetStudioStore.getState();
+        if (now.gridCheck.status !== 'checking') return;
+        now.setGridCheck({
+          status: 'checking',
+          message: null,
+          progress: { read: Math.min(read!, total!), total: total! },
+        });
+      },
+    );
     // Ownership lost (another set, a new session, the Studio left): stop the
     // backend reading headers, which holds the mount's transfer permits.
     const unsubscribeSet = useSetStudioStore.subscribe(() => {
@@ -620,6 +637,7 @@ export class SetIngestionService {
       );
       return 'failed';
     } finally {
+      void safeUnlisten(progress);
       unsubscribeSet();
       unsubscribeMode();
       if (this.activeGridCheck === controller) this.activeGridCheck = null;
