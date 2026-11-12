@@ -8,17 +8,30 @@ import type { SpatialFieldSetSummary } from '@/types/studio';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useComparisonStore } from '@/stores/comparisonStore';
 import { useAppModeStore } from '@/stores/appModeStore';
+import { useSetStudioStore } from '@/stores/setStudioStore';
 import { markStudioMemberLoad } from './studioMemberLoads';
 import {
-  STUDIO_MAP_OPACITY,
+  studioMapOpacity,
+  onStudioPopulationScale,
+  clearStudioPopulationScales,
+  sameAlphaMod,
   sameStudioWindow,
   studioMapDisplay,
   studioMemberKind,
+  studioPopulationScale,
   studioWindowLimit,
   type StudioMapKind,
   type StudioMapWindow,
 } from './studioMapDisplay';
 import { fetchStudioRobustLimit } from './studioMapLimit';
+import { requestStudioPopulationScale } from './PopulationSliceService';
+
+/**
+ * How long a member waits for its set's population limit (measured when
+ * Population has not drawn yet) before it is drawn on its own robust scale;
+ * a limit that comes later re-scales it (`applyPopulationScale`).
+ */
+export const POPULATION_SCALE_WAIT_MS = 1500;
 
 /** The Studio is the active mode right now. */
 function isStudioActive(): boolean {
@@ -153,6 +166,10 @@ export class StudioDisplayService {
    * window is at least this wide, so one window serves both.
    */
   private compareMeanLimit: number | null = null;
+  /** The source path each member layer was asked for by: its set's population scale. */
+  private readonly memberSources = new Map<string, string>();
+  /** The set each member layer is shown for: its population limit is keyed by it. */
+  private readonly memberSets = new Map<string, string>();
   /** The background asked for last, and what became of it. */
   private background: { desired: string | null; run: Promise<StudioBackgroundResult> | null } = {
     desired: null,
@@ -164,10 +181,29 @@ export class StudioDisplayService {
   private readonly backgroundLayers = new Map<string, string>();
   /** The background layer in use: member visibility syncing leaves it alone. */
   private backgroundLayerId: string | null = null;
+  /**
+   * "Open in viewer" keeps the Studio's layers while its viewer tab is in
+   * front (`openInViewerTab`): leaving the Studio for that tab defers the
+   * release, so coming back neither reloads nor re-fetches the members.
+   * Any other tab in front, or the Studio's tab closed, runs the release.
+   */
+  private awayHold: {
+    studioId: string;
+    /** Null while the viewer tab is being made. */
+    viewerId: string | null;
+    unsubscribe: (() => void) | null;
+  } | null = null;
+
+  /** Measures the active set's population limit (replaced in tests). */
+  populationScaleSource: (workspaceKey: string) => Promise<number | null> =
+    requestStudioPopulationScale;
 
   static getInstance(): StudioDisplayService {
     if (!StudioDisplayService.instance) {
       StudioDisplayService.instance = new StudioDisplayService();
+      // A population limit drawn after the member was shown (the Population
+      // lens ran later) re-scales a member still at its default.
+      onStudioPopulationScale(() => StudioDisplayService.instance?.applyPopulationScale());
     }
     return StudioDisplayService.instance;
   }
@@ -189,7 +225,7 @@ export class StudioDisplayService {
     const managedPaths = activeSet.memberSummaries
       .map((candidate) => candidate.sourcePath?.trim() ?? '')
       .filter((path): path is string => path.length > 0);
-    const run = this.displaySourcePath(sourcePath, managedPaths, member?.id, 'member');
+    const run = this.displaySourcePath(sourcePath, managedPaths, member?.id, 'member', activeSet.id);
     this.memberDisplay = run;
     await run;
   }
@@ -199,7 +235,13 @@ export class StudioDisplayService {
     managedSourcePaths: string[] = [],
     memberLabel?: string | null
   ): Promise<void> {
-    const run = this.displaySourcePath(sourcePath, managedSourcePaths, memberLabel, 'source');
+    const run = this.displaySourcePath(
+      sourcePath,
+      managedSourcePaths,
+      memberLabel,
+      'source',
+      useSetStudioStore.getState().selection.activeSetId,
+    );
     this.memberDisplay = run;
     return run;
   }
@@ -208,7 +250,9 @@ export class StudioDisplayService {
     sourcePath: string,
     managedSourcePaths: string[],
     memberLabel: string | null | undefined,
-    kind: 'member' | 'source'
+    kind: 'member' | 'source',
+    /** The set the source is shown as a member of (its population limit applies). */
+    setId: string | null = null
   ): Promise<void> {
     const normalizedPath = this.normalizePath(sourcePath);
     if (!normalizedPath) {
@@ -232,10 +276,17 @@ export class StudioDisplayService {
       this.shelveSupersededMember(layerId);
       return;
     }
+    this.memberSources.set(layerId, normalizedPath);
+    if (setId) this.memberSets.set(layerId, setId);
+    else this.memberSets.delete(layerId);
 
     // The robust window end of a member the rule draws, before anything is
-    // written: one write, and no window sized to the noise meanwhile.
-    const limit = this.prepareMemberLimit(layerId);
+    // written: one write, and no window sized to the noise meanwhile. A
+    // member of a set is drawn on the set's population limit, measured now
+    // when the Population lens has not drawn it (one map, one scale).
+    const scale = setId ? this.preparePopulationScale(layerId, setId, workspaceKey) : null;
+    const own = this.prepareMemberLimit(layerId);
+    const limit = own || scale ? Promise.all([own, scale]) : null;
     if (limit) {
       const session = this.session;
       await limit;
@@ -298,8 +349,10 @@ export class StudioDisplayService {
         this.writeMemberOpacity(layerId, workspaceKey, entry.prior.view, entry.prior.props);
         this.memberOpacity.delete(layerId);
       } else if (owned) {
-        this.writeMemberOpacity(layerId, workspaceKey, 1, 1);
-        this.memberOpacity.set(layerId, { applied: 1, prior: null, workspaceKey });
+        // A signed map keeps its opacity ramp's peak (studioMapDisplay.ts).
+        const alone = this.isStudioMap(layerId) ? studioMapOpacity(this.styled.get(layerId)?.applied) : 1;
+        this.writeMemberOpacity(layerId, workspaceKey, alone, alone);
+        this.memberOpacity.set(layerId, { applied: alone, prior: null, workspaceKey });
       }
       return;
     }
@@ -333,7 +386,7 @@ export class StudioDisplayService {
     if (!member || !background) return 1;
     // A map the rule draws is opaque over the template, as the computed
     // panes draw theirs: its hidden band is what lets the anatomy through.
-    if (this.isStudioMap(layerId)) return STUDIO_MAP_OPACITY;
+    if (this.isStudioMap(layerId)) return studioMapOpacity(this.styled.get(layerId)?.applied);
     const plan = planLayerPlacement([{ ...background, visible: true }], member, (id) =>
       layerMetadata.get(id),
     );
@@ -601,6 +654,31 @@ export class StudioDisplayService {
     });
   }
 
+  /**
+   * Ask for the population limit of `setId` when it has none, for a member
+   * the rule draws signed; wait at most `POPULATION_SCALE_WAIT_MS`. Null
+   * when there is nothing to wait for.
+   */
+  private preparePopulationScale(
+    layerId: string,
+    setId: string,
+    workspaceKey: string,
+  ): Promise<void> | null {
+    if (!this.owned.has(layerId) || this.memberKind(layerId) === null) return null;
+    if (studioPopulationScale(setId, this.memberSources.get(layerId)) !== null) return null;
+    if (useSetStudioStore.getState().selection.activeSetId !== setId) return null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const waited = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, POPULATION_SCALE_WAIT_MS);
+    });
+    return Promise.race([
+      this.populationScaleSource(workspaceKey).then(() => undefined),
+      waited,
+    ]).finally(() => {
+      if (timer !== null) clearTimeout(timer);
+    });
+  }
+
   /** The display of `layerId` in the view of `workspaceKey`. */
   private viewWindow(layerId: string, workspaceKey: string): StudioMapWindow | null {
     const layer = workspaceViewLayers(workspaceKey).find((candidate) => candidate.id === layerId);
@@ -658,13 +736,34 @@ export class StudioDisplayService {
     const reached = [carried, existing].filter((display): display is StudioMapWindow => !!display);
     const range = useLayerStore.getState().layerMetadata.get(layerId)?.dataRange;
     const signed = kind === 'diverging' || reached.some((display) => display.intensity[0] < 0);
+    // A signed member of a set the Population lens has drawn takes that
+    // scale (one map, one scale in every lens); otherwise its own robust one.
+    const population = signed ? studioPopulationScale(this.memberSets.get(layerId), this.memberSources.get(layerId)) : null;
     const own = studioMapDisplay(range, { signed, limit: this.memberLimits.get(layerId) });
     const limit = Math.max(
-      studioWindowLimit(own),
-      ...reached.map(studioWindowLimit),
+      ...(population !== null
+        ? [population]
+        : [studioWindowLimit(own), ...reached.map(studioWindowLimit)]),
       this.compareMeanLimit ?? 0,
     );
     this.writeMemberDefault(layerId, studioMapDisplay(range, { signed, limit }), workspaceKey);
+  }
+
+  /**
+   * The member on display, while it shows its signed Studio default, takes
+   * its set's population limit (widened for the mean beside it, as ever).
+   */
+  private applyPopulationScale(): void {
+    const layerId = this.displayedMemberLayerId;
+    if (!layerId) return;
+    const applied = this.untouchedDefault(layerId);
+    if (!applied || !(applied.intensity[0] < 0)) return;
+    const population = studioPopulationScale(this.memberSets.get(layerId), this.memberSources.get(layerId));
+    if (population === null) return;
+    const limit = Math.max(population, this.compareMeanLimit ?? 0);
+    if (studioWindowLimit(applied) === limit) return;
+    const range = useLayerStore.getState().layerMetadata.get(layerId)?.dataRange;
+    this.writeMemberDefault(layerId, studioMapDisplay(range, { signed: true, limit }));
   }
 
   /** Write a Studio default and remember it as the Studio's. */
@@ -677,12 +776,23 @@ export class StudioDisplayService {
       colormap: display.colormap,
       intensity: [display.intensity[0], display.intensity[1]],
       threshold: [display.threshold[0], display.threshold[1]],
+      // A signed map's opacity rises with |v|, as in Population.
+      ...(display.alphaMod ? { alphaMod: { ...display.alphaMod } } : {}),
     };
     // Remembered first: a reader told of the write finds it the Studio's.
     this.styled.set(layerId, { applied, workspaceKey });
     useViewStateStore.getState().setViewState((draft) => {
       const layer = draft.layers.find((candidate) => candidate.id === layerId);
-      if (!layer || sameStudioWindow(layer, applied)) return;
+      if (!layer) return;
+      // The applied display replaces the ramp too: a flat default removes a
+      // ramp an earlier (signed) default or the loader left on the layer.
+      const ramp = applied.alphaMod;
+      if (ramp) {
+        if (!sameAlphaMod(layer.alphaMod, ramp)) layer.alphaMod = { ...ramp };
+      } else if (layer.alphaMod) {
+        delete layer.alphaMod;
+      }
+      if (sameStudioWindow(layer, applied)) return;
       layer.colormap = applied.colormap;
       layer.intensity = [applied.intensity[0], applied.intensity[1]];
       layer.threshold = [applied.threshold[0], applied.threshold[1]];
@@ -924,6 +1034,116 @@ export class StudioDisplayService {
     }
   }
 
+  /** The Studio is in front again: a deferred release is no longer wanted. */
+  resumeStudio(): void {
+    this.clearAwayHold();
+  }
+
+  /** Whether the Studio's layers are being kept for its viewer tab (tests, diagnostics). */
+  holdingLayersForViewer(): boolean {
+    return this.awayHold !== null;
+  }
+
+  private awayHoldApplies(): boolean {
+    const hold = this.awayHold;
+    if (!hold) return false;
+    const workspaces = useWorkspaceStore.getState();
+    if (!workspaces.workspaces.has(hold.studioId)) return false;
+    const active = workspaces.activeWorkspaceId;
+    return active === hold.studioId || hold.viewerId === null || active === hold.viewerId;
+  }
+
+  private deferReleaseWhileAway(): void {
+    const hold = this.awayHold;
+    if (!hold || hold.unsubscribe) return;
+    hold.unsubscribe = useWorkspaceStore.subscribe(() => {
+      if (this.awayHold !== hold || this.awayHoldApplies() || isStudioActive()) return;
+      // Another tab is in front, or the Studio was closed: release now.
+      void this.releaseStudioLayers();
+    });
+  }
+
+  private clearAwayHold(): void {
+    this.awayHold?.unsubscribe?.();
+    this.awayHold = null;
+  }
+
+  /**
+   * Open a file the Studio shows in a new viewer tab ("Orthogonal N") and
+   * bring that tab to the front. The tab starts empty (not as a copy of the
+   * Studio's view), receives the Studio's background template as its
+   * underlay when one is shown, then the file as an ordinary layer through
+   * the app's file loader, with the colour map, window and threshold the
+   * Studio shows it with. The Studio's view and layers are not changed, and
+   * stay loaded while this tab is in front (see `awayHold`). Returns the new
+   * tab's id, or null when there is nothing to open.
+   */
+  async openInViewerTab(sourcePath: string | null | undefined): Promise<string | null> {
+    const path = this.normalizePath(sourcePath ?? '');
+    if (!path) return null;
+    const studioId = useWorkspaceStore.getState().activeWorkspaceId;
+    const studioKey = activeWorkspaceKey();
+    const studioLayers = workspaceViewLayers(studioKey);
+    const inStudio = new Set(studioLayers.map((layer) => layer.id));
+    const shownId = findLayerIdForSourcePath(useLayerStore.getState(), path, inStudio);
+    const shown = shownId ? studioLayers.find((layer) => layer.id === shownId) : null;
+    const display = shown
+      ? {
+          colormap: shown.colormap,
+          intensity: [shown.intensity[0], shown.intensity[1]] as [number, number],
+          threshold: [shown.threshold[0], shown.threshold[1]] as [number, number],
+        }
+      : null;
+    const backgroundPath =
+      this.backgroundLayerId && inStudio.has(this.backgroundLayerId)
+        ? this.background.desired
+        : null;
+
+    if (studioId && isStudioActive()) {
+      this.clearAwayHold();
+      this.awayHold = { studioId, viewerId: null, unsubscribe: null };
+    }
+    const hold = this.awayHold;
+    let viewerId: string;
+    try {
+      viewerId = await useWorkspaceStore.getState().createWorkspace('orthogonal-locked');
+    } catch (error) {
+      if (this.awayHold === hold && hold) {
+        hold.viewerId = studioId ?? '';
+        if (!isStudioActive()) void this.releaseStudioLayers();
+      }
+      throw error;
+    }
+    if (hold && this.awayHold === hold) hold.viewerId = viewerId;
+    // A new tab is seeded with the view in front; this one starts empty.
+    useViewStateStore.getState().setViewState((draft) => {
+      draft.layers = [];
+    }, viewerId);
+
+    if (backgroundPath) {
+      if (this.isTemplateSource(backgroundPath))
+        await getTemplateService().loadTemplateBySourcePath(backgroundPath, { quiet: true });
+      else await getFileLoadingService().loadFile(backgroundPath, 'programmatic', 'add-layer', viewerId);
+    }
+    await getFileLoadingService().loadFile(path, 'programmatic', 'add-layer', viewerId);
+    if (display) {
+      const opened = findLayerIdForSourcePath(
+        useLayerStore.getState(),
+        path,
+        new Set(workspaceViewLayers(viewerId).map((layer) => layer.id)),
+      );
+      if (opened)
+        useViewStateStore.getState().setViewState((draft) => {
+          const layer = draft.layers.find((candidate) => candidate.id === opened);
+          if (!layer) return;
+          layer.colormap = display.colormap;
+          layer.intensity = [display.intensity[0], display.intensity[1]];
+          layer.threshold = [display.threshold[0], display.threshold[1]];
+        }, viewerId);
+    }
+    return viewerId;
+  }
+
   /** Keep a Studio-loaded layer after the Studio is left. */
   adopt(layerId: string): void {
     // It leaves with the opacity it would have without the Studio.
@@ -934,6 +1154,8 @@ export class StudioDisplayService {
     this.styled.delete(layerId);
     this.presented.delete(layerId);
     this.memberLimits.delete(layerId);
+    this.memberSources.delete(layerId);
+    this.memberSets.delete(layerId);
   }
 
   /** Whether the Studio session owns `layerId` (tests, diagnostics). */
@@ -946,6 +1168,11 @@ export class StudioDisplayService {
    * the layer service) and restore the visibility of user layers it hid.
    */
   releaseStudioLayers(): Promise<void> {
+    if (this.awayHold && this.awayHoldApplies()) {
+      this.deferReleaseWhileAway();
+      return Promise.resolve();
+    }
+    this.clearAwayHold();
     const run = this.releaseOnce();
     this.releasing = run;
     return run.finally(() => {
@@ -967,6 +1194,10 @@ export class StudioDisplayService {
     this.styled.clear();
     this.presented.clear();
     this.memberLimits.clear();
+    this.memberSources.clear();
+    this.memberSets.clear();
+    // The session's population limits go with it.
+    clearStudioPopulationScales();
     this.compareMeanLimit = null;
     this.displayRequest.member += 1;
     this.displayRequest.source += 1;

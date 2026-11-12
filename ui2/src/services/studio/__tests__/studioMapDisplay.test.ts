@@ -5,6 +5,8 @@ vi.mock('@/services/apiService', () => ({ getApiService: () => ({}) }));
 import {
   STUDIO_HIDDEN_FRACTION,
   STUDIO_MAP_OPACITY,
+  STUDIO_SIGNED_ALPHA_MOD,
+  STUDIO_SIGNED_OPACITY,
   formatStudioWindow,
   sameStudioWindow,
   studioMapDisplay,
@@ -30,7 +32,7 @@ const window = ({ colormap, intensity, threshold }: ReturnType<typeof studioMapD
 describe('the Studio map rule (one for computed panes and the member layer)', () => {
   it('signed data: diverging, symmetric about zero, the tenth nearest zero hidden', () => {
     const display = studioMapDisplay({ min: -0.02, max: 0.0034 });
-    expect(display).toMatchObject({ kind: 'diverging', colormap: 'fmri', intensity: [-0.02, 0.02] });
+    expect(display).toMatchObject({ kind: 'diverging', colormap: 'cold_hot', intensity: [-0.02, 0.02] });
     expect(display.threshold[0]).toBe(-display.threshold[1]);
     expect(display.intensity[0]).toBe(-display.intensity[1]);
     expect(display.threshold[1]).toBeCloseTo(STUDIO_HIDDEN_FRACTION * display.intensity[1]);
@@ -43,7 +45,7 @@ describe('the Studio map rule (one for computed panes and the member layer)', ()
     expect(display.threshold[1]).toBeCloseTo(0.85, 12);
     // A map signed by construction diverges even when no value is negative.
     expect(studioMapDisplay({ min: 0.5, max: 4 }, { signed: true })).toMatchObject({
-      colormap: 'fmri',
+      colormap: 'cold_hot',
       intensity: [-4, 4],
     });
   });
@@ -81,7 +83,10 @@ describe('the Studio map rule (one for computed panes and the member layer)', ()
     ] as const) {
       const layer = studioDerivedDisplay(derived(min, max), 'Map', signed);
       expect(window(layer as never)).toEqual(window(studioMapDisplay({ min, max }, { signed })));
-      expect(layer.opacity).toBe(STUDIO_MAP_OPACITY);
+      // A signed map carries the opacity ramp (its peak, and alpha rising with |v|).
+      const signedMap = layer.intensity[0] < 0;
+      expect(layer.opacity).toBe(signedMap ? STUDIO_SIGNED_OPACITY : STUDIO_MAP_OPACITY);
+      expect(layer.alphaMod).toEqual(signedMap ? STUDIO_SIGNED_ALPHA_MOD : undefined);
     }
     expect(window(studioAnatomyDisplay(derived(0, 900)) as never)).toEqual(
       window(studioMapDisplay({ min: 0, max: 900 }, { anatomy: true })),
@@ -90,7 +95,7 @@ describe('the Studio map rule (one for computed panes and the member layer)', ()
 
   it('a shared display replaces a computed map’s own', () => {
     const shared = {
-      colormap: 'fmri',
+      colormap: 'cold_hot',
       intensity: [-0.0145, 0.0145] as [number, number],
       threshold: [-0.00145, 0.00145] as [number, number],
     };

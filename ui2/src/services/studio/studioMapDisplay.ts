@@ -5,9 +5,11 @@
  * (StudioDisplayService). A member drawn by the general loader's rule and a
  * mean drawn by another could not be compared by eye.
  *
- * - Signed data: the diverging blue–white–red map, a window symmetric about
- *   zero, values within a tenth of the window of zero hidden so the anatomy
- *   shows through.
+ * - Signed data: the dark-centred diverging `cold_hot` map (luminance rises
+ *   with |v|: light blue at −limit, dark at the hidden band's edges, yellow at
+ *   +limit; the same stops as the Population overlay), a window symmetric
+ *   about zero, values within a tenth of the window of zero hidden so the
+ *   anatomy shows through.
  * - Nonnegative data: the sequential Hot map from the data minimum, its
  *   lowest tenth hidden (review L2: no half of a diverging map is wasted).
  * - Anatomy: grey over its own range, nothing hidden.
@@ -24,6 +26,7 @@ import {
   type PlacementMetadata,
 } from '@/services/layerPlacement';
 import type { HistogramData } from '@/types/histogram';
+import type { AlphaModConfig } from '@/types/viewState';
 import { formatReadoutValue } from '@/utils/valueFormat';
 
 /** Share of a map's window hidden around zero (as in Population). */
@@ -36,13 +39,37 @@ export const STUDIO_HIDDEN_FRACTION = 0.1;
  */
 export const STUDIO_MAP_OPACITY = 1;
 
+/**
+ * A signed map's opacity ramp, as near the Population overlay's as the
+ * renderer allows. Population mixes each colour onto the anatomy with alpha
+ * 0.35 at the hidden band's edge rising linearly to 0.9 at the window end
+ * (`POPULATION_SIGNED_ALPHA`). The slice shader's alpha modulation has no
+ * floor: it multiplies the layer's opacity by t = (|v| − band) / (limit −
+ * band), or by t^γ. With opacity 0.9 and γ = 0.5 the two agree from about a
+ * quarter of the window up (0.45 vs 0.49 at t = 0.25, 0.64 vs 0.63 at 0.5,
+ * 0.9 at the end); just past the band the shader's alpha starts from 0, not
+ * 0.35, so the weakest shown values are fainter than in Population.
+ */
+export const STUDIO_SIGNED_OPACITY = 0.9;
+export const STUDIO_SIGNED_ALPHA_MOD: AlphaModConfig = { mode: 'gamma', gamma: 0.5, center: 0 };
+
+/** The opacity a Studio map is drawn with: the signed ramp's peak, else opaque. */
+export function studioMapOpacity(window: Pick<StudioMapWindow, 'intensity'> | null | undefined): number {
+  return window && window.intensity[0] < 0 ? STUDIO_SIGNED_OPACITY : STUDIO_MAP_OPACITY;
+}
+
 export type StudioMapKind = 'diverging' | 'sequential';
+
+/** The builtin a signed Studio map is drawn with (core/colormap `COLD_HOT`). */
+export const STUDIO_DIVERGING_COLORMAP = 'cold_hot';
 
 /** The display fields the rule decides. */
 export interface StudioMapWindow {
   colormap: string;
   intensity: [number, number];
   threshold: [number, number];
+  /** A signed map's opacity ramp (`STUDIO_SIGNED_ALPHA_MOD`); absent: flat. */
+  alphaMod?: AlphaModConfig;
 }
 
 export interface StudioMapDisplay extends StudioMapWindow {
@@ -86,9 +113,10 @@ export function studioMapDisplay(
     const band = STUDIO_HIDDEN_FRACTION * limit;
     return {
       kind: 'diverging',
-      colormap: 'fmri',
+      colormap: STUDIO_DIVERGING_COLORMAP,
       intensity: [-limit, limit],
       threshold: [-band, band],
+      alphaMod: { ...STUDIO_SIGNED_ALPHA_MOD },
     };
   }
   const ceiling = given ?? max;
@@ -183,7 +211,7 @@ export function studioMemberKind(
 
 /** A window end for a legend or a note: three significant digits below 1, U+2212. */
 export function formatStudioScaleValue(value: number): string {
-  return formatReadoutValue(value);
+  return formatReadoutValue(value, 3);
 }
 
 /** A window as one phrase: "±0.0145" when symmetric about zero, else "−0.01 to 0.02". */
@@ -196,8 +224,8 @@ export function formatStudioWindow(intensity: readonly [number, number]): string
 
 /** Whether two displays are the same colour map, window and threshold. */
 export function sameStudioWindow(
-  a: Pick<StudioMapWindow, 'colormap' | 'intensity' | 'threshold'> | null | undefined,
-  b: Pick<StudioMapWindow, 'colormap' | 'intensity' | 'threshold'> | null | undefined,
+  a: Pick<StudioMapWindow, 'colormap' | 'intensity' | 'threshold' | 'alphaMod'> | null | undefined,
+  b: Pick<StudioMapWindow, 'colormap' | 'intensity' | 'threshold' | 'alphaMod'> | null | undefined,
 ): boolean {
   if (!a || !b) return false;
   return (
@@ -205,7 +233,160 @@ export function sameStudioWindow(
     a.intensity?.[0] === b.intensity?.[0] &&
     a.intensity?.[1] === b.intensity?.[1] &&
     a.threshold?.[0] === b.threshold?.[0] &&
-    a.threshold?.[1] === b.threshold?.[1]
+    a.threshold?.[1] === b.threshold?.[1] &&
+    sameAlphaMod(a.alphaMod, b.alphaMod)
   );
 }
 
+/** Two opacity ramps draw alike; absent and mode "off" are both flat. */
+export function sameAlphaMod(
+  a: AlphaModConfig | null | undefined,
+  b: AlphaModConfig | null | undefined,
+): boolean {
+  const flatA = !a || a.mode === 'off';
+  const flatB = !b || b.mode === 'off';
+  if (flatA || flatB) return flatA === flatB;
+  return a.mode === b.mode && a.gamma === b.gamma && a.center === b.center;
+}
+
+/**
+ * The symmetric limit the Population lens last drew a set's maps with (its
+ * effect scale: the 98th percentile of |v| over the members, or the user's
+ * own limit), by set, member source path and stack index: one file can be a
+ * member of two sets (or several frames of one 4D file), and each set has its
+ * own scale. The Subject lens and Subject vs mean draw a member of that set
+ * on the same scale, so one map reads the same in every lens. Cleared when the
+ * Studio session resets, when a set is removed, and when the Studio releases
+ * its layers.
+ */
+const populationScales = new Map<string, number>();
+const populationScaleListeners = new Set<() => void>();
+
+/** A member of a set, as the population limit registry knows it. */
+export interface StudioPopulationScaleMember {
+  sourcePath: string;
+  stackIndex?: number | null;
+}
+
+function populationScaleKey(setId: string, path: string, stackIndex: number | null | undefined) {
+  return JSON.stringify([setId, path, stackIndex ?? null]);
+}
+
+export function setStudioPopulationScale(
+  setId: string,
+  members: readonly (string | StudioPopulationScaleMember)[],
+  limit: number,
+): void {
+  if (!setId || !Number.isFinite(limit) || limit <= 0) return;
+  let changed = false;
+  for (const member of members) {
+    const { sourcePath, stackIndex } =
+      typeof member === 'string' ? { sourcePath: member, stackIndex: null } : member;
+    const path = sourcePath.trim();
+    if (!path) continue;
+    const key = populationScaleKey(setId, path, stackIndex);
+    if (populationScales.get(key) === limit) continue;
+    populationScales.set(key, limit);
+    changed = true;
+  }
+  if (changed) populationScaleListeners.forEach((listener) => listener());
+}
+
+/**
+ * The population limit of set `setId`, for its member at `sourcePath` (and
+ * `stackIndex`); null when that set's Population lens drew none.
+ */
+export function studioPopulationScale(
+  setId: string | null | undefined,
+  sourcePath: string | null | undefined,
+  stackIndex?: number | null,
+): number | null {
+  const path = sourcePath?.trim();
+  if (!setId || !path) return null;
+  return populationScales.get(populationScaleKey(setId, path, stackIndex)) || null;
+}
+
+/** Called whenever a population limit changes. */
+export function onStudioPopulationScale(listener: () => void): () => void {
+  populationScaleListeners.add(listener);
+  return () => {
+    populationScaleListeners.delete(listener);
+  };
+}
+
+/**
+ * Sets whose population limit could not be measured (no positive
+ * `contextMagnitude`, or the evaluation failed), by set and dataset key, so
+ * paging the Deck does not re-run a whole-population evaluation (and wait
+ * for it) at every member. Cleared with the set's limits.
+ */
+const populationScaleFailures = new Set<string>();
+/** Told when limits are cleared (a set's, or every set's when `setId` is undefined). */
+const populationScaleClearListeners = new Set<(setId: string | undefined) => void>();
+
+const failureKey = (setId: string, datasetKey: string) => JSON.stringify([setId, datasetKey]);
+
+/** Remember that `setId`'s population limit on `datasetKey` cannot be measured. */
+export function markStudioPopulationScaleFailed(setId: string, datasetKey: string): void {
+  if (setId) populationScaleFailures.add(failureKey(setId, datasetKey));
+}
+
+/** Whether measuring `setId`'s population limit on `datasetKey` already failed. */
+export function studioPopulationScaleFailed(setId: string, datasetKey: string): boolean {
+  return populationScaleFailures.has(failureKey(setId, datasetKey));
+}
+
+/** Called when population limits are cleared (to abort measurements in flight). */
+export function onStudioPopulationScalesCleared(
+  listener: (setId: string | undefined) => void,
+): () => void {
+  populationScaleClearListeners.add(listener);
+  return () => {
+    populationScaleClearListeners.delete(listener);
+  };
+}
+
+/**
+ * Forget the population limits of one set (it was removed), or of every set
+ * (a Studio session reset or release; tests), with their remembered
+ * measurement failures; measurements in flight are aborted.
+ */
+export function clearStudioPopulationScales(setId?: string): void {
+  if (setId === undefined) {
+    populationScales.clear();
+    populationScaleFailures.clear();
+  } else {
+    for (const key of [...populationScales.keys()])
+      if ((JSON.parse(key) as unknown[])[0] === setId) populationScales.delete(key);
+    for (const key of [...populationScaleFailures])
+      if ((JSON.parse(key) as unknown[])[0] === setId) populationScaleFailures.delete(key);
+  }
+  populationScaleClearListeners.forEach((listener) => listener(setId));
+}
+
+/** Which ends of a scale the data run past (values there are drawn at the end colour). */
+export interface ScaleClipping {
+  low: boolean;
+  high: boolean;
+}
+
+/**
+ * Whether the data run past either end of a window: from the data's extent
+ * (`[min, max]`) or from values. Null when nothing is known.
+ */
+export function scaleClipping(
+  data: readonly [number, number] | readonly (number | null)[] | null | undefined,
+  low: number,
+  high: number,
+): ScaleClipping | null {
+  if (!data || !(high > low)) return null;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const value of data) {
+    if (value === null || !Number.isFinite(value)) continue;
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  if (min > max) return null;
+  return { low: min < low, high: max > high };
+}

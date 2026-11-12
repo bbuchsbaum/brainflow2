@@ -24,7 +24,18 @@ use std::{
 const MAX_BYTES: usize = 128 * 1024 * 1024;
 const MAX_PIXELS: usize = 512 * 512;
 const MAX_CUTOUT_MEMBERS: usize = 96;
-const MAX_CUTOUT_DIM: u32 = 64;
+/// Largest cutout edge. A cutout is sampled nearest-voxel, so an edge past the
+/// image's own in-plane voxel count adds no detail; 256 covers a 1 mm brain.
+const MAX_CUTOUT_DIM: u32 = 256;
+/// Cutout values returned by one request, over all its members: each is one
+/// f32 here and one number in the response (the picture and the hover value
+/// are the same array). 2^20 values is 4 MiB of samples: 80 members at
+/// 112 x 112, 64 at 128 x 128, 16 at 256 x 256.
+const MAX_CUTOUT_VALUES: usize = 1 << 20;
+/// Largest reported native edge (the request edge is still at most MAX_CUTOUT_DIM).
+const MAX_NATIVE_DIM: u32 = 4096;
+/// Voxels the rows may hold for a cutout square beyond the plane raster's own.
+const MAX_COVER_VOXELS: usize = 1 << 20;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +47,13 @@ pub enum SummaryKind {
     MeanAbsolute,
     Cancellation,
     Coverage,
+    /// One-sample t of the mean against zero: mean / (sample SD / sqrt(n))
+    /// over the finite members; unavailable below two members or at zero spread.
+    OneSampleT,
+    /// Sign share: positive members / (positive + negative members), exact
+    /// zeros (mostly outside the head) counted as neither; unavailable when no
+    /// finite member is nonzero.
+    PositiveFraction,
 }
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -130,6 +148,9 @@ pub struct CutoutRequest {
     pub center_mm: [f32; 3],
     /// Width and height of the square image edges, in world millimetres.
     pub width_mm: f32,
+    /// Pixels along each edge. Zero asks for the image's own resolution (the
+    /// voxels the edge spans), lowered only as far as the request's value
+    /// budget requires for its members.
     pub dim_px: u32,
     pub member_ids: Vec<String>,
 }
@@ -144,10 +165,23 @@ pub struct CutoutMember {
 #[serde(rename_all = "camelCase")]
 pub struct CutoutResult {
     pub plane: Plane,
+    /// Voxels the cutout's edge spans along its finer in-plane axis: the edge
+    /// (in pixels) past which nearest-voxel sampling repeats voxels.
+    pub native_dim_px: u32,
     pub members: Vec<CutoutMember>,
 }
+/// The square a request's cutouts cover. The plane's rows hold every voxel a
+/// pixel of this square can fall in, so a cutout of any resolution is planned
+/// from them without sampling the images again.
+struct CutoutRegion {
+    center_mm: [f32; 3],
+    width_mm: f32,
+    native_dim_px: u32,
+}
+/// One request's cutout raster over a cached plane.
 struct CutoutPlan {
     plane: Plane,
+    native_dim_px: u32,
     pixels: Vec<Option<usize>>,
 }
 #[derive(Clone, Debug, serde::Serialize)]
@@ -174,6 +208,11 @@ pub struct PopulationSliceResult {
     pub plane: Plane,
     pub center_world: [f32; 3],
     pub context_range: Option<[f32; 2]>,
+    /// The 98th percentile of |v| over every member's finite nonzero values
+    /// on the sampled plane: the default symmetric colour limit of the
+    /// set's maps (the strongest 2 % saturate, not the bulk). None when the
+    /// plane holds no such value.
+    pub context_magnitude: Option<f32>,
     pub summary: Vec<f32>,
     pub focused: Vec<f32>,
     pub valid_counts: Vec<u32>,
@@ -197,8 +236,12 @@ struct PixelPlan {
     affine: Matrix4<f32>,
     center_world: [f32; 3],
     voxels: Vec<[usize; 3]>,
+    /// Row slot of each sampled voxel.
+    index: HashMap<[usize; 3], usize>,
+    /// Voxels the common mask leaves out, by row slot; None without a mask.
+    outside_mask: Option<Vec<bool>>,
     pixels: Vec<Option<usize>>,
-    cutouts: Option<CutoutPlan>,
+    cutouts: Option<CutoutRegion>,
 }
 struct CachedPlane {
     key: String,
@@ -209,6 +252,8 @@ struct CachedPlane {
     mask_revision: Option<SampleSourceRevision>,
     guard: QuerySourceGuard,
     bytes: usize,
+    /// `PopulationSliceResult::context_magnitude`, computed once per plane.
+    magnitude: Option<f32>,
 }
 pub struct PopulationSliceEngine {
     cache: Mutex<Option<Arc<CachedPlane>>>,
@@ -280,14 +325,12 @@ impl PopulationSliceEngine {
             &request.orientation,
             request.dim_px,
             request.zoom,
-            request.cutouts.as_ref().map(|cutouts| {
-                (
-                    cutouts.center_mm,
-                    cutouts.width_mm,
-                    cutouts.dim_px,
-                    cutouts.whole_plane,
-                )
-            }),
+            // Not the cutouts' resolution: the rows cover the whole square, so
+            // another tile size re-plans the cutouts and samples nothing.
+            request
+                .cutouts
+                .as_ref()
+                .map(|cutouts| (cutouts.center_mm, cutouts.width_mm, cutouts.whole_plane)),
         ))
         .map_err(|error| input(error.to_string()))?;
         let candidate = self
@@ -355,6 +398,12 @@ impl PopulationSliceEngine {
         };
         // The anatomy is sampled outside the retained plane matrix and only
         // with a full result; focus-only reads reuse the shown one.
+        let cutout = match (&cached.plan.cutouts, &request.cutouts) {
+            (Some(region), Some(spec)) if !request.focus_only => {
+                Some(plan_cutout(&cached.plan, region, spec)?)
+            }
+            _ => None,
+        };
         let underlay = match underlay_path {
             Some(path) => {
                 let plan = &cached.plan;
@@ -362,7 +411,7 @@ impl PopulationSliceEngine {
                     display::underlay(
                         path,
                         &plan.plane,
-                        plan.cutouts.as_ref().map(|cutouts| &cutouts.plane),
+                        cutout.as_ref().map(|cutouts| &cutouts.plane),
                         (plan.dimensions.clone(), plan.affine),
                         state,
                         &cancellation,
@@ -382,6 +431,7 @@ impl PopulationSliceEngine {
                 cache_hit,
                 &cancellation,
                 focused_override.as_deref(),
+                cutout.as_ref(),
             )
         })
         .await
@@ -442,9 +492,12 @@ fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
     let cutout_pixels = request.cutouts.as_ref().map_or(0, |cutouts| {
         (cutouts.dim_px as usize).saturating_mul(cutouts.dim_px as usize)
     });
+    // The plane's rows: one value per member and sampled voxel, of which the
+    // raster has at most one per pixel. A cutout adds no rows of its own
+    // (its pixels read the same voxels; `build_plane` checks the voxels it
+    // really adds) and returns values for its own members only, bounded by
+    // MAX_CUTOUT_VALUES below.
     let bytes = pixels
-        .checked_add(cutout_pixels)
-        .ok_or_else(|| input("Population support size overflow."))?
         .checked_mul(request.members.len())
         .and_then(|n| n.checked_mul(4))
         .ok_or_else(|| input("Population plane size overflow."))?;
@@ -454,17 +507,17 @@ fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
     let ids: HashSet<_> = request.members.iter().map(|m| &m.member_id).collect();
     if let Some(cutouts) = &request.cutouts {
         let cutout_ids: HashSet<_> = cutouts.member_ids.iter().collect();
-        if cutouts.dim_px == 0
-            || cutouts.dim_px > MAX_CUTOUT_DIM
+        if cutouts.dim_px > MAX_CUTOUT_DIM
             || cutouts.member_ids.is_empty()
             || cutouts.member_ids.len() > MAX_CUTOUT_MEMBERS
+            || cutout_pixels.saturating_mul(cutouts.member_ids.len()) > MAX_CUTOUT_VALUES
             || cutout_ids.len() != cutouts.member_ids.len()
             || cutout_ids.iter().any(|id| !ids.contains(id))
             || !cutouts.center_mm.iter().all(|v| v.is_finite())
             || !cutouts.width_mm.is_finite()
             || !(1.0..=200.0).contains(&cutouts.width_mm)
         {
-            return Err(input("Cutouts require 1-96 unique eligible observations, a 1-64 pixel square, finite center, and width from 1 to 200 mm."));
+            return Err(input("Cutouts require 1-96 unique eligible observations, a square of up to 256 pixels (0: the image's own resolution), at most 1048576 values in all, finite center, and width from 1 to 200 mm."));
         }
     }
     let selected: HashSet<_> = request.working_member_ids.iter().collect();
@@ -679,47 +732,69 @@ fn pixel_plan(
         } else {
             cutouts.center_mm
         };
-        let spacing = width / cutouts.dim_px as f32;
-        let u_mm = geometry.u_mm.map(|v| v * spacing / length(geometry.u_mm));
-        let v_mm = geometry.v_mm.map(|v| v * spacing / length(geometry.v_mm));
-        let origin_mm = std::array::from_fn(|axis| {
-            center[axis] - (u_mm[axis] + v_mm[axis]) * (cutouts.dim_px - 1) as f32 / 2.0
-        });
-        let plane = Plane {
-            origin_mm,
-            u_mm,
-            v_mm,
-            dim_px: [cutouts.dim_px; 2],
+        // Voxels per millimetre along each edge, from the grid's own affine.
+        let unit = |direction: [f32; 3]| direction.map(|v| v / length(direction));
+        let voxels_per_mm = |direction: [f32; 3]| {
+            let unit = unit(direction);
+            let from = inverse.transform_point(&Point3::from(center));
+            let to =
+                inverse.transform_point(&Point3::from(std::array::from_fn::<f32, 3, _>(|axis| {
+                    center[axis] + unit[axis]
+                })));
+            (to - from).norm()
         };
-        let mut cutout_pixels =
-            Vec::with_capacity(cutouts.dim_px as usize * cutouts.dim_px as usize);
-        for y in 0..cutouts.dim_px {
-            for x in 0..cutouts.dim_px {
-                let world = std::array::from_fn(|axis| {
-                    origin_mm[axis] + x as f32 * u_mm[axis] + y as f32 * v_mm[axis]
-                });
-                let point = inverse.transform_point(&Point3::from(world));
-                let rounded = [point.x.round(), point.y.round(), point.z.round()];
-                if (0..3).any(|axis| {
-                    !rounded[axis].is_finite()
-                        || rounded[axis] < 0.0
-                        || rounded[axis] >= dimensions[axis] as f32
-                }) {
-                    cutout_pixels.push(None);
-                    continue;
-                }
-                let coords = rounded.map(|value| value as usize);
-                let slot = *index.entry(coords).or_insert_with(|| {
-                    let slot = voxels.len();
-                    voxels.push(coords);
-                    slot
-                });
-                cutout_pixels.push(Some(slot));
+        let native =
+            (width * voxels_per_mm(geometry.u_mm).max(voxels_per_mm(geometry.v_mm))).ceil();
+        let native_dim_px = if native.is_finite() {
+            native.clamp(1.0, MAX_NATIVE_DIM as f32) as u32
+        } else {
+            1
+        };
+        // Every voxel a pixel of the square can fall in, at any resolution:
+        // nearest-voxel rounding is monotonic, so those voxels lie in the box
+        // spanned by the rounded corners of the square.
+        let (u, v) = (unit(geometry.u_mm), unit(geometry.v_mm));
+        let mut low = [f32::INFINITY; 3];
+        let mut high = [f32::NEG_INFINITY; 3];
+        for (su, sv) in [(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)] {
+            let corner =
+                inverse.transform_point(&Point3::from(std::array::from_fn::<f32, 3, _>(|axis| {
+                    center[axis] + width * (su * u[axis] + sv * v[axis])
+                })));
+            for (axis, value) in [corner.x, corner.y, corner.z].into_iter().enumerate() {
+                low[axis] = low[axis].min(value.round());
+                high[axis] = high[axis].max(value.round());
             }
         }
-        CutoutPlan {
-            plane,
-            pixels: cutout_pixels,
+        let range: [Option<(usize, usize)>; 3] = std::array::from_fn(|axis| {
+            let first = low[axis].max(0.0);
+            let last = high[axis].min(dimensions[axis] as f32 - 1.0);
+            (first.is_finite() && last.is_finite() && first <= last)
+                .then_some((first as usize, last as usize))
+        });
+        if let [Some(x), Some(y), Some(z)] = range {
+            let count = (x.1 - x.0 + 1)
+                .saturating_mul(y.1 - y.0 + 1)
+                .saturating_mul(z.1 - z.0 + 1);
+            if count <= MAX_COVER_VOXELS {
+                for k in z.0..=z.1 {
+                    for j in y.0..=y.1 {
+                        for i in x.0..=x.1 {
+                            index.entry([i, j, k]).or_insert_with(|| {
+                                voxels.push([i, j, k]);
+                                voxels.len() - 1
+                            });
+                        }
+                    }
+                }
+            }
+            // A square steeply oblique to the grid spans too many voxels to
+            // hold: its cutouts then read the plane raster's voxels alone.
+        }
+        CutoutRegion {
+            center_mm: center,
+            width_mm: width,
+            native_dim_px,
         }
     });
     Ok(PixelPlan {
@@ -733,8 +808,84 @@ fn pixel_plan(
         affine,
         center_world: [center.x, center.y, center.z],
         voxels,
+        index,
+        outside_mask: None,
         pixels,
         cutouts,
+    })
+}
+/// The edge a request's cutouts are sampled at: what it asks for, or (zero)
+/// the image's own resolution, lowered only as far as the value budget
+/// requires for the request's members.
+fn cutout_dim(spec: &CutoutRequest, native_dim_px: u32) -> u32 {
+    if spec.dim_px > 0 {
+        return spec.dim_px;
+    }
+    let per_member = MAX_CUTOUT_VALUES / spec.member_ids.len().max(1);
+    let fits = (per_member as f64).sqrt().floor() as u32;
+    native_dim_px.min(MAX_CUTOUT_DIM).min(fits).max(1)
+}
+/// One request's cutout raster over the cached plane: each pixel reads the row
+/// slot of its nearest voxel. No image is opened.
+fn plan_cutout(
+    plan: &PixelPlan,
+    region: &CutoutRegion,
+    spec: &CutoutRequest,
+) -> BridgeResult<CutoutPlan> {
+    let length = |v: [f32; 3]| v.iter().map(|v| v * v).sum::<f32>().sqrt();
+    let inverse = plan
+        .affine
+        .try_inverse()
+        .ok_or_else(|| input("Invalid population affine."))?;
+    let dim = cutout_dim(spec, region.native_dim_px);
+    let spacing = region.width_mm / dim as f32;
+    let u_mm = plan
+        .plane
+        .u_mm
+        .map(|v| v * spacing / length(plan.plane.u_mm));
+    let v_mm = plan
+        .plane
+        .v_mm
+        .map(|v| v * spacing / length(plan.plane.v_mm));
+    let origin_mm = std::array::from_fn(|axis| {
+        region.center_mm[axis] - (u_mm[axis] + v_mm[axis]) * (dim - 1) as f32 / 2.0
+    });
+    let mut pixels = Vec::with_capacity(dim as usize * dim as usize);
+    for y in 0..dim {
+        for x in 0..dim {
+            let world = std::array::from_fn(|axis| {
+                origin_mm[axis] + x as f32 * u_mm[axis] + y as f32 * v_mm[axis]
+            });
+            let point = inverse.transform_point(&Point3::from(world));
+            let rounded = [point.x.round(), point.y.round(), point.z.round()];
+            let slot = if (0..3).any(|axis| {
+                !rounded[axis].is_finite()
+                    || rounded[axis] < 0.0
+                    || rounded[axis] >= plan.dimensions[axis] as f32
+            }) {
+                None
+            } else {
+                plan.index
+                    .get(&rounded.map(|value| value as usize))
+                    .copied()
+                    .filter(|&slot| {
+                        plan.outside_mask
+                            .as_ref()
+                            .is_none_or(|outside| !outside[slot])
+                    })
+            };
+            pixels.push(slot);
+        }
+    }
+    Ok(CutoutPlan {
+        plane: Plane {
+            origin_mm,
+            u_mm,
+            v_mm,
+            dim_px: [dim; 2],
+        },
+        native_dim_px: region.native_dim_px,
+        pixels,
     })
 }
 fn sample_row(
@@ -819,6 +970,7 @@ async fn build_plane(
     let mask_revision = mask.as_ref().map(|mask| mask.revision.clone());
     let first_mask = mask.clone();
     let first = request.members[0].clone();
+    let members = request.members.len();
     let req = request.clone();
     let token = cancellation.clone();
     let (plan, row, revision) = state
@@ -839,9 +991,24 @@ async fn build_plane(
                         }
                     };
                     plan.pixels.iter_mut().for_each(exclude);
-                    if let Some(cutouts) = &mut plan.cutouts {
-                        cutouts.pixels.iter_mut().for_each(exclude);
-                    }
+                    plan.outside_mask = Some(
+                        plan.voxels
+                            .iter()
+                            .map(|&[x, y, z]| !mask.includes(x, y, z))
+                            .collect(),
+                    );
+                }
+                // What the rows will hold: one value per member and sampled voxel.
+                if plan
+                    .voxels
+                    .len()
+                    .saturating_mul(members)
+                    .saturating_mul(4)
+                    > MAX_BYTES
+                {
+                    return Err(input(
+                        "Visible observation samples exceed the 128 MiB plane budget; reduce raster size or context.",
+                    ));
                 }
                 let row = sample_row(
                     volume,
@@ -884,15 +1051,12 @@ async fn build_plane(
     guard.clone().validate(cancellation.clone()).await?;
     let bytes = rows.iter().map(|row| row.capacity() * 4).sum::<usize>()
         + plan.voxels.capacity() * std::mem::size_of::<[usize; 3]>()
-        + (plan.pixels.capacity()
-            + plan
-                .cutouts
-                .as_ref()
-                .map_or(0, |cutouts| cutouts.pixels.capacity()))
-            * std::mem::size_of::<Option<usize>>();
+        + plan.index.capacity() * std::mem::size_of::<([usize; 3], usize)>()
+        + plan.pixels.capacity() * std::mem::size_of::<Option<usize>>();
     if bytes > MAX_BYTES {
         return Err(input("Population plane exceeds its retained byte budget."));
     }
+    let (rows, magnitude) = context_magnitude(rows).await?;
     Ok(CachedPlane {
         key,
         context_key: request.context_key.clone(),
@@ -902,7 +1066,47 @@ async fn build_plane(
         mask_revision,
         guard,
         bytes,
+        magnitude,
     })
+}
+/// The quantile of |v| the set's default colour limit sits at.
+const CONTEXT_MAGNITUDE_QUANTILE: f64 = 0.98;
+/// Rows up to this many values are reduced on the async task; larger ones
+/// (up to the 128 MiB plane budget: 32 Mi values, copied and partially sorted)
+/// on the blocking pool, so the quantile never stalls the async runtime.
+const INLINE_MAGNITUDE_VALUES: usize = 1 << 16;
+/// The set's context magnitude (`magnitude_quantile` at
+/// `CONTEXT_MAGNITUDE_QUANTILE`), off the async runtime for large planes. The
+/// rows are handed back unchanged; the value is exactly `magnitude_quantile`'s.
+async fn context_magnitude(rows: Vec<Vec<f32>>) -> BridgeResult<(Vec<Vec<f32>>, Option<f32>)> {
+    let values: usize = rows.iter().map(Vec::len).sum();
+    if values <= INLINE_MAGNITUDE_VALUES {
+        let magnitude = magnitude_quantile(&rows, CONTEXT_MAGNITUDE_QUANTILE);
+        return Ok((rows, magnitude));
+    }
+    tokio::task::spawn_blocking(move || {
+        let magnitude = magnitude_quantile(&rows, CONTEXT_MAGNITUDE_QUANTILE);
+        (rows, magnitude)
+    })
+    .await
+    .map_err(|error| input(format!("Population context magnitude failed: {error}")))
+}
+/// The `q` quantile of |v| over the finite nonzero values of `rows` (zeros
+/// are mostly outside the head and would pull a sparse map's limit to
+/// nothing); None when there are none.
+fn magnitude_quantile(rows: &[Vec<f32>], q: f64) -> Option<f32> {
+    let mut magnitudes: Vec<f32> = rows
+        .iter()
+        .flatten()
+        .filter(|v| v.is_finite() && **v != 0.0)
+        .map(|v| v.abs())
+        .collect();
+    if magnitudes.is_empty() {
+        return None;
+    }
+    let rank = ((q * magnitudes.len() as f64).floor() as usize).min(magnitudes.len() - 1);
+    let (_, value, _) = magnitudes.select_nth_unstable_by(rank, f32::total_cmp);
+    Some(*value)
 }
 fn collect_moments(
     cached: &CachedPlane,
@@ -996,6 +1200,20 @@ fn robust_plane(
         })
         .collect()
 }
+/// One-sample t of a location's mean against zero (finite members only).
+fn one_sample_t(s: &field_table::population::LocationSummary) -> Option<f64> {
+    let (mean, sd) = (s.mean?, s.sample_sd?);
+    if s.valid_count < 2 || sd.is_nan() || sd <= 0.0 {
+        return None;
+    }
+    let t = mean / (sd / (s.valid_count as f64).sqrt());
+    t.is_finite().then_some(t)
+}
+/// Share of a location's signed (nonzero) finite members that are positive.
+fn positive_fraction(s: &field_table::population::LocationSummary) -> Option<f64> {
+    let signed = s.signs.positive + s.signs.negative;
+    (signed > 0).then(|| s.signs.positive as f64 / signed as f64)
+}
 fn reduce_group(
     cached: &CachedPlane,
     group: &GroupRequest,
@@ -1034,6 +1252,7 @@ fn reduce_plane(
     cache_hit: bool,
     cancellation: &SampleCancellation,
     focused_override: Option<&[f32]>,
+    cutout: Option<&CutoutPlan>,
 ) -> BridgeResult<PopulationSliceResult> {
     let selected: HashSet<_> = request.working_member_ids.iter().collect();
     let focus = request
@@ -1110,6 +1329,8 @@ fn reduce_plane(
                     SummaryKind::MeanAbsolute => s.mean_absolute,
                     SummaryKind::Cancellation => s.cancellation,
                     SummaryKind::Coverage => Some(s.valid_count as f64),
+                    SummaryKind::OneSampleT => one_sample_t(s),
+                    SummaryKind::PositiveFraction => positive_fraction(s),
                 }
             });
             let value = if let Some(channels) = &inference {
@@ -1136,7 +1357,7 @@ fn reduce_plane(
             .unwrap_or(f32::NAN),
         );
     }
-    let cutouts = match (&cached.plan.cutouts, &request.cutouts) {
+    let cutouts = match (cutout, &request.cutouts) {
         (Some(plan), Some(spec)) if !request.focus_only => {
             let mut members = Vec::with_capacity(spec.member_ids.len());
             for id in &spec.member_ids {
@@ -1165,6 +1386,7 @@ fn reduce_plane(
             }
             Some(CutoutResult {
                 plane: plan.plane.clone(),
+                native_dim_px: plan.native_dim_px,
                 members,
             })
         }
@@ -1208,6 +1430,7 @@ fn reduce_plane(
         focus_window,
         cutouts,
         context_range: range,
+        context_magnitude: cached.magnitude,
         plane: cached.plan.plane.clone(),
         center_world: cached.plan.center_world,
         summary,
@@ -1287,6 +1510,58 @@ mod tests {
     }
     fn finite(result: &[f32]) -> Vec<f32> {
         result.iter().copied().filter(|v| v.is_finite()).collect()
+    }
+
+    #[test]
+    fn population_context_magnitude_is_a_quantile_of_absolute_nonzero_values() {
+        // 100 values of |v| 1..=100 (signs alternate), plus zeros and NaNs ignored.
+        let mut a: Vec<f32> = (1..=50).map(|v| -(v as f32 * 2.0 - 1.0)).collect();
+        a.extend([0.0, f32::NAN]);
+        let mut b: Vec<f32> = (1..=50).map(|v| v as f32 * 2.0).collect();
+        b.push(f32::INFINITY);
+        let q = magnitude_quantile(&[a, b], 0.98).unwrap();
+        assert_eq!(q, 99.0);
+        // The most negative value counts by its magnitude.
+        let q = magnitude_quantile(&[vec![-10.0, 1.0, 1.0, 1.0]], 0.98).unwrap();
+        assert_eq!(q, 10.0);
+        assert_eq!(magnitude_quantile(&[vec![0.0, f32::NAN]], 0.98), None);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn population_context_magnitude_matches_the_quantile_and_yields_on_large_planes() {
+        // Small planes: the same value, inline, rows handed back unchanged.
+        let small = vec![vec![-10.0, 1.0, 1.0, 1.0], vec![0.0, f32::NAN]];
+        let (rows, magnitude) = context_magnitude(small.clone()).await.unwrap();
+        assert_eq!(
+            magnitude,
+            magnitude_quantile(&small, CONTEXT_MAGNITUDE_QUANTILE)
+        );
+        assert_eq!(rows.len(), small.len());
+        assert_eq!(rows[0], small[0]);
+        // Large planes: the async runtime keeps running while the quantile is
+        // taken (a task spawned before it gets to run before it returns).
+        let large: Vec<Vec<f32>> = (0..4)
+            .map(|row| {
+                (0..1_000_000)
+                    .map(|i| ((i * 7 + row) % 1_000) as f32 - 500.0)
+                    .collect()
+            })
+            .collect();
+        let expected = magnitude_quantile(&large, CONTEXT_MAGNITUDE_QUANTILE);
+        let ticked = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = std::sync::Arc::clone(&ticked);
+        let ticker = tokio::spawn(async move {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        let (rows, magnitude) = context_magnitude(large).await.unwrap();
+        assert!(
+            ticked.load(std::sync::atomic::Ordering::SeqCst),
+            "the runtime was blocked while the context magnitude was taken"
+        );
+        assert_eq!(magnitude, expected);
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows[0].len(), 1_000_000);
+        ticker.await.unwrap();
     }
 
     #[tokio::test]
@@ -1392,6 +1667,290 @@ mod tests {
             })
             .collect();
         assert!(validate(&q).is_err());
+    }
+
+    #[tokio::test]
+    async fn population_cutouts_report_native_resolution_and_keep_values_exact_above_it() {
+        // Voxel value = 100 x + 10 y + z on a 3 x 3 x 3 identity grid.
+        let ramp: Vec<f32> = (0..27)
+            .map(|i| (i % 3) as f32 * 100. + ((i / 3) % 3) as f32 * 10. + (i / 9) as f32)
+            .collect();
+        let sources = vec![TestSource::new(&[3, 3, 3], &ramp)];
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        q.cutouts = Some(CutoutRequest {
+            whole_plane: false,
+            center_mm: [1.; 3],
+            width_mm: 3.,
+            // Four pixels per voxel: above the grid's own resolution.
+            dim_px: 12,
+            member_ids: vec!["person-0".into()],
+        });
+        let result = evaluate(&state, q.clone()).await;
+        let cutouts = result.cutouts.as_ref().unwrap();
+        // The 3 mm edge spans three 1 mm voxels.
+        assert_eq!(cutouts.native_dim_px, 3);
+        assert_eq!(cutouts.plane.dim_px, [12, 12]);
+        // Square pixels of a quarter millimetre, on the main plane's axes.
+        let length = |v: [f32; 3]| v.iter().map(|v| v * v).sum::<f32>().sqrt();
+        assert!((length(cutouts.plane.u_mm) - 0.25).abs() < 1e-6);
+        assert!((length(cutouts.plane.v_mm) - 0.25).abs() < 1e-6);
+        let unit = |v: [f32; 3]| v.map(|x| x / length(v));
+        assert_eq!(unit(cutouts.plane.u_mm), unit(result.plane.u_mm));
+        assert_eq!(unit(cutouts.plane.v_mm), unit(result.plane.v_mm));
+        // Every pixel holds the value of the voxel its centre falls in: the
+        // value a hover reads is the value drawn, at any resolution.
+        let values = &cutouts.members[0].values;
+        assert_eq!(values.len(), 144);
+        let mut inside = 0;
+        for y in 0..12u32 {
+            for x in 0..12u32 {
+                let world = neuro_types::pixel_to_world_raw(
+                    cutouts.plane.origin_mm,
+                    cutouts.plane.u_mm,
+                    cutouts.plane.v_mm,
+                    x as f32,
+                    y as f32,
+                );
+                let voxel = world.map(|v| v.round());
+                let value = values[(y * 12 + x) as usize];
+                if voxel.iter().all(|v| (0.0..=2.0).contains(v)) {
+                    assert_eq!(value, voxel[0] * 100. + voxel[1] * 10. + voxel[2]);
+                    inside += 1;
+                } else {
+                    assert!(value.is_nan());
+                }
+            }
+        }
+        assert!(inside >= 100);
+        // A whole-plane cutout reports the voxels its own edge spans.
+        q.cutouts.as_mut().unwrap().whole_plane = true;
+        let whole = evaluate(&state, q).await;
+        let whole = whole.cutouts.as_ref().unwrap();
+        let edge = length(whole.plane.u_mm) * 12.;
+        assert_eq!(whole.native_dim_px, edge.ceil() as u32);
+    }
+
+    #[tokio::test]
+    async fn population_cutouts_are_bounded_by_edge_and_by_values_per_request() {
+        let sources: Vec<_> = (0..17)
+            .map(|_| TestSource::new(&[3, 3, 3], &[1.; 27]))
+            .collect();
+        let state = BridgeState::default().unwrap();
+        let cutouts = |dim_px: u32, members: usize| CutoutRequest {
+            whole_plane: false,
+            center_mm: [1.; 3],
+            width_mm: 3.,
+            dim_px,
+            member_ids: (0..members).map(|i| format!("person-{i}")).collect(),
+        };
+        let refused = |q: PopulationSliceRequest| {
+            let state = &state;
+            async move {
+                state
+                    .population_slice
+                    .evaluate(q, state, SampleCancellation::default())
+                    .await
+                    .is_err()
+            }
+        };
+        // 16 members at 256 x 256 is exactly the budget of 2^20 values.
+        assert_eq!(16 * 256 * 256, MAX_CUTOUT_VALUES);
+        let mut q = request(&sources);
+        q.cutouts = Some(cutouts(256, 16));
+        let result = evaluate(&state, q.clone()).await;
+        let returned = result.cutouts.as_ref().unwrap();
+        assert_eq!(returned.members.len(), 16);
+        assert!(returned.members.iter().all(|m| m.values.len() == 256 * 256));
+        // One member more is over it; so is an edge past the limit.
+        q.cutouts = Some(cutouts(256, 17));
+        assert!(refused(q.clone()).await);
+        q.cutouts = Some(cutouts(257, 1));
+        assert!(refused(q.clone()).await);
+        // Fewer pixels buy more members: 17 fit easily at 128 x 128.
+        q.cutouts = Some(cutouts(128, 17));
+        assert_eq!(evaluate(&state, q).await.cutouts.unwrap().members.len(), 17);
+    }
+
+    #[test]
+    fn population_plane_budget_counts_rows_not_cutout_pixels_for_every_member() {
+        // 300 subjects on a 256 x 256 raster: 300 x 65536 x 4 bytes = 75 MiB of rows.
+        let members: Vec<_> = (0..300)
+            .map(|i| SetMemberRef {
+                member_id: format!("S{i:03}"),
+                display_label: None,
+                design_values: Default::default(),
+                source_path: format!("/data/S{i:03}.nii.gz"),
+                stack_index: None,
+                expected_sha256: None,
+            })
+            .collect();
+        let mut q = PopulationSliceRequest {
+            inference: None,
+            groups: vec![],
+            reference: None,
+            difference: false,
+            focus_only: false,
+            focus_window: vec![],
+            mask: None,
+            context_key: "workspace:dataset:revision".into(),
+            working_member_ids: members.iter().map(|m| m.member_id.clone()).collect(),
+            focus_member_id: Some(members[0].member_id.clone()),
+            focus_stack_index: None,
+            members,
+            crosshair_mm: [1., 1., 1.],
+            orientation: Orientation::Axial,
+            dim_px: [256, 256],
+            zoom: 1.,
+            summary: SummaryKind::Mean,
+            aggregation: None,
+            cutouts: None,
+            underlay: None,
+        };
+        assert!(validate(&q).is_ok());
+        // A page of 16 tiles at 256 px is 4 MiB of values for those 16 subjects.
+        // Counted once per context member it was another 75 MiB, and refused.
+        const { assert!((65536 + 65536) * 300 * 4 > MAX_BYTES) };
+        q.cutouts = Some(CutoutRequest {
+            whole_plane: true,
+            center_mm: [1.; 3],
+            width_mm: 32.,
+            dim_px: 256,
+            member_ids: (0..16).map(|i| format!("S{i:03}")).collect(),
+        });
+        assert!(validate(&q).is_ok());
+        // Asking for the image's own resolution is a valid request too.
+        q.cutouts.as_mut().unwrap().dim_px = 0;
+        q.cutouts.as_mut().unwrap().member_ids = (0..80).map(|i| format!("S{i:03}")).collect();
+        assert!(validate(&q).is_ok());
+        // The rows themselves are still bounded: 600 subjects are 150 MiB.
+        let more: Vec<_> = (0..600)
+            .map(|i| SetMemberRef {
+                member_id: format!("T{i:03}"),
+                ..q.members[0].clone()
+            })
+            .collect();
+        q.working_member_ids = more.iter().map(|m| m.member_id.clone()).collect();
+        q.focus_member_id = Some(more[0].member_id.clone());
+        q.members = more;
+        q.cutouts = None;
+        assert!(validate(&q).is_err());
+    }
+
+    #[test]
+    fn population_native_cutouts_lower_resolution_only_as_far_as_the_budget_requires() {
+        let spec = |dim_px: u32, members: usize| CutoutRequest {
+            whole_plane: true,
+            center_mm: [0.; 3],
+            width_mm: 32.,
+            dim_px,
+            member_ids: (0..members).map(|i| format!("S{i}")).collect(),
+        };
+        // A 2 mm slice (109 voxels): 80 tiles at 109 x 109 are 950 480 values, within 2^20.
+        assert_eq!(cutout_dim(&spec(0, 80), 109), 109);
+        const { assert!(80 * 109 * 109 <= MAX_CUTOUT_VALUES) };
+        // A 1 mm slice (218 voxels) does not fit 80 times: 114 x 114 is the most that does.
+        assert_eq!(cutout_dim(&spec(0, 80), 218), 114);
+        const { assert!(80 * 114 * 114 <= MAX_CUTOUT_VALUES && 80 * 115 * 115 > MAX_CUTOUT_VALUES) };
+        // A shorter page keeps the image's own resolution.
+        assert_eq!(cutout_dim(&spec(0, 22), 218), 218);
+        // The edge limit bounds very fine images.
+        assert_eq!(cutout_dim(&spec(0, 1), 400), MAX_CUTOUT_DIM);
+        // An explicit edge is taken as asked.
+        assert_eq!(cutout_dim(&spec(40, 80), 218), 40);
+    }
+
+    #[tokio::test]
+    async fn population_cutouts_of_another_resolution_reuse_the_sampled_plane() {
+        let ramp: Vec<f32> = (0..27)
+            .map(|i| (i % 3) as f32 * 100. + ((i / 3) % 3) as f32 * 10. + (i / 9) as f32)
+            .collect();
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &ramp),
+            TestSource::new(&[3, 3, 3], &[7.; 27]),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        let cutouts = |dim_px: u32| CutoutRequest {
+            whole_plane: false,
+            center_mm: [1.; 3],
+            width_mm: 3.,
+            dim_px,
+            member_ids: vec!["person-0".into(), "person-1".into()],
+        };
+        // Opening asks for the image's own resolution: one request, three voxels an edge.
+        q.cutouts = Some(cutouts(0));
+        let native = evaluate(&state, q.clone()).await;
+        assert!(!native.source_cache_hit);
+        let shown = native.cutouts.as_ref().unwrap();
+        assert_eq!(shown.native_dim_px, 3);
+        assert_eq!(shown.plane.dim_px, [3, 3]);
+        // Another tile size plans new cutouts over the same rows: nothing is sampled again.
+        for dim in [12u32, 2, 5] {
+            q.cutouts = Some(cutouts(dim));
+            let again = evaluate(&state, q.clone()).await;
+            assert!(again.source_cache_hit, "dim {dim} re-sampled the plane");
+            let cutout = again.cutouts.as_ref().unwrap();
+            assert_eq!(cutout.plane.dim_px, [dim, dim]);
+            assert_eq!(cutout.native_dim_px, 3);
+            // Each pixel still holds its nearest voxel's value.
+            for y in 0..dim {
+                for x in 0..dim {
+                    let world = neuro_types::pixel_to_world_raw(
+                        cutout.plane.origin_mm,
+                        cutout.plane.u_mm,
+                        cutout.plane.v_mm,
+                        x as f32,
+                        y as f32,
+                    );
+                    let voxel = world.map(|v| v.round());
+                    let value = cutout.members[0].values[(y * dim + x) as usize];
+                    if voxel.iter().all(|v| (0.0..=2.0).contains(v)) {
+                        assert_eq!(value, voxel[0] * 100. + voxel[1] * 10. + voxel[2]);
+                        assert_eq!(cutout.members[1].values[(y * dim + x) as usize], 7.);
+                    } else {
+                        assert!(value.is_nan());
+                    }
+                }
+            }
+        }
+        // A different square is a different plane.
+        let mut moved = cutouts(3);
+        moved.width_mm = 2.;
+        q.cutouts = Some(moved);
+        assert!(!evaluate(&state, q).await.source_cache_hit);
+    }
+
+    #[test]
+    fn population_cutout_response_size_for_a_page_of_native_tiles() {
+        // 80 tiles of a 2 mm slice at 112 x 112: what one slice step returns.
+        let values: Vec<f32> = (0..112 * 112)
+            .map(|i| ((i as f32 * 0.618_034).sin() * 3.217).mul_add(1.0, 0.000_123))
+            .collect();
+        let result = CutoutResult {
+            plane: Plane {
+                origin_mm: [0.; 3],
+                u_mm: [1., 0., 0.],
+                v_mm: [0., 1., 0.],
+                dim_px: [112, 112],
+            },
+            native_dim_px: 109,
+            members: (0..80)
+                .map(|i| CutoutMember {
+                    member_id: format!("sub-{i:04}"),
+                    values: values.clone(),
+                    valid_pixels: values.len(),
+                })
+                .collect(),
+        };
+        let bytes = serde_json::to_vec(&result).unwrap().len();
+        println!(
+            "cutout payload: 80 tiles x 112 x 112 = {} values, {} bytes of JSON ({:.1} MiB)",
+            80 * 112 * 112,
+            bytes,
+            bytes as f64 / (1024. * 1024.)
+        );
+        assert!(bytes < 16 * 1024 * 1024);
     }
 
     #[tokio::test]
@@ -1739,6 +2298,66 @@ mod tests {
             req.aggregation.as_mut().unwrap().groups = groups;
             assert!(validate(&req).is_err());
         }
+    }
+
+    #[tokio::test]
+    async fn population_slice_one_sample_t_and_sign_share_are_exact() {
+        let state = BridgeState::default().unwrap();
+        // Members [1, 2, 3, 6]: mean 3, sample SD sqrt(14/3), n 4,
+        // so t = 3 / (sqrt(14/3) / 2) at every voxel.
+        let sources: Vec<_> = [1f32, 2., 3., 6.]
+            .iter()
+            .map(|&v| TestSource::new(&[3, 3, 3], &[v; 27]))
+            .collect();
+        let mut req = request(&sources);
+        req.summary = SummaryKind::OneSampleT;
+        let t = finite(&evaluate(&state, req.clone()).await.summary);
+        let expected_t = 3.0 / ((14.0f64 / 3.0).sqrt() / 2.0);
+        assert!(!t.is_empty());
+        assert!(t.iter().all(|v| (f64::from(*v) - expected_t).abs() < 1e-5));
+        // Negative means give negative t: [-1, -2, -3, -6].
+        let negative: Vec<_> = [-1f32, -2., -3., -6.]
+            .iter()
+            .map(|&v| TestSource::new(&[3, 3, 3], &[v; 27]))
+            .collect();
+        let mut req = request(&negative);
+        req.summary = SummaryKind::OneSampleT;
+        let t = finite(&evaluate(&state, req).await.summary);
+        assert!(t.iter().all(|v| (f64::from(*v) + expected_t).abs() < 1e-5));
+        // Members [1, -2, 0, 3]: two positive, one negative, one exact zero
+        // (neither): the sign share is 2/3.
+        let signs: Vec<_> = [1f32, -2., 0., 3.]
+            .iter()
+            .map(|&v| TestSource::new(&[3, 3, 3], &[v; 27]))
+            .collect();
+        let mut req = request(&signs);
+        req.summary = SummaryKind::PositiveFraction;
+        let share = finite(&evaluate(&state, req).await.summary);
+        assert!(!share.is_empty());
+        assert!(share.iter().all(|v| (*v - 2. / 3.).abs() < 1e-6));
+    }
+
+    #[tokio::test]
+    async fn population_slice_one_sample_t_and_sign_share_are_unavailable_without_evidence() {
+        // No spread: t is undefined (not infinite). All zeros: no sign.
+        let sources: Vec<_> = (0..3)
+            .map(|_| TestSource::new(&[3, 3, 3], &[0.; 27]))
+            .collect();
+        let state = BridgeState::default().unwrap();
+        let mut req = request(&sources);
+        req.summary = SummaryKind::OneSampleT;
+        assert!(finite(&evaluate(&state, req.clone()).await.summary).is_empty());
+        req.summary = SummaryKind::PositiveFraction;
+        assert!(finite(&evaluate(&state, req.clone()).await.summary).is_empty());
+        // One member: no sample SD, so no t; its sign is still a share.
+        let one = vec![TestSource::new(&[3, 3, 3], &[-2.; 27])];
+        let mut req = request(&one);
+        req.summary = SummaryKind::OneSampleT;
+        assert!(finite(&evaluate(&state, req.clone()).await.summary).is_empty());
+        req.summary = SummaryKind::PositiveFraction;
+        let share = evaluate(&state, req).await;
+        assert!(!finite(&share.summary).is_empty());
+        assert!(finite(&share.summary).iter().all(|v| *v == 0.));
     }
 
     #[tokio::test]
@@ -2450,6 +3069,36 @@ mod tests {
         assert_eq!(peak(&state, q.clone()).await, Some([0.5, 0., 0.]));
         let silent = vec![TestSource::new(&[3, 3, 5], &[0.; 45])];
         assert!(peak(&state, request(&silent)).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn population_peak_slice_ranks_sign_share_not_mean_magnitude() {
+        // z = 1: one large positive and three small negatives (mean 1.75,
+        // positive share 0.25); z = 3: a weak but unanimous +0.1 (share 1).
+        // The sign-share peak is the unanimous slice, not the large mean.
+        let field = |z1: f32| -> Vec<f32> {
+            (0..45)
+                .map(|i| match i / 9 {
+                    1 => z1,
+                    3 => 0.1,
+                    _ => 0.,
+                })
+                .collect()
+        };
+        let sources = vec![
+            TestSource::new(&[3, 3, 5], &field(10.)),
+            TestSource::new(&[3, 3, 5], &field(-1.)),
+            TestSource::new(&[3, 3, 5], &field(-1.)),
+            TestSource::new(&[3, 3, 5], &field(-1.)),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        assert_eq!(peak(&state, q.clone()).await.map(|p| p[2]), Some(1.));
+        q.summary = SummaryKind::PositiveFraction;
+        assert_eq!(peak(&state, q.clone()).await.map(|p| p[2]), Some(3.));
+        // A constant slice has no spread and so no t: z = 1 holds the t peak.
+        q.summary = SummaryKind::OneSampleT;
+        assert_eq!(peak(&state, q).await.map(|p| p[2]), Some(1.));
     }
 
     #[tokio::test]

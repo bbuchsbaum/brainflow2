@@ -10,6 +10,8 @@ export function useStudioCoordination() {
   useEffect(() => {
     const service = getStudioCoordinationService();
     if (appMode === 'studio') {
+      // Back from the viewer tab "Open in viewer" made: its layers were kept.
+      getStudioDisplayService().resumeStudio?.();
       // A set whose image headers nobody has read is checked in the
       // background, so Population and Compare become ready by themselves.
       service.start({

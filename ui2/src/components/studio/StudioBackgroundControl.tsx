@@ -6,6 +6,7 @@ import {
   loadStudioBackgroundOptions,
   selectStudioBackgroundNote,
   selectStudioBackgroundPath,
+  shortBackgroundLabels,
   withCurrentBackground,
   type StudioBackgroundOption,
 } from '@/services/studio/studioBackground';
@@ -16,7 +17,16 @@ import { useSetStudioStore } from '@/stores/setStudioStore';
  * images in the Deck, Compare and Population lenses. Its one editable home,
  * in the Studio toolbar beside the lens switcher.
  */
-export function StudioBackgroundControl() {
+export function StudioBackgroundControl({
+  compact = false,
+}: {
+  /**
+   * On the toolbar's first row: the select alone (named "Background"), its
+   * note as the tooltip; the note is also in the set's ⓘ facts, never a line
+   * of its own.
+   */
+  compact?: boolean;
+} = {}) {
   const sourcePath = useSetStudioStore(selectStudioBackgroundPath);
   const note = useSetStudioStore(selectStudioBackgroundNote);
   const issue = useSetStudioStore((state) =>
@@ -41,7 +51,42 @@ export function StudioBackgroundControl() {
     };
   }, []);
   const options = useMemo(() => withCurrentBackground(catalog, sourcePath), [catalog, sourcePath]);
+  const shortLabels = useMemo(() => shortBackgroundLabels(options), [options]);
 
+  if (compact) {
+    const current = options.find((option) => option.value === sourcePath) ?? null;
+    return (
+      // Gives up its width before anything else on the row (the set's name
+      // never does): a short label ("MNI152 · 1 mm"), the full name in the tooltip.
+      <span
+        className="flex min-w-0 items-center gap-1 [flex:0_1000_auto]"
+        data-testid="studio-background-compact"
+      >
+        <ToolbarField
+          label="Background"
+          error={issue ?? undefined}
+          className="min-w-0 [&>label]:sr-only"
+        >
+          <Select
+            className="w-auto min-w-16 max-w-[10rem] truncate"
+            value={sourcePath ?? ''}
+            title={[
+              `Background: ${current ? current.label : 'none'}`,
+              note ?? 'Anatomy drawn beneath the images',
+            ].join('\n')}
+            onValueChange={(value) => getStudioCoordinationService().chooseBackground(value || null)}
+          >
+            <option value="">No background</option>
+            {options.map((option) => (
+              <option key={option.value} value={option.value} title={option.label}>
+                {shortLabels.get(option.value) ?? option.label}
+              </option>
+            ))}
+          </Select>
+        </ToolbarField>
+      </span>
+    );
+  }
   return (
     <>
       <ToolbarField label="Background" error={issue ?? undefined} className="min-w-0 max-w-full">

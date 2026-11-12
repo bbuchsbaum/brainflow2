@@ -285,6 +285,10 @@ export class PopulationProbeController {
   start() {
     this.active = true;
   }
+  /** Whether a panel is driving this controller (false once it has stopped). */
+  isActive() {
+    return this.active;
+  }
   stop() {
     this.active = false;
     this.generation++;
@@ -393,3 +397,10 @@ export class PopulationProbeController {
     }
   }
 }
+
+/**
+ * The Studio's one probe controller: the Set studio centre drives it and the
+ * Values dock tab (the same React root) shows it, so the values follow the
+ * pin whichever tab is showing.
+ */
+export const populationProbeController = new PopulationProbeController();

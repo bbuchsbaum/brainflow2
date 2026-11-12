@@ -101,13 +101,28 @@ export interface PopulationPartition {
 export interface PopulationState {
   readonly focusedFrame?: { readonly memberId: string; readonly frame: number } | null;
   readonly inference: PopulationInference | null;
+  /**
+   * The A and B the test was last Run on. A test shows only while they are
+   * the current A and B: changing the selection never re-runs it. Null or
+   * absent: no Run recorded (the test applies as configured).
+   */
+  readonly inferenceOperands?: string | null;
   readonly partition: PopulationPartition | null;
   readonly partitionPast: readonly (PopulationPartition | null)[];
   readonly presentation: PopulationPresentation;
   /** Applied once on restore; subsequent exploration is ordinary live state. */
   readonly restoredView?: {
     orientation: 'axial' | 'coronal' | 'sagittal';
-    summary: 'mean' | 'median' | 'mad' | 'sampleSd' | 'meanAbsolute' | 'cancellation' | 'coverage';
+    summary:
+      | 'mean'
+      | 'median'
+      | 'mad'
+      | 'sampleSd'
+      | 'meanAbsolute'
+      | 'cancellation'
+      | 'coverage'
+      | 'oneSampleT'
+      | 'positiveFraction';
     zoom: number;
     effectLimit?: number;
     summaryLimit?: number;
@@ -123,6 +138,17 @@ export interface PopulationState {
   readonly pinnedProbe: PopulationProbe | null;
   readonly hoverProbe: PopulationProbe | null;
   readonly relationship: PopulationRelationship | null;
+  /**
+   * The distance similarity is measured with, for the montage's Sort and
+   * Group and the Spatial relationships panel alike (one choice, so they
+   * cannot disagree). Absent: the default, correlation.
+   */
+  readonly similarityMeasure?: 'effect' | 'pattern-shape';
+  /**
+   * Where similarity is compared: the whole support (or the analysis mask)
+   * or the pinned region. Absent: the support. Edited in Analysis setup.
+   */
+  readonly similarityRegion?: 'support' | 'probe';
   /** Selection undo never rewinds focus, probes or references. */
   readonly selectionPast: readonly PopulationWorkingSelection[];
   readonly selectionFuture: readonly PopulationWorkingSelection[];

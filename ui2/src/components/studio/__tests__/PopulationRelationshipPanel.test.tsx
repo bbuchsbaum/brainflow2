@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { PopulationRelationshipPanel } from '../PopulationRelationshipPanel';
+import { PopulationInspector } from '../PopulationInspector';
+import { SimilarityStrip } from '../SimilarityStrip';
+import { usePopulationViewStore } from '@/stores/populationViewStore';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import {
   populationRelationshipService,
@@ -9,6 +11,7 @@ import {
   type RelationshipRequest,
 } from '@/services/studio/PopulationRelationshipService';
 import { syntheticFit, syntheticV2Fit } from '@/services/studio/__tests__/relationshipFixtures';
+import { populationMemberHover } from '@/services/studio/populationMemberHover';
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock('@/services/transport', () => ({ getTransport: () => ({ invoke }) }));
@@ -20,6 +23,40 @@ class NoResizeObserver {
 }
 vi.stubGlobal('ResizeObserver', NoResizeObserver);
 
+/**
+ * C′ moved the Spatial relationships panel's parts to their homes: the map to
+ * the similarity strip beside the montage; nearest subjects, the centre of the
+ * selection, the unassigned list and the fit line to the Inspector. These
+ * tests follow the parts there.
+ */
+function Homes({ summaryKind = 'mean' }: { summaryKind?: string }) {
+  usePopulationViewStore.getState().setSummary(summaryKind);
+  return (
+    <>
+      <SimilarityStrip
+        mode="inline"
+        collapsed={false}
+        onCollapsedChange={() => {}}
+        measure="pattern-shape"
+        selected={new Set()}
+        focusedId={useSetStudioStore.getState().selection.activeMemberId}
+        linkedId={null}
+        onHoverMember={() => {}}
+        busy={null}
+        error={null}
+        onUseAmplitude={null}
+        onRefit={() => {}}
+        showing={null}
+      />
+      <PopulationInspector />
+    </>
+  );
+}
+/** Open a collapsed Inspector section. */
+const openSection = (name: string) => {
+  const header = screen.getByRole('button', { name: new RegExp(`^${name}`) });
+  if (header.getAttribute('aria-expanded') !== 'true') fireEvent.click(header);
+};
 const state = () => useSetStudioStore.getState();
 beforeEach(() => {
   useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
@@ -29,6 +66,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   act(() => populationRelationshipService.resetScope(null));
+  populationMemberHover.reset();
 });
 
 /** Fit the demo context (sub001…sub006) through the shared service. */
@@ -62,9 +100,13 @@ const cells = (row: HTMLElement) =>
 describe('relationship fit line', () => {
   it('reports k = 3 neighbour preservation beside stress', async () => {
     await fitWith(syntheticFit);
-    render(<PopulationRelationshipPanel />);
+    render(<Homes />);
+    // C′: the full fit line is in Inspector › Coverage and sources.
+    openSection('Coverage and sources');
     const line = screen.getByTestId('relationship-fit-line');
     expect(line.textContent).toMatch(/normalized stress 0\.000/);
+    // The share of variance is stated once, in the similarity strip's caption.
+    expect(line.textContent).not.toMatch(/keeps|variation/);
     // Points on a line keep every true neighbourhood.
     expect(screen.getByTestId('neighbour-preservation').textContent).toBe(
       'nearest neighbours kept on screen 100% (k = 3)',
@@ -73,38 +115,72 @@ describe('relationship fit line', () => {
 
   it('says not informative when n ≤ 4', async () => {
     await fitWith((request) => syntheticV2Fit(request, [4, 5]));
-    render(<PopulationRelationshipPanel />);
+    render(<Homes />);
+    openSection('Coverage and sources');
     expect(screen.getByTestId('neighbour-preservation').textContent).toBe(
       'neighbour preservation not informative (n ≤ 4)',
     );
-    expect(screen.getByText(/4 of 6 observations placed/)).toBeInTheDocument();
+    // C′: the placed count is on the strip's fit-quality line.
+    expect(screen.getByTestId('similarity-fit-quality').textContent).toMatch(/4 of 6 placed/);
   });
 });
 
 describe('neighbour table', () => {
-  it('ranks the focused observation’s neighbours by declared distance with screen ranks', async () => {
+  it('ranks the focused observation’s neighbours by declared distance; the map numbers the same five', async () => {
     await fitWith(syntheticFit);
-    render(<PopulationRelationshipPanel />);
+    render(<Homes />);
     expect(state().selection.activeMemberId).toBe('sub003');
     expect(
       within(neighbourTable()).getByRole('columnheader', { name: /Distance/ }).textContent,
-    ).toMatch(/RMS difference, map units/);
+    ).toMatch(/amplitude \(RMS difference, map units\)/);
+    // #, ID, distance and the row action; no "On screen" column.
+    expect(
+      within(neighbourTable())
+        .getAllByRole('columnheader')
+        .map((h) => h.textContent),
+    ).toEqual(['#', 'ID', 'Distance (amplitude): amplitude (RMS difference, map units)', 'Action']);
     expect(rows().map(cells)).toEqual([
-      ['1', 'sub002', '1.00', '1st', 'Compare'],
-      ['1', 'sub004', '1.00', '1st', 'Compare'],
-      ['3', 'sub001', '2.00', '3rd', 'Compare'],
-      ['3', 'sub005', '2.00', '3rd', 'Compare'],
-      ['5', 'sub006', '3.00', '5th', 'Compare'],
+      ['1', 'sub002', '1.00', 'Where they differ'],
+      ['1', 'sub004', '1.00', 'Where they differ'],
+      ['3', 'sub001', '2.00', 'Where they differ'],
+      ['3', 'sub005', '2.00', 'Where they differ'],
+      ['5', 'sub006', '3.00', 'Where they differ'],
     ]);
+    // The screen rank is one hover away, on the distance.
+    expect(within(rows()[0]).getAllByRole('cell')[2]).toHaveAttribute(
+      'title',
+      '1st nearest on screen',
+    );
     expect(screen.queryByTestId('neighbour-screen-note')).toBeNull();
-    // The plot joins the focus to its true nearest three (ties included) and numbers them.
+    // The map joins the focus to the list's five (ties as the list ranks them) with numbered spokes,
+    // while the pointer is on it.
+    fireEvent.pointerEnter(screen.getByRole('group', { name: 'Spatial MDS observations' }));
     const lines = [...document.querySelectorAll('[data-neighbour-line]')].map((l) =>
       l.getAttribute('data-neighbour-line'),
     );
-    expect(lines).toEqual(['sub002', 'sub004', 'sub001', 'sub005']);
+    expect(lines).toEqual(['sub002', 'sub004', 'sub001', 'sub005', 'sub006']);
     expect(
       [...document.querySelectorAll('[data-neighbour-rank]')].map((t) => t.textContent),
-    ).toEqual(['1', '1', '3', '3']);
+    ).toEqual(['1', '1', '3', '3', '5']);
+  });
+
+  it('a row\'s hover marks its point and tile; Where they differ is a row action, not a column of links', async () => {
+    await fitWith(syntheticFit);
+    render(<Homes />);
+    const row = rows().find((r) => cells(r)[1] === 'sub004')!;
+    fireEvent.pointerEnter(row);
+    expect(populationMemberHover.getSnapshot()).toEqual({ memberId: 'sub004', source: 'inspector' });
+    const ring = document.querySelector('[data-mark="linked"]')!;
+    const point = document.querySelector('circle[data-datum-id="sub004"]')!;
+    expect(ring.getAttribute('cx')).toBe(point.getAttribute('cx'));
+    fireEvent.pointerLeave(row);
+    expect(populationMemberHover.getSnapshot().memberId).toBeNull();
+    expect(document.querySelector('[data-mark="linked"]')).toBeNull();
+    // Shown on the row's hover or keyboard focus only.
+    const action = within(row).getByRole('button', { name: 'Where sub003 and sub004 differ' });
+    expect(action.className).toMatch(/\bopacity-0\b/);
+    expect(action.className).toMatch(/group-hover:opacity-100/);
+    expect(action.className).toMatch(/focus-visible:opacity-100/);
   });
 
   it('notes when the nearest point on screen is not a true neighbour', async () => {
@@ -114,22 +190,26 @@ describe('neighbour table', () => {
       fit.geometry.coordinates[5] = [2, 0.05];
       return fit;
     });
-    render(<PopulationRelationshipPanel />);
+    render(<Homes />);
     expect(screen.getByTestId('neighbour-screen-note').textContent).toBe(
       'sub006 is nearest on screen but 5th by distance. The 2D layout misplaces it.',
     );
     const sub001 = rows().find((r) => cells(r)[1] === 'sub001')!;
-    expect(within(sub001).getAllByRole('cell')[3]).toHaveAttribute('data-flagged', 'true');
+    const distance = within(sub001).getAllByRole('cell')[2];
+    expect(distance).toHaveAttribute('data-flagged', 'true');
+    expect(distance.getAttribute('title')).toMatch(/^4th nearest on screen: the 2D layout misplaces/);
+    // The flag is a form, not a hue: amber is the focus ring's.
+    expect(distance.className).not.toMatch(/bf-(accent|warning)/);
   });
 
-  it('hands the pair to the explanation in pair mode on Compare', async () => {
+  it('hands the pair to the explanation in pair mode on Where they differ', async () => {
     await fitWith(syntheticFit);
-    render(<PopulationRelationshipPanel />);
+    render(<Homes />);
     const explanation = screen.getByLabelText(
       'Explain spatial relationships',
     ) as HTMLDetailsElement;
     expect(explanation.open).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: 'Compare sub003 with sub004' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Where sub003 and sub004 differ' }));
     expect(explanation.open).toBe(true);
     expect(
       within(explanation).getByRole('combobox', { name: 'Relationship explanation' }),
@@ -149,20 +229,21 @@ describe('neighbour table', () => {
     fireEvent.change(within(explanation).getByRole('combobox', { name: 'Second comparison map' }), {
       target: { value: 'sub006' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Compare sub003 with sub004' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Where sub003 and sub004 differ' }));
     expect(
       within(explanation).getByRole('combobox', { name: 'Second comparison map' }),
     ).toHaveValue('sub004');
   });
 
-  it('ignores a Compare request after a refit', async () => {
+  it('ignores a Where they differ request after a refit', async () => {
     await fitWith(syntheticFit);
-    render(<PopulationRelationshipPanel />);
-    fireEvent.click(screen.getByRole('button', { name: 'Compare sub003 with sub004' }));
+    render(<Homes />);
+    fireEvent.click(screen.getByRole('button', { name: 'Where sub003 and sub004 differ' }));
     expect((screen.getByLabelText('Explain spatial relationships') as HTMLDetailsElement).open).toBe(
       true,
     );
-    const outside = screen.getByRole('button', { name: 'Fit on current support' });
+    // C′: the fit is automatic (no Fit button); any control outside will do.
+    const outside = screen.getByRole('button', { name: 'Open in Deck' });
     outside.focus();
     await fitWith((request) => ({ ...syntheticFit(request), fitId: 'e'.repeat(64) }));
     const explanation = screen.getByLabelText('Explain spatial relationships') as HTMLDetailsElement;
@@ -172,7 +253,7 @@ describe('neighbour table', () => {
 
   it('focuses a neighbour from its ID', async () => {
     await fitWith(syntheticFit);
-    render(<PopulationRelationshipPanel />);
+    render(<Homes />);
     fireEvent.click(screen.getByRole('button', { name: 'Focus sub006' }));
     expect(state().selection.activeMemberId).toBe('sub006');
     expect(rows().map((r) => cells(r)[1])[0]).toBe('sub005');
@@ -181,25 +262,36 @@ describe('neighbour table', () => {
 
 describe('nearest the selection centroid', () => {
   const list = () =>
-    screen.getByRole('listbox', { name: 'Observations nearest the selection centroid' });
+    screen.getByRole('table', { name: 'Observations nearest the selection centroid' });
   const ids = () =>
     within(list())
-      .getAllByRole('option')
+      .getAllByRole('row')
+      .slice(1)
       .map((o) => o.textContent);
+  /** The method prose is behind ⓘ. */
+  const showMethod = () => fireEvent.click(screen.getByRole('button', { name: 'How nearest is measured' }));
 
   it('ranks fitted members by distance to the selection centroid on the common support', async () => {
     await fitWith(syntheticFit);
     act(() => state().selectPopulationMembers(['sub001', 'sub002', 'sub006']));
-    render(<PopulationRelationshipPanel summaryKind="mean" />);
+    render(<Homes summaryKind="mean" />);
     // Equal weights: centroid at 2 on the line.
     expect(ids()[0]).toBe('1sub0030');
     const section = screen.getByRole('region', { name: 'Nearest the selection centroid' });
+    // The method is behind ⓘ; the table and a reference distance are in sight.
+    expect(section.textContent).not.toMatch(/common support/);
+    expect(screen.getByTestId('nearest-reference')).toHaveTextContent(/^median pair distance \d/);
+    showMethod();
     expect(section.textContent).toMatch(/common support \(90 voxels\)/);
     expect(section.textContent).toMatch(/from 3 observations selected and placed/);
-    fireEvent.click(within(list()).getAllByRole('option')[1]);
-    expect(state().selection.activeMemberId).toBe(
-      within(list()).getAllByRole('option')[1].textContent!.slice(1, 7),
-    );
+    const second = ids()[1].slice(1, 7);
+    fireEvent.click(within(list()).getByRole('button', { name: `Focus ${second}` }));
+    expect(state().selection.activeMemberId).toBe(second);
+    // The distance is a plain number; only the ID is a link (underlined on hover).
+    const row = within(list()).getAllByRole('row')[1];
+    expect(within(row).getAllByRole('cell')[2].className).not.toMatch(/underline/);
+    expect(within(row).getByRole('button').className).toMatch(/\bno-underline\b/);
+    expect(within(row).getByRole('button').className).toMatch(/hover:underline/);
   });
 
   it('weights participants equally when participants are averaged', async () => {
@@ -222,9 +314,10 @@ describe('nearest the selection centroid', () => {
       });
       state().selectPopulationMembers(['sub001', 'sub002', 'sub006']);
     });
-    render(<PopulationRelationshipPanel summaryKind="mean" />);
+    render(<Homes summaryKind="mean" />);
     // A (sub001, sub002) and E (sub006) weigh ½ each: centroid at 2.75.
     expect(ids()[0]).toBe('1sub0040.250');
+    showMethod();
     expect(
       screen.getByRole('region', { name: 'Nearest the selection centroid' }).textContent,
     ).toMatch(/each participant weighted equally/);
@@ -232,7 +325,9 @@ describe('nearest the selection centroid', () => {
 
   it('is disabled with its reason when the summary is not a mean', async () => {
     await fitWith(syntheticFit);
-    render(<PopulationRelationshipPanel summaryKind="median" />);
+    // C′: the centre of the selection is shown with the selection.
+    act(() => state().selectPopulationMembers(['sub001', 'sub002', 'sub006']));
+    render(<Homes summaryKind="median" />);
     const section = screen.getByRole('region', { name: 'Nearest the selection centroid' });
     expect(within(section).queryByRole('listbox')).toBeNull();
     expect(section.textContent).toMatch(/available only when the summary is the mean/);
@@ -241,7 +336,7 @@ describe('nearest the selection centroid', () => {
   it('reports selected unassigned members and disables when none is placed', async () => {
     await fitWith((request) => syntheticV2Fit(request, [1, 4]));
     act(() => state().selectPopulationMembers(['sub002', 'sub005']));
-    render(<PopulationRelationshipPanel />);
+    render(<Homes />);
     const section = screen.getByRole('region', { name: 'Nearest the selection centroid' });
     expect(section.textContent).toMatch(/No selected observation has a position in this fit/);
     expect(section.textContent).toMatch(/2 selected observations, sub002, sub005, are unassigned/);
@@ -250,7 +345,7 @@ describe('nearest the selection centroid', () => {
   it('computes for the previewed selection while hold-to-preview applies', async () => {
     await fitWith(syntheticFit);
     act(() => state().selectPopulationMembers(['sub001', 'sub002', 'sub003']));
-    render(<PopulationRelationshipPanel />);
+    render(<Homes />);
     expect(ids()[0]).toBe('1sub0020');
     // Hold without the focused observation (sub003): centroid of sub001, sub002.
     act(() => state().setPopulationPreviewHolding(true));
@@ -266,7 +361,9 @@ describe('nearest the selection centroid', () => {
 describe('unassigned observations', () => {
   it('lists each with reason, finite count and support loss, and rows focus', async () => {
     await fitWith((request) => syntheticV2Fit(request, [1, 4]));
-    render(<PopulationRelationshipPanel />);
+    render(<Homes />);
+    // C′: the unassigned list is in Inspector › Coverage and sources.
+    openSection('Coverage and sources');
     expect(screen.queryByLabelText('Unassigned observations', { selector: 'p' })).toBeNull();
     const list = screen.getByRole('listbox', { name: 'Unassigned observations' });
     const options = within(list).getAllByRole('option');
@@ -298,7 +395,7 @@ describe('unassigned observations', () => {
   it('explains why a focused unassigned observation has no neighbours', async () => {
     await fitWith((request) => syntheticV2Fit(request, [1, 4]));
     act(() => state().setActiveMember('sub005'));
-    render(<PopulationRelationshipPanel />);
+    render(<Homes />);
     expect(screen.queryByRole('table', { name: /Observations nearest to/ })).toBeNull();
     const area = screen.getByRole('region', { name: 'Nearest to sub005' });
     expect(area.textContent).toMatch(
@@ -306,6 +403,7 @@ describe('unassigned observations', () => {
     );
     expect(area.textContent).toMatch(/Rule threshold85\.5 \(0\.9 × 95\)/);
     expect(area.textContent).toMatch(/still in the population/);
+    fireEvent.pointerEnter(screen.getByRole('group', { name: 'Spatial MDS observations' }));
     expect(document.querySelectorAll('[data-neighbour-line]')).toHaveLength(0);
   });
 });
@@ -313,7 +411,7 @@ describe('unassigned observations', () => {
 describe('stale fit', () => {
   it('freezes the layout, shows a stale badge and disables ranking actions', async () => {
     await fitWith((request) => syntheticV2Fit(request, [1]));
-    render(<PopulationRelationshipPanel />);
+    render(<Homes />);
     const before = [...document.querySelectorAll('circle[data-datum-id]')].map((c) => [
       c.getAttribute('data-datum-id'),
       c.getAttribute('cx'),
@@ -323,7 +421,13 @@ describe('stale fit', () => {
     markStale();
     expect(relationshipUsable()).toBe(false);
     expect(screen.getByText('Out of date')).toBeInTheDocument();
-    expect(screen.getByRole('alert').textContent).toMatch(/layout stays frozen/);
+    // A polite status, said once (not an alert).
+    expect(
+      screen.getAllByRole('status').some((s) => /layout stays frozen/.test(s.textContent ?? '')),
+    ).toBe(true);
+    expect(screen.queryByRole('alert')).toBeNull();
+    // C′: the centre of the selection is in the Inspector's selection block.
+    act(() => state().selectPopulationMembers(['sub001', 'sub003']));
     // Same points, same positions.
     expect(
       [...document.querySelectorAll('circle[data-datum-id]')].map((c) => [
@@ -332,21 +436,95 @@ describe('stale fit', () => {
         c.getAttribute('cy'),
       ]),
     ).toEqual(before);
-    // IDs stay; distances and screen ranks are hidden; Compare is off.
-    expect(rows().map((r) => cells(r).slice(1, 4))[0]).toEqual(['sub001', '—', '—']);
-    for (const button of within(neighbourTable()).getAllByRole('button', { name: /^Compare/ }))
-      expect(button).toBeDisabled();
-    expect(screen.getByText('Refit to rank')).toBeInTheDocument();
-    expect(document.querySelectorAll('[data-neighbour-line]')).toHaveLength(0);
+    // One Nearest table: a new selection shows its centre; Focused switches back.
+    expect(screen.getByRole('radio', { name: 'Selection' })).toBeChecked();
     expect(
       screen.getByRole('region', { name: 'Nearest the selection centroid' }).textContent,
     ).toMatch(/Unavailable until refit/);
-    expect(screen.getByText('As of fit time')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: 'Focused' }));
+    // IDs stay; distances and screen ranks are hidden; Where they differ is off.
+    expect(rows().map((r) => cells(r).slice(1, 3))[0]).toEqual(['sub001', '—']);
+    expect(within(rows()[0]).getAllByRole('cell')[2]).not.toHaveAttribute('title');
+    for (const button of within(neighbourTable()).getAllByRole('button', { name: /^Where/ }))
+      expect(button).toBeDisabled();
+    expect(screen.getByText('Refit to rank')).toBeInTheDocument();
+    fireEvent.pointerEnter(screen.getByRole('group', { name: 'Spatial MDS observations' }));
+    expect(document.querySelectorAll('[data-neighbour-line]')).toHaveLength(0);
+    expect(screen.queryByRole('region', { name: 'Nearest the selection centroid' })).toBeNull();
+    // No reference distance from a stale fit.
+    expect(screen.queryByTestId('nearest-reference')).toBeNull();
     // Unassigned rows remain focusable: these members are in the context.
+    openSection('Coverage and sources');
+    expect(screen.getByText('As of fit time')).toBeInTheDocument();
     fireEvent.click(
       within(screen.getByRole('listbox', { name: 'Unassigned observations' })).getByRole('option'),
     );
     expect(state().selection.activeMemberId).toBe('sub002');
-    expect(screen.getByRole('button', { name: 'Order movie by MDS axis 1' })).toBeDisabled();
+    // C′: "Order movie by MDS axis 1" is gone (Sort › Similarity); the strip offers Refit.
+    expect(screen.queryByRole('button', { name: 'Order movie by MDS axis 1' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Refit' })).toBeInTheDocument();
+  });
+});
+
+describe('similarity group count', () => {
+  it('the strip says how many the tree is cut into, beside what the fit suggests', async () => {
+    await fitWith(syntheticFit);
+    act(() => populationRelationshipService.group(3));
+    expect(state().population.partition?.origin).toBe('map-derived');
+    render(
+      <SimilarityStrip
+        mode="inline"
+        collapsed={false}
+        onCollapsedChange={() => {}}
+        measure="effect"
+        selected={new Set()}
+        focusedId={null}
+        linkedId={null}
+        onHoverMember={() => {}}
+        busy={null}
+        error={null}
+        onUseAmplitude={null}
+        onRefit={() => {}}
+        showing={3}
+      />,
+    );
+    // A fit without grouping evidence suggests nothing: no invented number.
+    // A one-member cluster of a fit without that evidence reads as an outlier.
+    expect(screen.getByTestId('similarity-suggestion').textContent).toBe(
+      'showing 3. Outliers join no group.',
+    );
+  });
+});
+
+describe('one similarity measure', () => {
+  it('is read-only in Analysis setup, follows the fit in force, and each measure\'s fit is reused', async () => {
+    render(<Homes />);
+    openSection('Analysis setup');
+    expect(screen.getByTestId('similarity-measure-readonly')).toHaveTextContent('correlation');
+    // C′: no editable measure outside the montage's Sort and Group.
+    expect(screen.queryByLabelText('Spatial distance')).toBeNull();
+    invoke.mockImplementation(async (command: string, args: { request: RelationshipRequest }) =>
+      command === 'fit_population_relationship' ? syntheticFit(args.request) : undefined,
+    );
+    // The montage fits by amplitude: Analysis setup reads amplitude.
+    await act(async () => {
+      await populationRelationshipService.fit('effect');
+    });
+    expect(state().population.similarityMeasure).toBe('effect');
+    expect(screen.getByTestId('similarity-measure-readonly')).toHaveTextContent('amplitude');
+    await act(async () => {
+      await populationRelationshipService.fit('pattern-shape');
+    });
+    const fits = () =>
+      invoke.mock.calls.filter(([command]) => command === 'fit_population_relationship').length;
+    expect(fits()).toBe(2);
+    expect(screen.getByTestId('similarity-measure-readonly')).toHaveTextContent('correlation');
+    // Back to amplitude (as the montage asks): its fit is reinstalled, not computed again.
+    await act(async () => {
+      await populationRelationshipService.fit('effect', false, { reuse: true });
+    });
+    expect(fits()).toBe(2);
+    expect(populationRelationshipService.getSnapshot().fit?.request.distance).toBe('effect');
+    expect(state().population.similarityMeasure).toBe('effect');
   });
 });

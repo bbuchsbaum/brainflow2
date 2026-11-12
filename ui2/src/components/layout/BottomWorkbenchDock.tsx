@@ -110,7 +110,14 @@ export function BottomWorkbenchDock({
   useModuleRegistryVersion();
   const tabs = moduleRegistry.getDockTabs();
   const allTabs = useMemo<readonly DockTabLabel[]>(
-    () => (extraTabs.length > 0 ? [...tabs, ...extraTabs] : tabs),
+    () =>
+      extraTabs.length > 0
+        ? [
+            ...extraTabs.filter((t) => t.leading),
+            ...tabs,
+            ...extraTabs.filter((t) => !t.leading),
+          ]
+        : tabs,
     [tabs, extraTabs],
   );
   const requestedTab = isControlled ? controlledTab : localTab;

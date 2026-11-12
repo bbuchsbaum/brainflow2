@@ -1,6 +1,8 @@
 import type { PopulationState } from '@/types/population';
 import { create } from 'zustand';
 import { DISTANCE_TO_MEAN_SORT } from '@/services/studio/meanDistanceSort';
+import { studioSetMaps } from '@/services/studio/studioMaps';
+import { clearStudioPopulationScales } from '@/services/studio/studioMapDisplay';
 import {
   sameGridEvidence,
   templateSourcePath,
@@ -145,6 +147,12 @@ interface SetStudioStoreState
   bootstrapStudio: (payload: StudioBootstrapPayload) => void;
   loadDemoSession: () => void;
   setActiveLens: (lens: StudioLensType) => void;
+  /**
+   * Show another of the active set's maps (`selection.activeFeatureId`, one
+   * of `studioSetMaps`): Population, its probe and its plots follow it. A
+   * feature the set does not have is ignored.
+   */
+  setActiveFeature: (featureId: string) => void;
   setActiveMember: (memberId: string | null) => void;
   setCompareCohort: (cohortId: string | null) => void;
   setActiveScopeCohort: (cohortId: string | null) => void;
@@ -459,13 +467,10 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
   studioOpenNotice: null,
   setStudioOpenNotice: (notice) => {
     const current = get().studioOpenNotice;
-    if (
-      current?.setId === notice?.setId &&
-      current?.message === notice?.message &&
-      current?.root === notice?.root
-    )
-      return;
-    set({ studioOpenNotice: notice });
+    if (!current && !notice) return;
+    // Opening the same folder again is an event of its own: the notice is
+    // announced anew (a new object) even when it says the same thing.
+    set({ studioOpenNotice: notice ? { ...notice } : null });
   },
   studioFolderOpening: null,
   setStudioFolderOpening: (root) => {
@@ -612,13 +617,29 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
           )
         : getPreferredExpressionId(expressionIds, expressions, 'member');
 
+    const { population } = get();
     set({
       selection: {
         ...selection,
         activeLens: lens,
         activeExpressionId: nextExpressionId,
       },
+      // The pointer is followed over the Population lens only: leaving it
+      // retires the hover probe, so Values never samples a stale hover point.
+      ...(lens !== 'population' && population.hoverProbe
+        ? { population: { ...population, hoverProbe: null } }
+        : {}),
     });
+  },
+
+  setActiveFeature: (featureId) => {
+    const { selection, sets, features } = get();
+    if (selection.activeFeatureId === featureId) return;
+    const activeSet = selection.activeSetId ? sets[selection.activeSetId] : null;
+    if (!studioSetMaps(activeSet, features).some((map) => map.id === featureId)) return;
+    // Population's sources, scales, orders, groups and inference are keyed by
+    // the feature id, so the previous map's results are not reused for this one.
+    set({ selection: { ...selection, activeFeatureId: featureId } });
   },
 
   setActiveMember: (memberId) => {
@@ -1095,4 +1116,16 @@ useSetStudioStore.subscribe((state, previous) => {
     state.population.participants !== previous.population.participants
   )
     state.reconcilePopulationPreview(contextChanged);
+});
+
+// Population limits published for the Subject lens (studioMapDisplay) belong
+// to a session and a set: a session reset forgets them all, a removed set its own.
+useSetStudioStore.subscribe((state, previous) => {
+  if (state.population.sessionRevision !== previous.population.sessionRevision) {
+    clearStudioPopulationScales();
+    return;
+  }
+  if (state.sets === previous.sets) return;
+  for (const id of Object.keys(previous.sets))
+    if (!(id in state.sets)) clearStudioPopulationScales(id);
 });

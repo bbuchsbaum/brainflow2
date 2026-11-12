@@ -39,11 +39,9 @@ interface LensCanvasProps {
   onSelectMember: (memberId: string) => void;
   onSelectCohort: (cohortId: string | null) => void;
   onDrillToCohort: (cohortId: string | null) => void;
-  onOpenComparePane: (pane: StudioComparePaneSpec) => void;
-  onInspectComparePane: (pane: StudioComparePaneSpec) => void;
   onRecomputeComparePane: (pane: StudioComparePaneSpec) => void;
-  onInspectCurrentArtifact: () => void;
-  onOpenCurrentSource: () => void;
+  /** A Compare pane was clicked: it becomes the Inspector's artifact. */
+  onSelectComparePane?: (pane: StudioComparePaneSpec) => void;
   onOpenCompareView: () => void;
   onClearScope: () => void;
   visibleMemberIds?: string[];
@@ -93,11 +91,8 @@ export function LensCanvas({
   onSelectMember,
   onSelectCohort,
   onDrillToCohort,
-  onOpenComparePane,
-  onInspectComparePane,
   onRecomputeComparePane,
-  onInspectCurrentArtifact,
-  onOpenCurrentSource,
+  onSelectComparePane,
   onOpenCompareView,
   onClearScope,
   visibleMemberIds,
@@ -133,11 +128,8 @@ export function LensCanvas({
           sortLabel={sortLabel}
           onSelectCohort={onSelectCohort}
           onDrillToCohort={onDrillToCohort}
-          onOpenPane={onOpenComparePane}
-          onInspectPane={onInspectComparePane}
           onRecomputePane={onRecomputeComparePane}
-          onInspectCurrent={onInspectCurrentArtifact}
-          onOpenCurrentSource={onOpenCurrentSource}
+          onSelectPane={onSelectComparePane}
           onOpenCompareView={onOpenCompareView}
         />
       ) : (
@@ -152,8 +144,6 @@ export function LensCanvas({
           sortLabel={sortLabel}
           onClearScope={onClearScope}
           onSelectMember={onSelectMember}
-          onInspectCurrent={onInspectCurrentArtifact}
-          onOpenCurrentSource={onOpenCurrentSource}
           visibleMemberIds={visibleMemberIds}
         />
       )}

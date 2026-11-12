@@ -56,6 +56,11 @@ export interface ColorbarGroup {
    * not "0.01"): a Studio viewer, whose maps often have a small window.
    */
   preciseTicks?: boolean;
+  /**
+   * No colorbar in the views: the pane draws its own legend outside them
+   * (the Set studio's Subject lens: one scale bar in its footer).
+   */
+  hidden?: boolean;
 }
 
 /**

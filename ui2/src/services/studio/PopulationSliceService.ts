@@ -4,7 +4,11 @@ import {
 } from '@/services/studio/StudioSourceFetchService';
 import { plainStudioSourceError } from '@/services/studio/studioSourceErrors';
 import { inferenceMethod, inferenceChannel, inferenceActive } from './inferenceCatalog';
-import { inferenceIssue, importedInferenceIssue } from './populationInference';
+import {
+  inferenceIssue,
+  importedInferenceIssue,
+  inferenceOperandsCurrent,
+} from './populationInference';
 import type { PopulationInferenceSpec } from '@/types/population';
 import { comparableGroups, validatePopulationPartition } from './populationGroups';
 import type { PopulationMemberSource } from '@/types/population';
@@ -22,6 +26,13 @@ import { activeStudioBackground, populationUnderlaySource } from './studioBackgr
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
 import { buildPopulationSource, populationSupportKey } from './PopulationProbeController';
 import { resolvePopulation } from './populationContext';
+import {
+  markStudioPopulationScaleFailed,
+  onStudioPopulationScalesCleared,
+  setStudioPopulationScale,
+  studioPopulationScale,
+  studioPopulationScaleFailed,
+} from './studioMapDisplay';
 import type { ViewPlane } from '@/types/coordinates';
 
 export type PopulationSummary =
@@ -31,7 +42,11 @@ export type PopulationSummary =
   | 'sampleSd'
   | 'meanAbsolute'
   | 'cancellation'
-  | 'coverage';
+  | 'coverage'
+  /** One-sample t of the mean against zero, per voxel over finite members. */
+  | 'oneSampleT'
+  /** Sign share: positive / (positive + negative) members; zeros count as neither. */
+  | 'positiveFraction';
 export type PopulationOrientation = 'axial' | 'coronal' | 'sagittal';
 export interface PopulationGroupRequest {
   id: string;
@@ -68,6 +83,7 @@ export interface PopulationSliceRequest {
     wholePlane?: boolean;
     centerMm: [number, number, number];
     widthMm: number;
+    /** Pixels per edge; `POPULATION_CUTOUT_NATIVE` (0) asks for the image's own resolution. */
     dimPx: number;
     memberIds: string[];
   } | null;
@@ -84,6 +100,8 @@ export interface PopulationSliceQuery {
   focusOrder?: readonly string[];
   key: string;
   datasetKey: string;
+  /** The set drawn: its population limit is published for the Subject lens under it. */
+  setId?: string;
   request: PopulationSliceRequest;
 }
 export interface PopulationSliceData {
@@ -94,6 +112,12 @@ export interface PopulationSliceData {
   plane: ViewPlane;
   centerWorld: [number, number, number];
   contextRange: [number, number] | null;
+  /**
+   * The 98th percentile of |v| over every member's finite nonzero values on
+   * the plane (`population_slice.rs`): the default symmetric limit of the
+   * set's own maps. Absent from an older native side.
+   */
+  contextMagnitude?: number | null;
   summary: (number | null)[];
   focused: (number | null)[];
   validCounts: number[];
@@ -106,6 +130,8 @@ export interface PopulationSliceData {
   sampling: 'nearest';
   cutouts?: {
     plane: ViewPlane;
+    /** Voxels the cutout's edge spans: sampling past this edge repeats voxels. */
+    nativeDimPx?: number;
     members: { memberId: string; values: (number | null)[]; validPixels: number }[];
   } | null;
   /** Anatomy on `plane` (and on the cutout plane); null outside the image. */
@@ -184,6 +210,15 @@ interface Dependencies {
   ) => Promise<[number, number, number] | null>;
 }
 /** What a transport that cannot evaluate population slices yields. */
+/** The native sampler's limits on one cutout request (`population_slice.rs`). */
+export const POPULATION_CUTOUT_MAX_DIM = 256;
+/** `cutouts.dimPx` that asks for the image's own resolution, within the budget. */
+export const POPULATION_CUTOUT_NATIVE = 0;
+/** Largest native edge the sampler reports. */
+export const POPULATION_CUTOUT_MAX_NATIVE = 4096;
+export const POPULATION_CUTOUT_MAX_MEMBERS = 96;
+/** Values (pixels x members) one request may return: the picture and the hover values. */
+export const POPULATION_CUTOUT_VALUE_BUDGET = 1 << 20;
 export const POPULATION_SLICES_UNAVAILABLE = 'Population slices are unavailable.';
 
 /**
@@ -277,11 +312,12 @@ const native: Dependencies = {
 };
 
 /**
- * A display limit from the data: the larger magnitude of the 2nd and 98th
- * percentiles (signed) or the 98th percentile (nonnegative) of the finite,
- * nonzero values. Zeros are left out because they are mostly outside the
- * head, and would pull a sparse map's window to nothing. Null when the
- * raster holds no such values (an all-zero slice says nothing about scale).
+ * A display limit from the data: the 98th percentile of |v| (signed; the
+ * symmetric window then saturates only the strongest 2 % at either end
+ * together) or of v (nonnegative) over the finite, nonzero values. Zeros are
+ * left out because they are mostly outside the head, and would pull a sparse
+ * map's window to nothing. Null when the raster holds no such values (an
+ * all-zero slice says nothing about scale).
  */
 export function robustPopulationLimit(
   values: readonly (number | null)[],
@@ -289,16 +325,17 @@ export function robustPopulationLimit(
 ): number | null {
   const finite: number[] = [];
   for (const value of values)
-    if (value !== null && Number.isFinite(value) && value !== 0) finite.push(value);
+    if (value !== null && Number.isFinite(value) && value !== 0)
+      finite.push(signed ? Math.abs(value) : value);
   if (!finite.length) return null;
   finite.sort((a, b) => a - b);
-  const at = (p: number) => finite[Math.min(finite.length - 1, Math.floor(p * finite.length))];
-  const limit = signed ? Math.max(Math.abs(at(0.02)), Math.abs(at(0.98))) : Math.abs(at(0.98));
+  const limit = Math.abs(finite[Math.min(finite.length - 1, Math.floor(0.98 * finite.length))]);
   return Number.isFinite(limit) && limit > 0 ? limit : null;
 }
 
-/** Explicit blue-white-red effect palette; nonnegative descriptive summaries
- * use a separate dark-to-gold palette and scale. Unavailable pixels are clear. */
+/** An opaque effect raster (no anatomy, no hidden band): signed values on the
+ * dark-centred diverging ramp from zero to the limit; nonnegative descriptive
+ * summaries on a separate dark-to-gold ramp. Unavailable pixels are clear. */
 export function populationRgba(
   values: readonly (number | null)[],
   limit: number,
@@ -308,9 +345,14 @@ export function populationRgba(
   values.forEach((value, i) => {
     if (value === null || !Number.isFinite(value)) return;
     const amount = Math.min(1, Math.abs(value) / limit);
-    const end = diverging ? (value < 0 ? [45, 100, 210] : [205, 55, 55]) : [240, 180, 45];
-    const start = diverging ? [240, 240, 240] : [20, 25, 32];
-    for (let c = 0; c < 3; c++) pixels[i * 4 + c] = start[c] + amount * (end[c] - start[c]);
+    let colour: number[];
+    if (diverging) colour = ramp(value < 0 ? POPULATION_NEGATIVE : POPULATION_POSITIVE, amount);
+    else {
+      const start = [20, 25, 32];
+      const end = [240, 180, 45];
+      colour = start.map((c, k) => c + amount * (end[k] - c));
+    }
+    for (let c = 0; c < 3; c++) pixels[i * 4 + c] = colour[c];
     pixels[i * 4 + 3] = 255;
   });
   return pixels;
@@ -353,20 +395,28 @@ export function populationUnderlayGrey(
   );
 }
 
-// Colour is data: signed maps are the blue–white–red effect scale (the
-// member view's fMRI Red-Blue), light just above the hidden band and saturated
-// at the limit; nonnegative summaries use one dark-amber to pale-gold ramp
-// with no red, so a mostly positive mean never reads like coverage or SD. Each
-// ramp starts clearly coloured at the band, so the lowest shown value never
-// reads as grey.
+// Colour is data: signed maps are dark-centred and diverging (FSL-style): the
+// darkest colour sits just above the hidden band and luminance rises with |v|
+// (negative dark blue → blue → light cyan, positive dark red → red-orange →
+// yellow), so the strongest values are the brightest and small ones recede.
+// The same stops make the Deck/Compare `cold_hot` builtin (core/colormap
+// COLD_HOT). Nonnegative summaries use one dark-amber to pale-gold ramp with
+// no red, so a mostly positive mean never reads like coverage or SD.
 export const POPULATION_POSITIVE = [
-  [240, 150, 125],
-  [200, 25, 35],
+  [120, 20, 25],
+  [230, 70, 30],
+  [255, 235, 110],
 ] as const;
 export const POPULATION_NEGATIVE = [
-  [135, 170, 240],
-  [35, 80, 200],
+  [25, 45, 120],
+  [40, 110, 235],
+  [150, 225, 255],
 ] as const;
+/**
+ * Opacity of a signed map at the hidden band's edge and at the limit: it
+ * rises with |v|, so the anatomy shows through where values are small.
+ */
+export const POPULATION_SIGNED_ALPHA = [0.35, 0.9] as const;
 export const POPULATION_SEQUENTIAL = [
   [110, 60, 10],
   [225, 150, 30],
@@ -413,13 +463,17 @@ export function populationOverlayRgba(
     let colour: number[] | null = null;
     let alpha = 255;
     if (value !== null && Number.isFinite(value) && Math.abs(value) >= band && (diverging || value > 0)) {
-      const t = (Math.abs(value) - band) / span;
+      const t = Math.min(1, Math.max(0, (Math.abs(value) - band) / span));
       colour = ramp(diverging ? (value < 0 ? NEGATIVE : POSITIVE) : SEQUENTIAL, t);
+      // Signed maps grow more opaque with |v|; nonnegative ones carry the
+      // caller's flat opacity.
+      const [low, high] = POPULATION_SIGNED_ALPHA;
+      const shown = diverging ? opacity * (low + t * (high - low)) : opacity;
       // Translucent: mixed onto the anatomy, or partly see-through onto the
       // dark pane without one.
-      if (opacity < 1) {
-        if (grey !== null) colour = colour.map((c) => grey + opacity * (c - grey));
-        else alpha = Math.round(opacity * 255);
+      if (shown < 1) {
+        if (grey !== null) colour = colour.map((c) => grey + shown * (c - grey));
+        else alpha = Math.round(shown * 255);
       }
     } else if (grey !== null) {
       colour = [grey, grey, grey];
@@ -446,16 +500,29 @@ function cssRgb(colour: readonly number[]) {
  * the hidden band (`bandFraction` of the limit) left out around zero;
  * sequential bars run 0 to the limit, the band at the bottom.
  */
-export function populationColorbarGradient(diverging: boolean, bandFraction: number) {
+export function populationColorbarGradient(
+  diverging: boolean,
+  bandFraction: number,
+  /** `to right` for a horizontal legend (low values on the left). */
+  direction: 'to top' | 'to right' = 'to top',
+) {
   const pct = (f: number) => `${(f * 100).toFixed(2)}%`;
   if (!diverging) {
     const stops = SEQUENTIAL.map(
       (c, i) => `${cssRgb(c)} ${pct(bandFraction + (i / (SEQUENTIAL.length - 1)) * (1 - bandFraction))}`,
     );
-    return `linear-gradient(to top, transparent 0%, transparent ${pct(bandFraction)}, ${stops.join(', ')})`;
+    return `linear-gradient(${direction}, transparent 0%, transparent ${pct(bandFraction)}, ${stops.join(', ')})`;
   }
   const half = bandFraction / 2;
-  return `linear-gradient(to top, ${cssRgb(NEGATIVE[1])} 0%, ${cssRgb(NEGATIVE[0])} ${pct(0.5 - half)}, transparent ${pct(0.5 - half)}, transparent ${pct(0.5 + half)}, ${cssRgb(POSITIVE[0])} ${pct(0.5 + half)}, ${cssRgb(POSITIVE[1])} 100%)`;
+  const last = NEGATIVE.length - 1;
+  // −limit (the brightest negative) to the band's lower edge (the darkest).
+  const negative = NEGATIVE.map(
+    (c, i) => `${cssRgb(c)} ${pct((1 - i / last) * (0.5 - half))}`,
+  ).reverse();
+  const positive = POSITIVE.map(
+    (c, i) => `${cssRgb(c)} ${pct(0.5 + half + (i / last) * (0.5 - half))}`,
+  );
+  return `linear-gradient(${direction}, ${negative.join(', ')}, transparent ${pct(0.5 - half)}, transparent ${pct(0.5 + half)}, ${positive.join(', ')})`;
 }
 
 /** Whether a summary is a count, whose only near-zero value is zero. */
@@ -573,7 +640,9 @@ export function buildPopulationSliceQuery(
   const activeTest =
     configuredTest?.featureId === state.selection.activeFeatureId &&
     configuredTest?.setId === state.selection.activeSetId &&
-    inferenceActive(configuredTest, mode)
+    inferenceActive(configuredTest, mode) &&
+    // A test shows only for the A and B it was Run on (no automatic re-runs).
+    inferenceOperandsCurrent(state)
       ? configuredTest
       : null;
   const groupRequest = (id: string, memberIds: readonly string[]): PopulationGroupRequest => {
@@ -635,7 +704,16 @@ export function buildPopulationSliceQuery(
     ...viewOptions,
     ...(underlay.sourcePath ? { underlay: { sourcePath: underlay.sourcePath } } : {}),
     ...(inference ? { inference, summary: 'mean' as const } : {}),
-    ...(groups.length ? { groups, summary: 'mean' as const } : {}),
+    // The "All" card's statistic (mean, t or sign share) is kept beside the
+    // group means; any other summary falls back to the mean.
+    ...(groups.length
+      ? {
+          groups,
+          summary: POPULATION_GROUP_EFFECT_SUMMARIES.includes(viewOptions.summary)
+            ? viewOptions.summary
+            : ('mean' as const),
+        }
+      : {}),
     ...(reference
       ? { reference, difference: mode === 'difference', summary: 'mean' as const }
       : {}),
@@ -661,6 +739,7 @@ export function buildPopulationSliceQuery(
       groupLabels,
       key: JSON.stringify([request, groupLabels]),
       datasetKey: source.datasetKey,
+      setId: source.setId,
       scaleKey: source.scaleKey,
       initialScale: state.population.restoredView,
       underlayIssue: underlay.issue,
@@ -668,6 +747,131 @@ export function buildPopulationSliceQuery(
     },
     issue: null,
   };
+}
+
+/** The set's registered population limit for `query`'s members (any member: one scale per set). */
+function registeredPopulationScale(query: PopulationSliceQuery | null | undefined): number | null {
+  const member = query?.setId ? query.request.members[0] : null;
+  return member ? studioPopulationScale(query!.setId, member.sourcePath, member.stackIndex) : null;
+}
+
+/** Pixels per edge of the plane a population limit is measured on (the lens's own tiles are near this). */
+const SCALE_PROBE_DIM_PX = 128;
+/** Measurements in flight, by set: joined by a second asker, aborted when the set's limits are cleared. */
+const scaleRuns = new Map<string, { run: Promise<number | null>; abort: AbortController }>();
+
+// A session reset, a removed set or a Studio release clears the limits
+// (clearStudioPopulationScales): a measurement still running for them is
+// abandoned, and registers nothing.
+onStudioPopulationScalesCleared((setId) => {
+  for (const [id, entry] of [...scaleRuns]) {
+    if (setId !== undefined && id !== setId) continue;
+    entry.abort.abort();
+    scaleRuns.delete(id);
+  }
+});
+
+/**
+ * The active set's population limit (the 98th percentile of |v| over every
+ * member on the plane, `contextMagnitude`), measured before the Population
+ * lens has drawn, so the Subject lens and Subject vs mean show a map on the
+ * one scale Population will show it on. One native evaluation of the current
+ * plane (no groups, no inference, no underlay, no cutouts) in a context of
+ * its own, released at once; the result is registered for the set
+ * (`setStudioPopulationScale`) and the Population lens adopts it when it
+ * first draws (whoever measures first, every lens agrees). Joins a run in
+ * flight for the same set; resolves to the registered limit when one exists,
+ * and to null when the set cannot be evaluated. A failure is remembered for
+ * the set and dataset (`markStudioPopulationScaleFailed`): later asks resolve
+ * to null at once, until the set's limits are cleared. A run is aborted when
+ * they are, and registers nothing unless the set still exists in the same
+ * session.
+ */
+export function requestStudioPopulationScale(
+  workspaceId: string,
+  dependencies: Pick<Dependencies, 'evaluate' | 'release'> = native,
+): Promise<number | null> {
+  let query: PopulationSliceQuery | null;
+  let sessionRevision: number;
+  try {
+    const state = useSetStudioStore.getState();
+    sessionRevision = state.population.sessionRevision;
+    const view = useViewStateStore.getState().getWorkspaceViewState(workspaceId);
+    query = buildPopulationSliceQuery(state, workspaceId, {
+      crosshairMm: [...view.crosshair.world_mm] as [number, number, number],
+      orientation: state.studioPlane,
+      dimPx: [SCALE_PROBE_DIM_PX, SCALE_PROBE_DIM_PX],
+      zoom: 1,
+      summary: 'mean',
+    }).query;
+  } catch (error) {
+    console.warn('[PopulationSliceService] Population scale unavailable:', error);
+    return Promise.resolve(null);
+  }
+  if (!query?.setId) return Promise.resolve(null);
+  const known = registeredPopulationScale(query);
+  if (known !== null) return Promise.resolve(known);
+  const setId = query.setId;
+  const datasetKey = query.datasetKey;
+  if (studioPopulationScaleFailed(setId, datasetKey)) return Promise.resolve(null);
+  const running = scaleRuns.get(setId);
+  if (running) return running.run;
+  const contextKey = `${query.request.contextKey}#scale`;
+  const request: PopulationSliceRequest = {
+    ...query.request,
+    contextKey,
+    groups: undefined,
+    reference: null,
+    difference: false,
+    inference: null,
+    cutouts: null,
+    underlay: null,
+    focusMemberId: null,
+    summary: 'mean',
+  };
+  const abort = new AbortController();
+  /** The set is gone, the session changed, or the limits were cleared meanwhile. */
+  const superseded = () => {
+    const state = useSetStudioStore.getState();
+    return (
+      abort.signal.aborted ||
+      state.population.sessionRevision !== sessionRevision ||
+      !(setId in state.sets)
+    );
+  };
+  // Registered before the run starts: a synchronous failure still finds it.
+  const entry: { run: Promise<number | null>; abort: AbortController } = {
+    run: Promise.resolve(null),
+    abort,
+  };
+  scaleRuns.set(setId, entry);
+  entry.run = (async () => {
+    try {
+      const data = await dependencies.evaluate(request, abort.signal);
+      if (superseded()) return null;
+      const limit = data.contextMagnitude;
+      if (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0) {
+        markStudioPopulationScaleFailed(setId, datasetKey);
+        return null;
+      }
+      // Population drew meanwhile: its scale stands.
+      const drawn = registeredPopulationScale(query);
+      if (drawn !== null) return drawn;
+      setStudioPopulationScale(setId, request.members, limit);
+      return limit;
+    } catch (error) {
+      if (superseded()) return null;
+      console.warn('[PopulationSliceService] Population scale unavailable:', error);
+      markStudioPopulationScaleFailed(setId, datasetKey);
+      return null;
+    } finally {
+      if (scaleRuns.get(setId) === entry) scaleRuns.delete(setId);
+      void dependencies
+        .release(contextKey)
+        .catch((error) => console.warn('[PopulationSliceService] Release failed:', error));
+    }
+  })();
+  return entry.run;
 }
 
 function validateData(data: PopulationSliceData, query: PopulationSliceQuery) {
@@ -755,20 +959,30 @@ function validateData(data: PopulationSliceData, query: PopulationSliceQuery) {
     throw new Error('Group summaries do not match their declared populations and analysis units.');
   const expected = query.request.cutouts;
   const actual = data.cutouts;
+  // A request for the image's own resolution (0) is answered at an edge the
+  // sampler chose; an explicit edge must come back as asked.
+  const edge = actual?.plane.dim_px[0] ?? 0;
   if (
     !!expected !== !!actual ||
     (expected &&
       actual &&
-      (actual.plane.dim_px.some((dim) => dim !== expected.dimPx) ||
-        expected.dimPx < 1 ||
-        expected.dimPx > 64 ||
+      (actual.plane.dim_px.some((dim) => dim !== edge) ||
+        (expected.dimPx !== POPULATION_CUTOUT_NATIVE && edge !== expected.dimPx) ||
+        !Number.isInteger(edge) ||
+        edge < 1 ||
+        edge > POPULATION_CUTOUT_MAX_DIM ||
         actual.members.length !== expected.memberIds.length ||
         actual.members.length < 1 ||
-        actual.members.length > 96 ||
+        actual.members.length > POPULATION_CUTOUT_MAX_MEMBERS ||
+        edge ** 2 * actual.members.length > POPULATION_CUTOUT_VALUE_BUDGET ||
+        (actual.nativeDimPx !== undefined &&
+          (!Number.isInteger(actual.nativeDimPx) ||
+            actual.nativeDimPx < 1 ||
+            actual.nativeDimPx > POPULATION_CUTOUT_MAX_NATIVE)) ||
         actual.members.some(
           (member, index) =>
             member.memberId !== expected.memberIds[index] ||
-            member.values.length !== expected.dimPx ** 2 ||
+            member.values.length !== edge ** 2 ||
             !Number.isInteger(member.validPixels) ||
             member.validPixels < 0 ||
             member.validPixels > member.values.length,
@@ -1041,6 +1255,9 @@ export class PopulationSliceService {
         if (summaryLimit && Number.isFinite(summaryLimit) && summaryLimit > 0)
           this.summaryLimits.set(populationDisplayKind(query.request), summaryLimit);
       }
+      // A limit the set already has (measured for the Subject lens before
+      // Population drew): one map, one scale in every lens.
+      if (this.effectLimit === null) this.effectLimit = registeredPopulationScale(query);
     }
     this.publish({
       requested: copy,
@@ -1073,8 +1290,20 @@ export class PopulationSliceService {
     this.summaryLimits.set(kind, limit);
     this.request(this.snapshot.requested, true);
   }
+  /**
+   * Fit returns to the default effect scale: the 98th percentile of |v| over
+   * every member on the plane (`contextMagnitude`), else (an older native
+   * side) the largest magnitude of the context range.
+   */
   fitEffectScale() {
-    const range = this.snapshot.displayed?.data.contextRange;
+    const data = this.snapshot.displayed?.data;
+    if (!data) return;
+    const magnitude = data.contextMagnitude;
+    if (typeof magnitude === 'number' && Number.isFinite(magnitude) && magnitude > 0) {
+      this.setEffectLimit(magnitude);
+      return;
+    }
+    const range = data.contextRange;
     if (range) this.setEffectLimit(Math.max(Math.abs(range[0]), Math.abs(range[1])) || 1);
   }
   private releaseContexts() {
@@ -1324,11 +1553,20 @@ export class PopulationSliceService {
       // Display windows follow the data until set (by the user, a restore,
       // or a slice that holds data), then stay fixed across slices.
       const sharesEffect = populationSharesEffectScale(query.request);
+      // The set's own maps (members, group means, and a mean or median on
+      // their scale) share one symmetric limit: the 98th percentile of |v|
+      // over every member on the plane, so only the strongest 2 % saturate.
+      // A limit registered for the set since this request began (the Subject
+      // lens measured it on its own probe plane) is adopted, not replaced by
+      // this plane's own measurement: every lens keeps one scale.
+      if (this.effectLimit === null) this.effectLimit = registeredPopulationScale(query);
       if (this.effectLimit === null)
-        this.effectLimit = robustPopulationLimit(
-          sharesEffect ? data.summary : data.focused,
-          true,
-        );
+        this.effectLimit =
+          data.contextMagnitude != null &&
+          Number.isFinite(data.contextMagnitude) &&
+          data.contextMagnitude > 0
+            ? data.contextMagnitude
+            : robustPopulationLimit(sharesEffect ? data.summary : data.focused, true);
       const effectLimit = this.effectLimit ?? 1;
       const kind = populationDisplayKind(query.request);
       let summaryLimit = sharesEffect ? effectLimit : this.summaryLimits.get(kind);
@@ -1337,7 +1575,11 @@ export class PopulationSliceService {
         const count = channel?.countPopulation === 'B' ? data.reference?.unitCount : data.unitCount;
         const fixed =
           channel?.initialLimit ??
-          (channel?.countPopulation || kind === 'coverage' ? count || 1 : undefined);
+          (channel?.countPopulation || kind === 'coverage'
+            ? count || 1
+            : !channel && query.request.summary === 'positiveFraction'
+              ? POSITIVE_FRACTION_CENTRE
+              : undefined);
         const fitted =
           fixed ?? robustPopulationLimit(data.summary, populationDiverging(query.request));
         summaryLimit = fitted ?? 1;
@@ -1352,7 +1594,11 @@ export class PopulationSliceService {
           underlay,
         });
       const summary = await this.dependencies.bitmap(
-        populationOverlayRgba(data.summary, summaryLimit, populationDiverging(query.request), {
+        populationOverlayRgba(
+          populationSummaryDrawnValues(query.request, data.summary),
+          summaryLimit,
+          populationDiverging(query.request),
+          {
           band: populationHiddenBand(summaryLimit, populationCountsSummary(query.request)),
           underlay,
           opacity: populationSummaryOpacity(query.request),
@@ -1398,6 +1644,9 @@ export class PopulationSliceService {
       }
       this.releaseBase?.();
       this.focusBase = { query, data, images, effectLimit, summaryLimit, underlay };
+      // The Subject lens draws a member of this set on the same scale.
+      if (this.effectLimit !== null && query.setId)
+        setStudioPopulationScale(query.setId, query.request.members, this.effectLimit);
       this.releaseBase = images.retain();
       this.publish({
         requested: query,
@@ -1539,8 +1788,34 @@ export function populationDisplayKind(request: PopulationSliceRequest) {
 export function populationDiverging(request: PopulationSliceRequest) {
   return request.inference
     ? inferenceChannel(request.inference).scale !== 'nonnegative'
-    : ['mean', 'median'].includes(request.summary);
+    : ['mean', 'median', 'oneSampleT', 'positiveFraction'].includes(request.summary);
 }
+
+/** The sign share is drawn about its even split: 0.5 is "no lean". */
+export const POSITIVE_FRACTION_CENTRE = 0.5;
+
+/**
+ * The summary values as drawn: the sign share (0–1) is centred on its even
+ * split so it diverges like every signed map (−0.5 all negative, +0.5 all
+ * positive); every other summary is drawn as computed. Readouts keep the
+ * computed values.
+ */
+export function populationSummaryDrawnValues(
+  request: Pick<PopulationSliceRequest, 'summary' | 'inference'>,
+  values: readonly (number | null)[],
+): readonly (number | null)[] {
+  if (request.inference || request.summary !== 'positiveFraction') return values;
+  return values.map((value) =>
+    value === null || !Number.isFinite(value) ? value : value - POSITIVE_FRACTION_CENTRE,
+  );
+}
+
+/** Summaries a grouped Summary may show on its "All" card (groups stay means). */
+export const POPULATION_GROUP_EFFECT_SUMMARIES: readonly PopulationSummary[] = [
+  'mean',
+  'oneSampleT',
+  'positiveFraction',
+];
 
 export function populationSharesEffectScale(request: PopulationSliceRequest) {
   return request.inference

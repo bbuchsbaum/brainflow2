@@ -23,6 +23,7 @@ const EXPECTED: Record<string, number> = {
   parula: 11,
   hsv: 12,
   phase: 13,
+  cold_hot: 14,
 };
 
 describe('colormapNameToId', () => {
@@ -44,13 +45,13 @@ describe('colormapNameToId', () => {
     expect(colormapNameToId(null)).toBe(0);
   });
 
-  it('covers all 14 enum slots across the UI-offered names', () => {
+  it('covers all 15 enum slots across the UI-offered names', () => {
     for (const c of colormaps) {
       const id = colormapNameToId(c.name);
       expect(id).toBeGreaterThanOrEqual(0);
-      expect(id).toBeLessThanOrEqual(13);
+      expect(id).toBeLessThanOrEqual(14);
     }
     const ids = new Set(colormaps.map((c) => colormapNameToId(c.name)));
-    expect(ids.size).toBe(14);
+    expect(ids.size).toBe(15);
   });
 });

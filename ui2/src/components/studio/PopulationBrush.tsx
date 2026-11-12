@@ -11,6 +11,10 @@ export function PopulationBrush({
   lasso = false,
   origin = 'map-derived',
   selectionLabel,
+  status,
+  active,
+  onActiveChange,
+  direct = false,
 }: {
   children: ReactNode;
   scope: string;
@@ -18,8 +22,26 @@ export function PopulationBrush({
   lasso?: boolean;
   origin?: PopulationSelectionOrigin;
   selectionLabel?: string;
+  /** Shown at the end of the brush row, so a readout needs no row of its own. */
+  status?: ReactNode;
+  /**
+   * Controlled brushing: the owner starts it (e.g. from a ⋯ menu) and the brush
+   * shows no start button of its own; its row appears only while brushing.
+   */
+  active?: boolean;
+  onActiveChange?: (active: boolean) => void;
+  /**
+   * Direct brushing (horizontal only): a drag across the plot selects what it
+   * spans, with no mode to enter first. A press that does not move is a click
+   * and reaches the mark under it. Shift adds, Alt removes, Esc cancels.
+   */
+  direct?: boolean;
 }) {
-  const [enabled, setEnabled] = useState(false);
+  const [ownEnabled, setOwnEnabled] = useState(false);
+  const controlled = active !== undefined;
+  const enabled = controlled ? active : ownEnabled;
+  const setEnabled = (next: boolean) =>
+    controlled ? onActiveChange?.(next) : setOwnEnabled(next);
   const [operation, setOperation] = useState<'replace' | 'union' | 'intersection' | 'difference'>(
     'replace',
   );
@@ -37,12 +59,158 @@ export function PopulationBrush({
     path.current = [];
     setPolygon([]);
   }, [scope]);
+  const drag = useRef<{
+    x: number;
+    y: number;
+    scope: string;
+    pointerId: number;
+    operation: typeof operation;
+    moved: boolean;
+  } | null>(null);
+  // Direct mode: a drag that has moved. Its Escape is heard on the window
+  // (the plot wrapper never holds focus), and the click its release would
+  // fire is swallowed so the mark under the pointer is not also toggled.
+  const [directDragging, setDirectDragging] = useState(false);
+  const swallowClick = useRef(false);
   const cancel = () => {
+    const was = drag.current;
+    if (was?.moved) host.current?.releasePointerCapture?.(was.pointerId);
+    drag.current = null;
     start.current = null;
     setRect(null);
     path.current = [];
     setPolygon([]);
+    setDirectDragging(false);
   };
+  useEffect(() => {
+    if (!directDragging) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      // The press is still down: its release must not act as a click.
+      swallowClick.current = true;
+      cancel();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+    // `cancel` touches only refs and state setters.
+  }, [directDragging]);
+  /** Select the marks a completed gesture spans (stable IDs, submitted once). */
+  const apply = (
+    target: HTMLElement,
+    first: { x: number; y: number },
+    end: { x: number; y: number },
+    vertices: [number, number][],
+    op: typeof operation,
+  ) => {
+    const left = Math.min(first.x, end.x),
+      right = Math.max(first.x, end.x),
+      top = Math.min(first.y, end.y),
+      bottom = Math.max(first.y, end.y);
+    const ids = new Set<string>();
+    const visible = target.getBoundingClientRect();
+    target.querySelectorAll('[data-datum-id]').forEach((mark) => {
+      const bounds = mark.getBoundingClientRect(),
+        x = bounds.x + bounds.width / 2,
+        y = bounds.y + bounds.height / 2;
+      const id = mark.getAttribute('data-datum-id');
+      if (
+        id &&
+        x >= visible.left &&
+        x <= visible.right &&
+        y >= visible.top &&
+        y <= visible.bottom &&
+        (lasso
+          ? insidePolygon(x, y, vertices)
+          : x >= left && x <= right && (horizontal || (y >= top && y <= bottom)))
+      )
+        ids.add(id);
+    });
+    const result = populationProbeActions.select(
+      [...ids],
+      op,
+      origin,
+      selectionLabel ??
+        (lasso ? 'Spatial relationship lasso' : horizontal ? 'Response plot brush' : 'Montage brush'),
+    );
+    setError(result.ok ? null : result.reason);
+  };
+  if (direct) {
+    return (
+      <div className="min-w-0">
+        {error && (
+          <Notice role="alert" severity="danger">
+            {error}
+          </Notice>
+        )}
+        <div
+          ref={host}
+          data-testid="population-brush-direct"
+          className="relative min-w-0 touch-none select-none"
+          onClickCapture={(e) => {
+            if (!swallowClick.current) return;
+            swallowClick.current = false;
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            swallowClick.current = false;
+            drag.current = {
+              x: e.clientX,
+              y: e.clientY,
+              scope,
+              pointerId: e.pointerId,
+              operation: e.shiftKey ? 'union' : e.altKey ? 'difference' : 'replace',
+              moved: false,
+            };
+          }}
+          onPointerMove={(e) => {
+            const first = drag.current;
+            if (!first || !host.current) return;
+            // The primary button is no longer down: its release was lost
+            // (outside the window, or to another handler). Nothing applies.
+            if ((e.buttons & 1) === 0) {
+              cancel();
+              return;
+            }
+            if (!first.moved) {
+              if (Math.abs(e.clientX - first.x) < 4) return;
+              first.moved = true;
+              host.current.setPointerCapture?.(first.pointerId);
+              setDirectDragging(true);
+            }
+            const bounds = host.current.getBoundingClientRect();
+            setRect({
+              x: Math.min(first.x, e.clientX) - bounds.left,
+              y: 0,
+              width: Math.abs(first.x - e.clientX),
+              height: bounds.height,
+            });
+          }}
+          onPointerCancel={cancel}
+          onPointerUp={(e) => {
+            const first = drag.current;
+            cancel();
+            if (!first?.moved || first.scope !== scope || !host.current) return;
+            // The release of a drag is not a click on the mark under it.
+            swallowClick.current = true;
+            apply(host.current, first, { x: e.clientX, y: e.clientY }, [], first.operation);
+          }}
+        >
+          {children}
+          {rect && (
+            <div
+              data-testid="population-brush-rect"
+              className="pointer-events-none absolute border border-bf-border-strong bg-bf-bg-hover opacity-70"
+              style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       className="min-w-0"
@@ -54,12 +222,14 @@ export function PopulationBrush({
         }
       }}
     >
+      {(!controlled || enabled || error || status) && (
       <div className="mb-2 flex flex-wrap items-center gap-2 text-bf-sm">
+        {(!controlled || enabled) && (
         <Button variant="secondary" size="sm"
           aria-pressed={enabled}
           onClick={() => {
             cancel();
-            setEnabled((v) => !v);
+            setEnabled(!enabled);
           }}
         >
           {enabled
@@ -70,6 +240,7 @@ export function PopulationBrush({
                 ? 'Brush response plot'
                 : 'Brush montage'}
         </Button>
+        )}
         {enabled && (
           <>
             <Select className="w-auto max-w-full"
@@ -88,7 +259,9 @@ export function PopulationBrush({
           </>
         )}
         {error && <Notice role="alert" severity="danger">{error}</Notice>}
+        {status}
       </div>
+      )}
       <div ref={host} className="relative min-w-0">
         {children}
         {enabled && (
@@ -133,41 +306,7 @@ export function PopulationBrush({
                   : Math.hypot(first.x - e.clientX, first.y - e.clientY) < 3)
               )
                 return;
-              const left = Math.min(first.x, e.clientX),
-                right = Math.max(first.x, e.clientX),
-                top = Math.min(first.y, e.clientY),
-                bottom = Math.max(first.y, e.clientY);
-              const ids = new Set<string>();
-              const visible = host.current.getBoundingClientRect();
-              host.current.querySelectorAll('[data-datum-id]').forEach((target) => {
-                const bounds = target.getBoundingClientRect(),
-                  x = bounds.x + bounds.width / 2,
-                  y = bounds.y + bounds.height / 2;
-                const id = target.getAttribute('data-datum-id');
-                if (
-                  id &&
-                  x >= visible.left &&
-                  x <= visible.right &&
-                  y >= visible.top &&
-                  y <= visible.bottom &&
-                  (lasso
-                    ? insidePolygon(x, y, vertices)
-                    : x >= left && x <= right && (horizontal || (y >= top && y <= bottom)))
-                )
-                  ids.add(id);
-              });
-              const result = populationProbeActions.select(
-                [...ids],
-                operation,
-                origin,
-                selectionLabel ??
-                  (lasso
-                    ? 'Spatial relationship lasso'
-                    : horizontal
-                      ? 'Response plot brush'
-                      : 'Montage brush'),
-              );
-              setError(result.ok ? null : result.reason);
+              apply(host.current, first, { x: e.clientX, y: e.clientY }, vertices, operation);
             }}
           >
             {lasso && polygon.length > 1 && (

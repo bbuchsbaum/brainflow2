@@ -8,10 +8,19 @@ import type {
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
+import { usePopulationViewStore } from '@/stores/populationViewStore';
 import { resolvePopulation } from './populationContext';
 import { populationSupportKey } from './PopulationProbeController';
 import { useClusterStore, type ClusterResult } from '@/stores/clusterStore';
 import { shortLayerLabel } from '@/components/views/viewportFrame/frameFormat';
+import { currentVoxelGridReference, snapWorldToVoxelCentre } from '@/utils/voxelSnap';
+
+const nextFrame = (callback: () => void): number =>
+  typeof requestAnimationFrame === 'function'
+    ? requestAnimationFrame(callback)
+    : (setTimeout(callback, 16) as unknown as number);
+const cancelFrame = (handle: number) =>
+  typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame(handle) : clearTimeout(handle);
 
 /**
  * A pinned cluster probe after the cluster table changes (REVIEW M2): the
@@ -111,8 +120,15 @@ export const populationProbeActions = {
     const population = resolvePopulation(state);
     if (!population.context.memberIds.includes(id)) return;
     const members = population.workingMemberIds;
+    // Adding or removing one subject keeps the selection's origin: a selection
+    // the data chose stays exploratory after a hand edit.
+    const origin = state.population.working.kind === 'members' ? state.population.working.origin : 'manual';
+    const label =
+      state.population.working.kind === 'members' ? state.population.working.label : 'Selected observations';
     state.selectPopulationMembers(
       members.includes(id) ? members.filter((member) => member !== id) : [...members, id],
+      origin,
+      label,
     );
   },
   selectAll() {
@@ -190,21 +206,67 @@ export const populationProbeActions = {
     else if (state.population.hoverProbe)
       state.setPopulationProbe({ ...state.population.hoverProbe, radiusMm }, 'hover');
   },
-  /** The caller owns and disposes this subscription when its panel changes. */
+  /**
+   * Turn Follow hover on or off. Off retires the hover probe, so Values (which
+   * samples `pinnedProbe ?? hoverProbe`) stops showing a stale hover point.
+   */
+  setFollowHover(follow: boolean) {
+    usePopulationViewStore.getState().setFollowHover(follow);
+    if (!follow) populationProbeActions.clearHover();
+  },
+  /** Retire the hover probe (no-op when there is none). */
+  clearHover() {
+    const state = useSetStudioStore.getState();
+    if (state.population.hoverProbe) state.setPopulationProbe(null, 'hover');
+  },
+  /**
+   * The caller owns and disposes this subscription when its panel changes.
+   * The pointer is snapped to the centre of its voxel on the reference grid
+   * (the probe samples voxels), so moves within one voxel write nothing; and
+   * at most one write is made per animation frame: the first move of a frame
+   * at once, later ones in that frame coalesced into the last.
+   */
   followHover(radiusMm: number, workspaceId: string) {
-    return useMouseCoordinateStore.subscribe((mouse) => {
-      if (!mouse.worldCoordinates || !mouse.activeView) return;
-      if (useViewStateStore.getState().activeWorkspaceKey !== workspaceId) return;
+    let frame: number | null = null;
+    let pending: [number, number, number] | null = null;
+    const write = (worldMm: [number, number, number]) => {
       const state = useSetStudioStore.getState();
       state.setPopulationProbe(
-        {
-          supportKey: populationSupportKey(state, workspaceId),
-          worldMm: [...mouse.worldCoordinates],
-          radiusMm,
-          reduce: 'mean',
-        },
+        { supportKey: populationSupportKey(state, workspaceId), worldMm, radiusMm, reduce: 'mean' },
         'hover',
       );
+    };
+    const onFrame = () => {
+      frame = null;
+      const next = pending;
+      pending = null;
+      if (next) {
+        write(next);
+        frame = nextFrame(onFrame);
+      }
+    };
+    const unsubscribe = useMouseCoordinateStore.subscribe((mouse) => {
+      if (!mouse.worldCoordinates || !mouse.activeView) return;
+      if (useViewStateStore.getState().activeWorkspaceKey !== workspaceId) return;
+      const raw = [...mouse.worldCoordinates] as [number, number, number];
+      const reference = currentVoxelGridReference();
+      const worldMm = reference ? snapWorldToVoxelCentre(raw, reference) : raw;
+      const same = (a: readonly number[] | null) => !!a && a.every((v, i) => v === worldMm[i]);
+      // Still in the voxel last written (or about to be): nothing to say.
+      const shown = useSetStudioStore.getState().population.hoverProbe?.worldMm ?? null;
+      if (pending ? same(pending) : same(shown)) return;
+      if (frame === null) {
+        write(worldMm);
+        frame = nextFrame(onFrame);
+      } else {
+        pending = worldMm;
+      }
     });
+    return () => {
+      unsubscribe();
+      if (frame !== null) cancelFrame(frame);
+      frame = null;
+      pending = null;
+    };
   },
 };

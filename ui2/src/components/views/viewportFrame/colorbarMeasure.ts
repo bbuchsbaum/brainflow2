@@ -38,6 +38,8 @@ export interface ColorbarLayer {
   preciseTicks?: boolean;
 }
 
+const formatPreciseTick = (value: number) => formatReadoutValue(value, 3);
+
 export const BAR_W = 8;
 export const LABEL_GAP = 4;
 export const MARK_W = 3;
@@ -103,7 +105,9 @@ export function measureColorbar(
   const capBottom = !!band && band[0] <= 0 && !!layer.dataRange && layer.dataRange.min < wMin;
   const capTopH = capTop ? CAP_H + CAP_GAP : 0;
   const capBottomH = capBottom ? CAP_H + CAP_GAP : 0;
-  const format = layer.preciseTicks ? formatReadoutValue : formatLayerValue;
+  // Studio ticks, threshold and value labels: three significant digits, the
+  // scale-end precision (not the four of a pointer readout).
+  const format = layer.preciseTicks ? formatPreciseTick : formatLayerValue;
   const exprParts = thresholdExpressionParts(
     layer.threshold,
     statisticVariable(layer.units),

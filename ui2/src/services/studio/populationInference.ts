@@ -65,6 +65,38 @@ export function importedInferenceIssue(
     return `Use the imported feature units: ${feature.units}. Unit conversion requires transformed data.`;
   return null;
 }
+type StudioState = ReturnType<typeof useSetStudioStore.getState>;
+/** Whether a test method compares A with B (B is then one of its operands). */
+export function inferenceUsesReference(method: PopulationInferenceSpec['method']): boolean {
+  return ['independentGroups', 'pairedGroups'].includes(inferenceMethod(method).inputs);
+}
+/**
+ * The operands a test is run on, as one comparable key: A, and B when the
+ * method compares two groups. Order-free (sorted IDs).
+ */
+export function operandsKey(
+  method: PopulationInferenceSpec['method'],
+  a: readonly string[],
+  b: readonly string[],
+): string {
+  return JSON.stringify([[...a].sort(), inferenceUsesReference(method) ? [...b].sort() : []]);
+}
+export function inferenceOperandsKey(
+  state: StudioState,
+  method: PopulationInferenceSpec['method'] | undefined = state.population.inference?.method,
+): string {
+  const population = resolvePopulation(state);
+  return operandsKey(method ?? 'oneSample', population.workingMemberIds, population.referenceMemberIds);
+}
+/**
+ * The test was Run (or restored) on the current A and B. With no recorded
+ * operands the test is not current: it waits for an explicit Run.
+ */
+export function inferenceOperandsCurrent(state: StudioState): boolean {
+  const recorded = state.population.inferenceOperands;
+  return recorded != null && recorded === inferenceOperandsKey(state);
+}
+/** Run the test: set it on the current A and B. Returns what is missing, or null. */
 export function configureInference(spec: PopulationInferenceSpec | null): string | null {
   const state = useSetStudioStore.getState();
   if (!spec) {
@@ -88,12 +120,15 @@ export function configureInference(spec: PopulationInferenceSpec | null): string
     (reference ? (population.referenceIssue ?? reference.issue) : null) ??
     inferenceIssue(spec, participants.aggregation, reference?.aggregation);
   if (issue) return issue;
-  const result = state.configurePopulationInference({
-    ...spec,
-    units: spec.units.trim(),
-    setId: state.selection.activeSetId!,
-    featureId: state.selection.activeFeatureId!,
-  });
+  const result = state.configurePopulationInference(
+    {
+      ...spec,
+      units: spec.units.trim(),
+      setId: state.selection.activeSetId!,
+      featureId: state.selection.activeFeatureId!,
+    },
+    inferenceOperandsKey(state, spec.method),
+  );
   if (!result.ok) return result.reason;
   state.setPopulationPresentation({ ...state.population.presentation, arrangement: 'inspect' });
   return null;

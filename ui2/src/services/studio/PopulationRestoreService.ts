@@ -1,3 +1,4 @@
+import { operandsKey } from './populationInference';
 import { populationPlotService } from './PopulationPlotService';
 import {
   populationRelationshipService,
@@ -437,6 +438,10 @@ export function preparePopulationRestore(
         }
       : null,
     inference: query.inference ? { ...query.inference, setId: id, featureId } : null,
+    // The restored test applies to the A and B it was saved with, and only to them.
+    inferenceOperands: query.inference
+      ? operandsKey(query.inference.method, query.workingMemberIds, query.reference?.memberIds ?? [])
+      : null,
     mask: query.mask ? { ...query.mask, setId: id } : null,
     referenceMode:
       selection.referenceMode === 'complement' &&

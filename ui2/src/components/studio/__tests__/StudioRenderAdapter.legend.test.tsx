@@ -114,3 +114,17 @@ it('a view outside the Studio keeps the short labels', () => {
   const precise = measureColorbar({ ...layer, preciseTicks: true }).measure(160, true).ticks;
   expect(precise.map((tick) => tick.label)).toEqual(['0.0145', '−0.0145']);
 });
+
+it('Studio ticks keep three significant digits, not the four of a pointer readout', () => {
+  const layer = {
+    layerId: 'member',
+    name: 'member',
+    colormap: 'fmri',
+    intensity: [-0.012345, 1.23456] as const,
+    threshold: [-0.0012345, 0.0012345] as const,
+    preciseTicks: true,
+  };
+  const labels = measureColorbar(layer).measure(160, true).ticks.map((tick) => tick.label);
+  expect(labels).toEqual(['1.23', '−0.0123']);
+  expect(measureColorbar(layer, { value: 0.45678 }).valueLabel).toBe('0.457');
+});

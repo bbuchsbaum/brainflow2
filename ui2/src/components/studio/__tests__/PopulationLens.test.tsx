@@ -2,8 +2,10 @@ import { PopulationProbeController } from '@/services/studio/PopulationProbeCont
 import { PopulationProbePanel } from '../PopulationProbePanel';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { usePopulationProbeDriver } from '../usePopulationProbeDriver';
 import { PopulationLens } from '../PopulationLens';
+import { PopulationInspector } from '../PopulationInspector';
 import { populationLensMemory } from '../populationLensMemory';
 import {
   PopulationSliceService,
@@ -109,6 +111,13 @@ function setup(probeController?: PopulationProbeController) {
   return { evaluate, release, bitmaps, service, ...mounted };
 }
 
+/** C′: the Inspector (another GoldenLayout root) holds hold-to-preview and its unit. */
+function inspector() {
+  return render(<PopulationInspector />, {
+    container: document.body.appendChild(document.createElement('div')),
+  });
+}
+
 it('links both views to the canonical crosshair and probe without changing membership', async () => {
   const { service } = setup();
   await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
@@ -127,10 +136,11 @@ it('links both views to the canonical crosshair and probe without changing membe
 
 it('temporarily removes the focused observation and restores the original selection on release', async () => {
   const { service, evaluate } = setup();
+  inspector();
   await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
   const before = useSetStudioStore.getState();
   const button = screen.getByRole('button', {
-    name: 'Hold to preview without focused observation',
+    name: /^Group (mean|summary) without sub\d+ \(hold\)$/,
   });
   fireEvent.keyDown(button, { key: ' ' });
   await waitFor(() =>
@@ -155,7 +165,8 @@ it('updates focused source from shared state and releases images when closed', a
   await waitFor(() =>
     expect(service.getSnapshot().displayed?.query.request.focusMemberId).toBe('sub006'),
   );
-  expect(screen.getByText('Actual observation · sub006')).toBeInTheDocument();
+  // The right pane names the one subject it shows, by its ID.
+  expect(screen.getByTestId('population-focused-subject')).toHaveTextContent(/^sub006$/);
   unmount();
   expect(release).toHaveBeenCalled();
   expect(bitmaps.every((image) => image.close.mock.calls.length === 1)).toBe(true);
@@ -164,8 +175,21 @@ it('updates focused source from shared state and releases images when closed', a
 it('opens synchronized cutouts at a pinned location and focuses without changing selection', async () => {
   const { service, evaluate } = setup();
   await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
-  fireEvent.click(screen.getByRole('button', { name: 'Show individual cutouts' }));
+  // C′: no silent pin. Cutouts wait for a pin (round 3: hidden until then,
+  // never a disabled button on the row).
+  expect(screen.queryByRole('button', { name: 'Cutouts' })).toBeNull();
+  expect(useSetStudioStore.getState().population.pinnedProbe).toBeNull();
+  fireEvent.click(screen.getAllByRole('button', { name: 'Pin image location' })[0]);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Cutouts' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Cutouts' }));
   await screen.findByRole('button', { name: 'Focus cutout sub006' });
+  // The group mean leads the strip.
+  const strip = screen.getByTestId('population-summary-cutouts');
+  expect(strip.querySelector('[data-testid="population-cutout-mean"]')).not.toBeNull();
+  expect(strip.querySelector('.grid')!.firstElementChild).toHaveAttribute(
+    'data-testid',
+    'population-cutout-mean',
+  );
   const before = useSetStudioStore.getState();
   expect(before.population.pinnedProbe).not.toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Focus cutout sub006' }));
@@ -179,12 +203,12 @@ it('opens synchronized cutouts at a pinned location and focuses without changing
   );
   fireEvent.click(screen.getByRole('button', { name: 'Focus cutout sub001' }), { shiftKey: true });
   expect(useSetStudioStore.getState().selection.activeMemberId).toBe('sub006');
-  fireEvent.click(screen.getByRole('button', { name: 'Hide individual cutouts' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Cutouts' }));
   expect(screen.queryByRole('button', { name: 'Focus cutout sub006' })).toBeNull();
   expect(useSetStudioStore.getState().population.pinnedProbe).toBe(before.population.pinnedProbe);
 });
 
-it('shares regional response sampling between the full plot and reversible witness gallery', async () => {
+it('shares regional response sampling between the full plot and the montage\'s value orders', async () => {
   const sample = vi.fn(async (request) => ({
     columns: [
       { name: 'member', role: 'nominal' as const },
@@ -199,43 +223,95 @@ it('shares regional response sampling between the full plot and reversible witne
   const { service } = setup(controller);
   await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
   const before = useSetStudioStore.getState().population.working;
-  fireEvent.click(screen.getByRole('button', { name: 'Show individual cutouts' }));
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Order by pinned response' })).toBeEnabled(),
+  // C′: the Summary cutouts' order buttons are gone; the montage's Sort orders by value.
+  expect(screen.queryByRole('button', { name: 'Order by pinned response' })).toBeNull();
+  fireEvent.click(screen.getAllByRole('button', { name: 'Pin image location' })[0]);
+  await waitFor(() => expect(sample).toHaveBeenCalledTimes(1));
+  act(() =>
+    useSetStudioStore.getState().setPopulationPresentation({
+      ...useSetStudioStore.getState().population.presentation,
+      arrangement: 'montage',
+    }),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Order by pinned response' }));
+  const tiles = () =>
+    screen
+      .getAllByRole('button', { name: /^Focus subject/ })
+      .map((b) => b.getAttribute('aria-label')!.slice('Focus subject '.length));
+  const sort = () => screen.getByRole('combobox', { name: 'Sort' });
+  await waitFor(() => expect(sort().querySelector('option[value="crosshair"]')).not.toBeDisabled());
+  fireEvent.change(sort(), { target: { value: 'crosshair' } });
   await waitFor(() =>
-    expect(
-      screen
-        .getAllByRole('button', { name: /^Focus cutout/ })
-        .map((b) => b.getAttribute('aria-label')),
-    ).toEqual(
-      ['sub006', 'sub005', 'sub004', 'sub003', 'sub001', 'sub002'].map(
-        (id) => `Focus cutout ${id}`,
-      ),
-    ),
+    expect(tiles()).toEqual(['sub006', 'sub005', 'sub004', 'sub003', 'sub001', 'sub002']),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Show 12 response witnesses' }));
-  await waitFor(() =>
-    expect(screen.getAllByRole('button', { name: /^Focus cutout/ })).toHaveLength(5),
-  );
-  expect(screen.getByText(/plot shows every observation/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Focus cutout sub006' }));
+  fireEvent.change(sort(), { target: { value: 'witnesses' } });
+  await waitFor(() => expect(tiles()).toHaveLength(5));
+  fireEvent.click(screen.getByRole('button', { name: 'Focus subject sub006' }));
   expect(useSetStudioStore.getState().selection.activeMemberId).toBe('sub006');
   expect(useSetStudioStore.getState().population.working).toBe(before);
-  fireEvent.click(screen.getByRole('button', { name: 'Show all observations' }));
-  await waitFor(() =>
-    expect(screen.getAllByRole('button', { name: /^Focus cutout/ })).toHaveLength(6),
-  );
+  fireEvent.change(sort(), { target: { value: 'source' } });
+  await waitFor(() => expect(tiles()[0]).toBe('sub001'));
+  expect(tiles()).toHaveLength(6);
   expect(sample).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByRole('button', { name: 'Use source order' }));
-  await waitFor(() =>
-    expect(screen.getAllByRole('button', { name: /^Focus cutout/ })[0]).toHaveAttribute(
-      'aria-label',
-      'Focus cutout sub001',
-    ),
+});
+
+it('sorted by value at the probe, the montage follows the probe live once its values settle (B3)', async () => {
+  // The values depend on where the probe is: left of x = 40 they fall by
+  // subject, right of it they rise.
+  const sample = vi.fn(async (request) => ({
+    columns: [
+      { name: 'member', role: 'nominal' as const },
+      { name: 'value', role: 'quantitative' as const },
+    ],
+    rows: request.locus.members.map((member: { memberId: string }, i: number) => ({
+      member: member.memberId,
+      value: request.locus.worldMm[0] > 40 ? i : 6 - i,
+    })),
+  }));
+  const controller = new PopulationProbeController(sample, 0);
+  const { service } = setup(controller);
+  // The Studio samples whatever is pinned (or hovered) as it changes.
+  renderHook(() => usePopulationProbeDriver(controller));
+  await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
+  fireEvent.click(screen.getAllByRole('button', { name: 'Pin image location' })[0]);
+  await waitFor(() => expect(sample).toHaveBeenCalled());
+  act(() =>
+    useSetStudioStore.getState().setPopulationPresentation({
+      ...useSetStudioStore.getState().population.presentation,
+      arrangement: 'montage',
+    }),
   );
-  expect(sample).toHaveBeenCalledTimes(1);
+  const tiles = () =>
+    screen
+      .getAllByRole('button', { name: /^Focus subject/ })
+      .map((b) => b.getAttribute('aria-label')!.slice('Focus subject '.length));
+  const sort = () => screen.getByRole('combobox', { name: 'Sort' });
+  await waitFor(() => expect(sort().querySelector('option[value="crosshair"]')).not.toBeDisabled());
+  fireEvent.change(sort(), { target: { value: 'crosshair' } });
+  // Lowest value first: the subjects whose values fall come last-first.
+  const source = ['sub001', 'sub002', 'sub003', 'sub004', 'sub005', 'sub006'];
+  const falling = [...source].reverse();
+  await waitFor(() => expect(tiles()).toEqual(falling));
+  // The probe moves (a new pin; with Follow hover and no pin, the pointer):
+  // the order is taken again from the new values, no Sort needed.
+  const pinned = useSetStudioStore.getState().population.pinnedProbe!;
+  act(() =>
+    useSetStudioStore
+      .getState()
+      .setPopulationProbe({ ...pinned, worldMm: [50, pinned.worldMm[1], pinned.worldMm[2]] }, 'pin'),
+  );
+  await waitFor(() => expect(tiles()).toEqual(source));
+  expect(sort()).toHaveValue('crosshair');
+  // Another sort ends the live order: the probe moving changes nothing.
+  fireEvent.change(sort(), { target: { value: 'source' } });
+  await waitFor(() => expect(tiles()).toEqual(source));
+  const calls = sample.mock.calls.length;
+  act(() => useSetStudioStore.getState().setPopulationProbe(pinned, 'pin'));
+  await waitFor(() => expect(sample.mock.calls.length).toBeGreaterThan(calls));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  expect(tiles()).toEqual(source);
+  expect(useSetStudioStore.getState().population.presentation.order).toBeNull();
 });
 
 it('previews exclusion of all focused participant rows and restores participant summaries', async () => {
@@ -262,10 +338,11 @@ it('previews exclusion of all focused participant rows and restores participant 
       reduction: 'mean',
     });
   const { service } = setup();
-  await screen.findByText('Mean · 3 participants');
+  inspector();
+  await screen.findByText('Group mean · 3 participants');
   const before = useSetStudioStore.getState();
   const button = screen.getByRole('button', {
-    name: 'Hold to preview without focused participant',
+    name: /^Group (mean|summary) without sub\d+'s participant \(hold\)$/,
   });
   fireEvent.keyDown(button, { key: ' ' });
   await waitFor(() =>
@@ -275,11 +352,11 @@ it('previews exclusion of all focused participant rows and restores participant 
       'sub006',
     ]),
   );
-  expect(screen.getByText('Mean · 2 participants')).toBeVisible();
+  expect(screen.getByText('Group mean · 2 participants')).toBeVisible();
   expect(useSetStudioStore.getState().population.working).toBe(before.population.working);
   expect(useSetStudioStore.getState().selection).toBe(before.selection);
   fireEvent.keyUp(button, { key: ' ' });
-  await screen.findByText('Mean · 3 participants');
+  await screen.findByText('Group mean · 3 participants');
   expect(service.getSnapshot().displayed?.query.request.workingMemberIds).toEqual(set.memberIds);
 });
 
@@ -302,18 +379,21 @@ it('shows a lens hold-to-preview in a values table mounted in a separate React r
   const table = render(<PopulationProbePanel controller={controller} />, {
     container: document.body.appendChild(document.createElement('div')),
   });
+  inspector();
   await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
   fireEvent.click(table.getByRole('button', { name: 'Pin crosshair' }));
+  // C′: the observation table is the Values tab's Table view.
+  fireEvent.click(await table.findByRole('radio', { name: 'Table' }));
   await table.findByRole('button', { name: 'sub003' });
-  fireEvent.change(screen.getByRole('combobox', { name: 'Preview exclusion unit' }), {
-    target: { value: 'set:young-controls' },
-  });
+  // C6: the hold control's caret chooses what is left out.
+  fireEvent.click(screen.getByRole('button', { name: /^Leave out: / }));
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Set: Young controls' }));
   expect(useSetStudioStore.getState().populationPreview.target).toEqual({
     kind: 'set',
     cohortId: 'young-controls',
   });
   const button = screen.getByRole('button', {
-    name: 'Hold to preview without Young controls (2 observations)',
+    name: /^Group (mean|summary) without Young controls \(hold\)$/,
   });
   fireEvent.keyDown(button, { key: ' ' });
   await waitFor(() =>
@@ -338,33 +418,36 @@ it('shows a lens hold-to-preview in a values table mounted in a separate React r
 it('keeps the chosen summary when the lens is reopened in the same session (F44)', async () => {
   const first = setup();
   await waitFor(() => expect(first.service.getSnapshot().displayed).not.toBeNull());
-  fireEvent.change(screen.getByRole('combobox', { name: 'Summary' }), {
+  fireEvent.change(screen.getByRole('combobox', { name: 'Show' }), {
     target: { value: 'median' },
   });
-  expect(screen.getByRole('combobox', { name: 'Summary' })).toHaveValue('median');
+  expect(screen.getByRole('combobox', { name: 'Show' })).toHaveValue('median');
   first.unmount();
   setup();
-  expect(screen.getByRole('combobox', { name: 'Summary' })).toHaveValue('median');
+  expect(screen.getByRole('combobox', { name: 'Show' })).toHaveValue('median');
   cleanup();
   // A new session starts from the default again.
   useSetStudioStore.getState().loadDemoSession();
   setup();
-  expect(screen.getByRole('combobox', { name: 'Summary' })).toHaveValue('mean');
+  expect(screen.getByRole('combobox', { name: 'Show' })).toHaveValue('mean');
 });
 
-it('draws a colourbar per map: diverging for the mean and the observation, gold for coverage (F12/F20)', async () => {
+it('draws one colour bar per distinct scale: the shared bar below, a pane bar only for a scale of its own', async () => {
   const { service } = setup();
   await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
-  await waitFor(() => expect(screen.getAllByTestId('population-colorbar')).toHaveLength(2));
+  // The mean and the observation share the scale: the footer's bar states it,
+  // no bar inside the images and no range in the pane headers (round 3, C1).
+  expect(screen.queryAllByTestId('population-colorbar')).toHaveLength(0);
+  expect(screen.getByTestId('montage-scale-bar')).toBeInTheDocument();
+  expect(screen.getByTestId('population-scale-summary')).not.toHaveTextContent(/ to /);
   const bars = () => screen.getAllByTestId('population-colorbar');
-  expect(bars().map((bar) => bar.dataset.diverging)).toEqual(['true', 'true']);
-  expect(bars()[0].getAttribute('aria-label')).toMatch(/^Colorbar for Mean: blue–white–red/);
-  fireEvent.change(screen.getByRole('combobox', { name: 'Summary' }), {
+  fireEvent.change(screen.getByRole('combobox', { name: 'Show' }), {
     target: { value: 'coverage' },
   });
-  await waitFor(() => expect(bars()[0].dataset.diverging).toBe('false'));
+  // Coverage is on a scale of its own: its pane carries that one bar.
+  await waitFor(() => expect(bars()).toHaveLength(1));
+  expect(bars()[0].dataset.diverging).toBe('false');
   expect(bars()[0].getAttribute('aria-label')).toMatch(/^Colorbar for Coverage: gold, 0 to /);
-  expect(bars()[1].dataset.diverging).toBe('true');
 });
 
 it('swaps the left/right letters of an axial pane under the radiological convention', async () => {
@@ -427,7 +510,7 @@ it('a lens left behind another tab requests nothing and moves no other workspace
 });
 
 it('puts its controls in the Studio toolbar and fills the visible height, never below 240 px (N13)', async () => {
-  const { StudioToolbarSlotContext, StudioViewportHeightContext } = await import('../StudioToolbarSlot');
+  const { StudioToolbarSlotContext, StudioViewportHeightContext } = await import('../studioToolbarSlots');
   const slot = document.createElement('div');
   document.body.appendChild(slot);
   const service = new PopulationSliceService(
@@ -442,14 +525,15 @@ it('puts its controls in the Studio toolbar and fills the visible height, never 
     </StudioToolbarSlotContext.Provider>
   );
   const { rerender } = render(lens(500));
-  // The summary, plane and Save calculation live in the toolbar row…
+  // The summary (Show), plane and Save calculation live in the toolbar row…
   expect(slot.querySelector('[aria-label="Population controls"]')).not.toBeNull();
   expect(slot.textContent).toContain('Save calculation');
-  expect(slot.querySelector('select[aria-label="Summary"]')).not.toBeNull();
-  // …and each map takes the visible height under it (500 − 60 px of chrome).
+  expect(slot.querySelector('select[aria-label="Show"]')).not.toBeNull();
+  // …and each map takes the visible height under it, less 100 px of chrome
+  // (C′: the one footer line below the maps is part of it).
   const heights = () =>
     screen.getAllByRole('button', { name: 'Pin image location' }).map((b) => b.dataset.height);
-  expect(heights()).toEqual(['440', '440']);
+  expect(heights()).toEqual(['400', '400']);
   rerender(lens(200));
   expect(heights()).toEqual(['240', '240']);
   slot.remove();

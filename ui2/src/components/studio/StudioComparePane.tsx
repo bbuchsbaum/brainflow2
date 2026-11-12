@@ -28,9 +28,13 @@ interface StudioComparePaneProps {
   cohortId: string | null;
   activeMemberId: string | null;
   activeSet: SpatialFieldSetSummary | null;
-  onInspect?: () => void;
   onRecompute?: () => void;
+  /** The pane was clicked (map, header or menu): it becomes the Inspector's artifact. */
+  onSelect?: () => void;
+  /** Open the pane's file in a new viewer tab. */
   onOpen?: () => void;
+  /** Why the pane's file cannot be opened; null when it can. */
+  openUnavailable?: string | null;
   onDrillToCohort?: () => void;
   /**
    * What the footer says of the pane's colour scale, when it is not the
@@ -79,9 +83,10 @@ export function StudioComparePane({
   cohortId,
   activeMemberId,
   activeSet,
-  onInspect,
   onRecompute,
+  onSelect,
   onOpen,
+  openUnavailable = null,
   onDrillToCohort,
   scaleNote = null,
   extraActions,
@@ -148,6 +153,8 @@ export function StudioComparePane({
   return (
     <article
       aria-label={`${letter} ${title}`}
+      aria-current={selected || undefined}
+      onClickCapture={onSelect}
       className={`studio-compare-pane flex min-h-0 min-w-0 flex-col overflow-hidden rounded-sm border bg-card transition-shadow ${
         selected ? ACCENT_BORDER[accent] : 'border-border'
       }`}
@@ -182,8 +189,9 @@ export function StudioComparePane({
           <PaneActionsMenu
             isDerived={isDerived}
             isRefreshing={isRefreshing}
-            canOpen={Boolean(pane?.binding?.ready) && !isRefreshing}
-            onInspect={onInspect}
+            openUnavailable={
+              openUnavailable ?? (isRefreshing ? 'The map is being recomputed.' : null)
+            }
             onRecompute={onRecompute}
             onOpen={onOpen}
             extraActions={extraActions}
@@ -314,16 +322,15 @@ function StatusBadge({ status }: { status: PaneStatus }) {
 function PaneActionsMenu({
   isDerived,
   isRefreshing,
-  canOpen,
-  onInspect,
+  openUnavailable,
   onRecompute,
   onOpen,
   extraActions,
 }: {
   isDerived: boolean;
   isRefreshing: boolean;
-  canOpen: boolean;
-  onInspect?: () => void;
+  /** Why the file cannot be opened; null when it can. */
+  openUnavailable: string | null;
   onRecompute?: () => void;
   onOpen?: () => void;
   extraActions?: Array<{ label: string; onClick: () => void }>;
@@ -349,10 +356,8 @@ function PaneActionsMenu({
     };
   }, [open]);
 
-  const items: Array<{ label: string; onClick: () => void; disabled?: boolean }> = [];
-  if (onInspect) {
-    items.push({ label: 'Inspect', onClick: onInspect });
-  }
+  const items: Array<{ label: string; onClick: () => void; disabled?: boolean; title?: string }> =
+    [];
   if (isDerived && onRecompute) {
     items.push({
       label: isRefreshing ? 'Recomputing…' : 'Recompute',
@@ -362,9 +367,14 @@ function PaneActionsMenu({
   }
   if (onOpen) {
     items.push({
-      label: isDerived ? 'Open derived output' : 'Open source',
+      label: 'Open in viewer',
       onClick: onOpen,
-      disabled: !canOpen,
+      disabled: !!openUnavailable,
+      title:
+        openUnavailable ??
+        (isDerived
+          ? 'Open the derived map in a new viewer tab'
+          : 'Open the source file in a new viewer tab'),
     });
   }
   if (extraActions) items.push(...extraActions);
@@ -393,6 +403,7 @@ function PaneActionsMenu({
               type="button"
               role="menuitem"
               disabled={item.disabled}
+              title={item.title}
               onClick={() => {
                 if (item.disabled) return;
                 setOpen(false);

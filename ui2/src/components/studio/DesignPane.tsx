@@ -15,6 +15,7 @@ import {
   Notice,
   Pager,
   Section,
+  SegmentedControl,
   SELECTED,
   Select,
   TextField,
@@ -73,6 +74,16 @@ interface DesignPaneProps {
   onSelectJoinIssue?: (issue: StudioJoinIssueDetail) => void;
   onSaveIssueFocusAsCohort?: () => void;
   onUseIssueFocusInCompare?: () => void;
+  /**
+   * In the Population lens the list follows the lens's order (or lists by
+   * ID); its own Sort is hidden so the two orders cannot disagree.
+   */
+  lensOrder?: {
+    value: 'montage' | 'id';
+    onChange: (value: 'montage' | 'id') => void;
+    /** The lens's order, in words ("Similarity order"). */
+    label: string | null;
+  } | null;
 }
 
 export function DesignPane({
@@ -113,6 +124,7 @@ export function DesignPane({
   onSelectJoinIssue,
   onSaveIssueFocusAsCohort,
   onUseIssueFocusInCompare,
+  lensOrder = null,
 }: DesignPaneProps) {
   const [page, setPage] = useState(0);
   // A row picked while the distance ranking is shown; until then "Open in
@@ -402,7 +414,28 @@ export function DesignPane({
           placeholder="Search design rows or member IDs…"
         />
 
-        {sortColumns.length > 0 ? (
+        {lensOrder ? (
+          <div className="flex flex-col gap-1" aria-label="Subjects order" role="group">
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-bf-xs text-muted-foreground">Order</span>
+              <SegmentedControl
+                aria-label="Subjects order"
+                hideWhenSingle={false}
+                options={[
+                  { value: 'montage', label: 'Montage' },
+                  { value: 'id', label: 'ID' },
+                ]}
+                value={lensOrder.value}
+                onValueChange={(value) => lensOrder.onChange(value as 'montage' | 'id')}
+              />
+            </div>
+            <p className="m-0 text-bf-xs text-muted-foreground" role="status">
+              {lensOrder.value === 'montage'
+                ? `Same order as the montage${lensOrder.label ? `: ${lensOrder.label}` : ''}`
+                : 'By subject ID'}
+            </p>
+          </div>
+        ) : sortColumns.length > 0 ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <label className="flex min-w-0 flex-1 items-center gap-2">
               <span className="shrink-0 text-bf-xs text-muted-foreground">Sort</span>
@@ -435,7 +468,7 @@ export function DesignPane({
           </div>
         ) : null}
 
-        {distanceSort ? (
+        {distanceSort && !lensOrder ? (
           <div className="flex flex-wrap items-center justify-between gap-2" aria-label="Distance to group mean">
             <div role="status" className="min-w-0 text-bf-sm text-muted-foreground">
               {meanDistance?.status === 'ready'
@@ -711,7 +744,7 @@ export function DesignPane({
                       </div>
                       <div className="flex flex-col items-end gap-1 text-bf-xs">
                         {cohort.id === activeCompareCohortId ? (
-                          <Chip>Compare</Chip>
+                          <Chip>B</Chip>
                         ) : null}
                         {cohort.id === activeScopeCohortId ? (
                           <Chip>Scope</Chip>
@@ -724,8 +757,9 @@ export function DesignPane({
                         size="sm"
                         onClick={() => onUseCompareCohort?.(cohort.id)}
                         disabled={cohort.id === activeCompareCohortId}
+                        title="Compare and test: use this group as B"
                       >
-                        Compare
+                        Use as B
                       </Button>
                       <Button
                         variant="ghost"

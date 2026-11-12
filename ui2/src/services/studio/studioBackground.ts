@@ -377,6 +377,12 @@ export function templateSourcePath(value: unknown): string | null {
 /** A resolved background and the note the Background control shows with it. */
 interface ResolvedBackground extends StudioBackground {
   note: string | null;
+  /**
+   * The note asks something of the reader (choose a template, check the other
+   * images, a template that is not the set's space) rather than only saying
+   * where an automatic template came from.
+   */
+  attention?: boolean;
 }
 
 const NOT_DECLARED = 'space not declared';
@@ -395,6 +401,8 @@ function resolveBackground(
       issue: null,
       origin: 'chosen',
       note: choiceNote(choice.sourcePath, space),
+      // A template from another space than the set declares is worth a look.
+      attention: !!space && choiceNote(choice.sourcePath, space) !== null,
     };
   // 1. Declared. A declared space without a template is still declared: the
   // grid does not overrule it.
@@ -431,13 +439,22 @@ function resolveBackground(
       note: wholeSet
         ? `${family} matched from the images (${gridLabel(grid)}); not declared by the files.`
         : `${family} matched from this image (${gridLabel(grid)}); the other images were not checked.`,
+      attention: !wholeSet,
     };
   }
   // 3. Header code only: a suggestion, never a template.
   if (grid.headerSpace === 'MNI152')
-    return { ...none, note: "This image's header says MNI152 space; choose a template." };
+    return {
+      ...none,
+      note: "This image's header says MNI152 space; choose a template.",
+      attention: true,
+    };
   if (grid.headerSpace === 'Talairach')
-    return { ...none, note: "This image's header says Talairach space; there is no template for it." };
+    return {
+      ...none,
+      note: "This image's header says Talairach space; there is no template for it.",
+      attention: true,
+    };
   return none;
 }
 
@@ -535,6 +552,18 @@ export function selectStudioBackgroundNote(state: StudioBackgroundState): string
   return state.selection.activeSetId ? activeBackground(state).note : null;
 }
 
+/**
+ * Store selector: the Background note when it asks something of the reader
+ * (no template matched, the other images unchecked, a template outside the
+ * set's space), else null. Only such a note is shown on the page; the others
+ * are the Background control's caption.
+ */
+export function selectStudioBackgroundAttention(state: StudioBackgroundState): string | null {
+  if (!state.selection.activeSetId) return null;
+  const background = activeBackground(state);
+  return background.attention ? background.note : null;
+}
+
 export interface StudioBackgroundOption {
   /** `template:<id>`. */
   value: string;
@@ -570,6 +599,59 @@ export function studioBackgroundOptions(catalog: unknown): StudioBackgroundOptio
           : (entry.id as string),
     }))
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+}
+
+/** Resolution written in a template's name or id ("(1mm)", "_2mm"), as "1 mm". */
+function templateResolution(text: string): string | null {
+  const match = /(\d+(?:\.\d+)?)\s*mm\b/i.exec(text);
+  return match ? `${match[1]} mm` : null;
+}
+
+/** The space a template's name or id starts with ("MNI152 6th Gen…" → "MNI152"). */
+function templateSpace(text: string): string {
+  return text.trim().split(/[\s_]+/)[0] ?? text;
+}
+
+/** The image kind a template's name or id carries (T1w, T2w, FLAIR, brain). */
+function templateKind(text: string): string | null {
+  const match = /(?:^|[\s_(])(T1w|T2w|FLAIR|brain)(?=$|[\s_)])/i.exec(text);
+  return match ? match[1] : null;
+}
+
+/**
+ * Short labels for the toolbar's compact Background select: "MNI152 · 1 mm"
+ * for "MNI152 6th Gen T1w (1mm)". When two templates would read the same,
+ * their kind is added ("MNI152 · T2w · 1 mm"); when that still collides, the
+ * full name is kept. The full name is always the option's tooltip.
+ */
+export function shortBackgroundLabels(
+  options: readonly StudioBackgroundOption[],
+): Map<string, string> {
+  const compose = (option: StudioBackgroundOption, withKind: boolean) => {
+    const parts = [templateSpace(option.label)];
+    const kind = withKind ? templateKind(option.label) : null;
+    if (kind) parts.push(kind);
+    const resolution = templateResolution(option.label);
+    if (resolution) parts.push(resolution);
+    return parts.join(' · ');
+  };
+  const counts = (labels: string[]) => {
+    const seen = new Map<string, number>();
+    for (const label of labels) seen.set(label, (seen.get(label) ?? 0) + 1);
+    return seen;
+  };
+  const plain = options.map((option) => compose(option, false));
+  const plainCounts = counts(plain);
+  const kinded = options.map((option, i) =>
+    (plainCounts.get(plain[i]) ?? 0) > 1 ? compose(option, true) : plain[i],
+  );
+  const kindedCounts = counts(kinded);
+  return new Map(
+    options.map((option, i) => [
+      option.value,
+      (kindedCounts.get(kinded[i]) ?? 0) > 1 ? option.label : kinded[i],
+    ]),
+  );
 }
 
 /**

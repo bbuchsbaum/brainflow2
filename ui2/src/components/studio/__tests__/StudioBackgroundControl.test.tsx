@@ -4,6 +4,7 @@ import type { SpatialFieldSetSummary } from '@/types/studio';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import {
   resetStudioBackgroundOptions,
+  shortBackgroundLabels,
   studioGridEvidence,
 } from '@/services/studio/studioBackground';
 import { getStudioCoordinationService } from '@/services/studio/StudioCoordinationService';
@@ -127,6 +128,45 @@ describe('StudioBackgroundControl', () => {
     expect(optionLabels()).toEqual(['None', 'MNI152NLin2009cAsym_T1w_1mm']);
     warn.mockRestore();
   });
+  it('compact: short option labels with the full name as each tooltip, and it shrinks first (C5)', async () => {
+    getTemplateCatalog.mockResolvedValue([
+      entry('MNI152NLin6Asym_T1w_1mm', 'MNI152 6th Gen T1w (1mm)', 'T1w'),
+      entry('MNI305_T1w_native', 'MNI305 T1w', 'T1w'),
+    ]);
+    open('Folder of maps');
+    useSetStudioStore.getState().setStudioBackground('template:MNI152NLin6Asym_T1w_1mm');
+    render(<StudioBackgroundControl compact />);
+    await waitFor(() => expect(optionLabels()).toHaveLength(3));
+    expect(optionLabels()).toEqual(['No background', 'MNI152 · 1 mm', 'MNI305']);
+    expect(Array.from(select().options).map((o) => o.title)).toEqual([
+      '',
+      'MNI152 6th Gen T1w (1mm)',
+      'MNI305 T1w',
+    ]);
+    expect(select().title.split('\n')[0]).toBe('Background: MNI152 6th Gen T1w (1mm)');
+    // Gives up its width before the set's name and the map.
+    expect(screen.getByTestId('studio-background-compact').className).toContain('[flex:0_1000_auto]');
+  });
+
+  it('short labels add the image kind, then fall back to the full name, when two would read the same', () => {
+    const labels = shortBackgroundLabels([
+      { value: 'a', label: 'MNI152 T1w (1mm)' },
+      { value: 'b', label: 'MNI152 T2w (1mm)' },
+      { value: 'c', label: 'MNI152 T1w (2mm)' },
+      { value: 'd', label: 'Colin27 T1w (1mm)' },
+      { value: 'e', label: 'Colin27 T1w (1mm) v2' },
+      { value: 'f', label: 'MNI152NLin2009cAsym_brain_1mm' },
+    ]);
+    expect([...labels.values()]).toEqual([
+      'MNI152 · T1w · 1 mm',
+      'MNI152 · T2w · 1 mm',
+      'MNI152 · 2 mm',
+      'Colin27 T1w (1mm)',
+      'Colin27 T1w (1mm) v2',
+      'MNI152NLin2009cAsym · 1 mm',
+    ]);
+  });
+
   describe('with a template matched from the image grid', () => {
     const NLIN6 = 'template:MNI152NLin6Asym_T1w_1mm';
     const header = (dims: number[], mm: number, first: number[], code = 1) => ({

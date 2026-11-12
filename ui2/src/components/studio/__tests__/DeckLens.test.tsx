@@ -76,8 +76,6 @@ function renderDeck(sourcePath: string | null) {
       activeMemberId="s01_faces_l2"
       activeMemberSourcePath={sourcePath}
       onSelectMember={vi.fn()}
-      onInspectCurrent={vi.fn()}
-      onOpenCurrentSource={vi.fn()}
     />,
   );
 }
@@ -207,8 +205,6 @@ describe('DeckLens background template', () => {
         activeMemberId="s02_faces_l2"
         activeMemberSourcePath={sourcePath}
         onSelectMember={vi.fn()}
-        onInspectCurrent={vi.fn()}
-        onOpenCurrentSource={vi.fn()}
       />
     );
     view.rerender(next(NEXT_MEMBER));
@@ -258,7 +254,7 @@ describe('DeckLens background template', () => {
 describe('Deck as one large view (QA N13 b)', () => {
   it('shows one view of the session plane, switched by the toolbar toggle and reset by a new study', async () => {
     const { useSetStudioStore } = await import('@/stores/setStudioStore');
-    const { StudioToolbarSlotContext } = await import('../StudioToolbarSlot');
+    const { StudioToolbarSlotContext } = await import('../studioToolbarSlots');
     const { fireEvent, screen } = await import('@testing-library/react');
     useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
     const slot = document.createElement('div');
@@ -271,8 +267,6 @@ describe('Deck as one large view (QA N13 b)', () => {
           activeMemberId="s01_faces_l2"
           activeMemberSourcePath={MEMBER_PATH}
           onSelectMember={vi.fn()}
-          onInspectCurrent={vi.fn()}
-          onOpenCurrentSource={vi.fn()}
         />
       </StudioToolbarSlotContext.Provider>,
     );
@@ -290,5 +284,50 @@ describe('Deck as one large view (QA N13 b)', () => {
     act(() => useSetStudioStore.getState().loadDemoSession());
     expect(useSetStudioStore.getState().studioPlane).toBe('axial');
     slot.remove();
+  });
+});
+
+describe('DeckLens scale and map name (Subject lens)', () => {
+  beforeEach(() => {
+    resetRenderLayerScope();
+    useAppModeStore.setState({ mode: 'studio' });
+    seedWorkspace([layer('member', MEMBER_PATH)]);
+  });
+  afterEach(cleanup);
+  /** The member's window in the Studio's (here the active) view. */
+  const showMember = (display: { colormap: string; intensity: [number, number]; threshold: [number, number] }) =>
+    act(() =>
+      useViewStateStore.getState().setViewState((draft) => {
+        draft.layers = [{ id: 'member', volumeId: 'vol-member', ...display } as never];
+      }),
+    );
+
+  it('a signed member on the Studio scale gets one footer bar, named by the map short name', () => {
+    showMember({ colormap: 'cold_hot', intensity: [-0.0217, 0.0217], threshold: [-0.00217, 0.00217] });
+    const { getByTestId } = render(
+      <DeckLens
+        activeSet={volumeSet}
+        activeFeature={{ id: 'f1', label: 'enc_rep/maps/same_item.nii.gz' } as never}
+        activeMemberId="s01_faces_l2"
+        activeMemberSourcePath={MEMBER_PATH}
+        onSelectMember={vi.fn()}
+      />,
+    );
+    const footer = getByTestId('deck-scale');
+    expect(footer.getAttribute('title')).toBe('same_item: colour ±0.0217');
+    expect(footer).toHaveTextContent('−0.0217');
+    expect(footer).toHaveTextContent('0.0217');
+  });
+
+  it('an asymmetric threshold on the diverging window keeps the in-view colorbar, not the symmetric footer strip', () => {
+    showMember({ colormap: 'cold_hot', intensity: [-0.0217, 0.0217], threshold: [-0.001, 0.004] });
+    const { queryByTestId } = renderDeck(MEMBER_PATH);
+    expect(queryByTestId('deck-scale')).toBeNull();
+  });
+
+  it('any other display keeps the view\'s own colorbar and no footer bar', () => {
+    showMember({ colormap: 'hot', intensity: [0, 4], threshold: [0, 0.4] });
+    const { queryByTestId } = renderDeck(MEMBER_PATH);
+    expect(queryByTestId('deck-scale')).toBeNull();
   });
 });

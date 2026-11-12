@@ -135,7 +135,7 @@ it('with the scale not shared, the mean keeps its own symmetric range and report
     />,
   );
   await waitFor(() => expect(api.applyAndRenderViewState).toHaveBeenCalled());
-  expect(drawnMap()).toMatchObject({ colormap: 'fmri', intensity: [-0.03, 0.03] });
+  expect(drawnMap()).toMatchObject({ colormap: 'cold_hot', intensity: [-0.03, 0.03] });
   expect(limit.fetch).not.toHaveBeenCalled();
   expect(meanLimit).not.toHaveBeenCalled();
 });
@@ -147,7 +147,7 @@ it('the residual and the z-score keep their own symmetric ranges', async () => {
       <StudioDerivedPaneCanvas paneId={paneId} sourcePath={`/c/${paneId}.nii.gz`} label={paneId} workspaceId={STUDIO} />,
     );
     await waitFor(() => expect(api.applyAndRenderViewState).toHaveBeenCalled());
-    expect(drawnMap(), paneId).toMatchObject({ colormap: 'fmri', intensity: [-0.03, 0.03] });
+    expect(drawnMap(), paneId).toMatchObject({ colormap: 'cold_hot', intensity: [-0.03, 0.03] });
     view.unmount();
   }
   expect(limit.fetch).not.toHaveBeenCalled();

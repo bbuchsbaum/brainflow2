@@ -317,6 +317,47 @@ it('restores the executable null, units, channel and exploratory origin ahead of
   expect(q.request.inference).toEqual(record.calculation.inference);
 });
 
+it('a restored test applies to its saved A only: a new selection waits for Run', () => {
+  const record = opened();
+  record.calculation.aggregation = {
+    within: 'single',
+    groups: record.calculation.members
+      .map((m) => ({ participantId: m.memberId, memberIds: [m.memberId] }))
+      .filter((g) => record.calculation.workingMemberIds.includes(g.participantId)),
+  };
+  record.calculation.inference = {
+    method: 'oneSample',
+    role: 'effect',
+    units: '% signal change',
+    nullValue: 0,
+    independentParticipants: true,
+    selectionOrigin: 'manual',
+    channel: 'effect',
+  };
+  useSetStudioStore.getState().bootstrapStudio(preparePopulationRestore(record, 'workspace', 2));
+  const options = {
+    crosshairMm: [0, 0, 0] as [number, number, number],
+    orientation: 'axial' as const,
+    dimPx: [2, 2] as [number, number],
+    zoom: 1,
+    summary: 'mean' as const,
+  };
+  const query = () => buildPopulationSliceQuery(useSetStudioStore.getState(), 'workspace', options);
+  // Reopened on its own A, the test shows.
+  expect(query().query!.request.inference).toBeDefined();
+  // Another A: no test until Run (not a silent re-run on new operands).
+  const state = useSetStudioStore.getState();
+  state.selectPopulationMembers([record.calculation.workingMemberIds[0]], 'manual', 'One');
+  expect(query().issue).toBeNull();
+  expect(query().query).not.toBeNull();
+  expect(query().query!.request.inference).toBeUndefined();
+  // Back to the saved A: it applies again.
+  useSetStudioStore
+    .getState()
+    .selectPopulationMembers(record.calculation.workingMemberIds, 'manual', 'Saved');
+  expect(query().query!.request.inference).toBeDefined();
+});
+
 it('reopens independent-group inference in Inspect with both participant partitions and channel intact', () => {
   const record = opened();
   record.calculation.members.push({

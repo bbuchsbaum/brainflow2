@@ -6,6 +6,8 @@ mod population_mask;
 mod population_plot_export;
 mod population_sampling;
 mod population_slice;
+#[cfg(test)]
+mod relationship_timing_tests;
 mod set_sample_cache;
 mod studio_source_fetch;
 pub use atlas_roi::AtlasRoiLocation;
@@ -9908,23 +9910,79 @@ async fn promote_discovery_to_neurotabs(
     })
 }
 
+/// Compare decodes member paths as files, so a `template:` member id (the
+/// bundled example set uses them) is resolved to its cached template file
+/// first, as every population command does. Other paths pass through as given.
+async fn resolve_compare_template_paths(
+    request: &mut bridge_types::StudioCompareMaterializeRequest,
+    state: &BridgeState,
+) -> BridgeResult<()> {
+    async fn resolve(path: &mut String, state: &BridgeState) -> BridgeResult<()> {
+        if path.starts_with("template:") {
+            *path = resolve_member_source_path(path, state)
+                .await?
+                .to_string_lossy()
+                .into_owned();
+        }
+        Ok(())
+    }
+    if let Some(path) = request.active_member_source_path.as_mut() {
+        resolve(path, state).await?;
+    }
+    for path in request.cohort_member_source_paths.iter_mut() {
+        resolve(path, state).await?;
+    }
+    for bindings in [
+        request.active_member_role_bindings.as_mut(),
+        request.cohort_member_role_bindings.as_mut(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for path in bindings.iter_mut().filter_map(|b| b.source_path.as_mut()) {
+            resolve(path, state).await?;
+        }
+    }
+    Ok(())
+}
+
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.materialize_set_studio_compare_panes")]
 async fn materialize_set_studio_compare_panes(
     request: bridge_types::StudioCompareMaterializeRequest,
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<bridge_types::StudioComparePaneSpec>> {
-    Ok(field_table::materialize_compare_panes(request))
+    materialize_compare_panes_resolved(request, &state).await
+}
+
+async fn materialize_compare_panes_resolved(
+    mut request: bridge_types::StudioCompareMaterializeRequest,
+    state: &BridgeState,
+) -> BridgeResult<Vec<bridge_types::StudioComparePaneSpec>> {
+    resolve_compare_template_paths(&mut request, state).await?;
+    // Decoding runs off the async runtime. The job command below also lends
+    // the population source cache's resident volumes.
+    tokio::task::spawn_blocking(move || materialization::materialize_compare_panes(request, None))
+        .await
+        .map_err(|error| BridgeError::Internal {
+            code: 9604,
+            details: format!("Compare materialization worker failed: {error}"),
+        })
 }
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.start_set_studio_compare_materialization")]
 async fn start_set_studio_compare_materialization(
-    request: bridge_types::StudioCompareMaterializeRequest,
+    mut request: bridge_types::StudioCompareMaterializeRequest,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<String> {
-    materialization::start_compare_materialization_job(
+    resolve_compare_template_paths(&mut request, &state).await?;
+    materialization::start_compare_materialization_job_with_sources(
         Arc::clone(&state.set_studio_materialization_jobs),
         request,
+        Some(materialization::ResidentSetSources(
+            state.set_sample_cache.clone(),
+        )),
     )
     .await
 }
@@ -12518,8 +12576,9 @@ mod tests {
 
     #[tokio::test]
     async fn set_studio_materialize_command_wraps_compare_pane_builder() {
-        let panes =
-            materialize_set_studio_compare_panes(bridge_types::StudioCompareMaterializeRequest {
+        let state = BridgeState::default().expect("bridge state");
+        let panes = materialize_compare_panes_resolved(
+            bridge_types::StudioCompareMaterializeRequest {
                 support_label: "MNI152 fixture grid".to_string(),
                 compare_ready: false,
                 force_rematerialize: false,
@@ -12534,9 +12593,11 @@ mod tests {
                 reducer_specs: None,
                 active_member_role_bindings: None,
                 cohort_member_role_bindings: None,
-            })
-            .await
-            .expect("materialize command");
+            },
+            &state,
+        )
+        .await
+        .expect("materialize command");
 
         assert_eq!(panes.len(), 4);
         assert_eq!(panes[0].id, "current");

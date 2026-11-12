@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, act, within } from '@testing-library/react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { StudioInspectorPanel } from '../StudioInspectorPanel';
 import { StudioToolbar } from '../StudioToolbar';
@@ -21,7 +21,11 @@ it('routes the existing Inspector to live population settings and updates focus 
     useSetStudioStore.getState().sets[useSetStudioStore.getState().selection.activeSetId!]
       .memberIds[0];
   act(() => useSetStudioStore.getState().setActiveMember(id));
-  expect(screen.getByText(id, { exact: true })).toBeInTheDocument();
+  // C′: the focused subject heads the Inspector; the mask is in Analysis setup.
+  expect(
+    within(screen.getByTestId('population-focused-block')).getAllByText(id, { exact: true })[0],
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /^Analysis setup/ }));
   expect(screen.getByRole('button', { name: 'Choose mask…' })).toBeInTheDocument();
 });
 it('keeps study opening in the toolbar and prevents unsupported saved-source lens navigation', () => {
@@ -39,12 +43,14 @@ it('keeps study opening in the toolbar and prevents unsupported saved-source len
       />
     </>,
   );
-  expect(screen.getByRole('banner')).toContainElement(
-    screen.getByRole('button', { name: 'Open saved population…' }),
-  );
-  expect(screen.getByRole('radio', { name: 'Deck' })).toBeDisabled();
-  expect(screen.getByRole('radio', { name: 'Compare' })).toBeDisabled();
-  fireEvent.click(screen.getByRole('radio', { name: 'Deck' }));
+  // The set header has no menu of its own: opening a saved study is in the
+  // lens row's one "⋯" menu (StudioHeader.test.tsx follows it there).
+  expect(screen.queryByRole('button', { name: 'Open saved population…' })).toBeNull();
+  expect(screen.queryByTitle('More')).toBeNull();
+  // The single-subject view is opened from a subject, not offered here (B5).
+  expect(screen.queryByRole('radio', { name: 'Subject' })).toBeNull();
+  expect(screen.getByRole('radio', { name: 'Subject vs mean' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('radio', { name: 'Subject vs mean' }));
   expect(onSelectLens).not.toHaveBeenCalled();
   expect(screen.queryByText('Phase 2')).not.toBeInTheDocument();
 });

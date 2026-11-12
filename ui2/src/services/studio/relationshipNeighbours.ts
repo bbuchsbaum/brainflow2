@@ -447,3 +447,23 @@ export function nearestToCentroid(
     distance: fit.request.distance,
   };
 }
+
+/**
+ * The median of the fit's pairwise distances (each unordered pair once), a
+ * reference for reading any one distance ("is 0.70 near?"). Null with fewer
+ * than two members or when a distance is not finite.
+ */
+export function medianPairDistance(distances: readonly (readonly number[])[]): number | null {
+  const n = distances.length;
+  const pairs: number[] = [];
+  for (let i = 0; i < n; i++)
+    for (let j = i + 1; j < n; j++) {
+      const d = distances[i]?.[j];
+      if (typeof d !== 'number' || !Number.isFinite(d)) return null;
+      pairs.push(d);
+    }
+  if (!pairs.length) return null;
+  pairs.sort((a, b) => a - b);
+  const mid = pairs.length >> 1;
+  return pairs.length % 2 ? pairs[mid] : (pairs[mid - 1] + pairs[mid]) / 2;
+}

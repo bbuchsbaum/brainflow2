@@ -2,14 +2,12 @@ import React from 'react';
 import { Button, KeyValue, Notice, SELECTED, Section } from '@/components/ui/bf';
 import { cn } from '@/utils/cn';
 import { getEventBus } from '@/events/EventBus';
-import { getConfirmationService } from '@/services/ConfirmationService';
 import { StudioPane } from './StudioPane';
 import type {
   SpatialFieldSetSummary,
   StudioArtifactSummary,
   StudioCohortSummary,
   StudioFieldExpressionSummary,
-  StudioMaterializationStatus,
   StudioMemberSummary,
   StudioSavedRecipeSummary,
 } from '@/types/studio';
@@ -21,14 +19,12 @@ interface InspectorPaneProps {
   compareCohort: StudioCohortSummary | null;
   scopeCohort?: StudioCohortSummary | null;
   activeExpression: StudioFieldExpressionSummary | null;
-  materialization: StudioMaterializationStatus;
   activeArtifact: StudioArtifactSummary | null;
   artifactHistory: StudioArtifactSummary[];
   savedRecipes: StudioSavedRecipeSummary[];
   onSelectArtifact: (artifact: StudioArtifactSummary) => void;
   onOpenArtifact: (artifact: StudioArtifactSummary) => void;
   onRestoreArtifact: (artifact: StudioArtifactSummary) => void;
-  onSaveRecipeSnapshot: (recipe: Omit<StudioSavedRecipeSummary, 'id' | 'savedAtMs'>) => string;
   onRestoreRecipe: (recipe: StudioSavedRecipeSummary) => void;
   onRenameRecipe: (recipe: StudioSavedRecipeSummary) => void;
   onDeleteRecipe: (recipe: StudioSavedRecipeSummary) => void;
@@ -41,14 +37,12 @@ export function InspectorPane({
   compareCohort,
   scopeCohort,
   activeExpression,
-  materialization,
   activeArtifact,
   artifactHistory,
   savedRecipes,
   onSelectArtifact,
   onOpenArtifact,
   onRestoreArtifact,
-  onSaveRecipeSnapshot,
   onRestoreRecipe,
   onRenameRecipe,
   onDeleteRecipe,
@@ -109,29 +103,6 @@ export function InspectorPane({
       : 'Read from the image file';
   };
 
-  const cacheLabel = (artifact: StudioArtifactSummary | null): string => {
-    switch (artifact?.cacheStatus) {
-      case 'source':
-        return 'Read from the image file';
-      case 'hit':
-        return 'Reused from cache';
-      case 'miss':
-        return 'Computed';
-      case 'stale':
-        return 'Recomputed (the cached copy was out of date)';
-      case 'forced':
-        return 'Recomputed';
-      case 'synthetic':
-        return 'Example image';
-      case 'failed':
-        return 'Could not be computed';
-      case 'unavailable':
-        return 'Unavailable';
-      default:
-        return 'Unknown';
-    }
-  };
-
   const copyText = async (text: string | null, label: string) => {
     if (!text || !navigator.clipboard?.writeText) {
       getEventBus().emit('ui.notification', {
@@ -155,85 +126,15 @@ export function InspectorPane({
     }
   };
 
-  const provenanceJson = activeArtifact
-    ? JSON.stringify(
-        {
-          artifact: activeArtifact,
-          setId: activeSet?.id ?? null,
-          setName: activeSet?.name ?? null,
-          activeMemberId,
-          compareCohortId: activeArtifact.cohortId ?? compareCohort?.id ?? null,
-          compareCohortLabel: activeArtifact.cohortLabel ?? compareCohort?.label ?? null,
-          compareCohortOriginKind: activeArtifact.cohortOriginKind ?? compareCohort?.originKind ?? null,
-          compareCohortOriginLabel: activeArtifact.cohortOriginLabel ?? compareCohort?.originLabel ?? null,
-          scopeCohortId: scopeCohort?.id ?? null,
-          scopeCohortLabel: scopeCohort?.label ?? null,
-          scopeCohortOriginKind: scopeCohort?.originKind ?? null,
-          scopeCohortOriginLabel: scopeCohort?.originLabel ?? null,
-          activeExpressionId: activeExpression?.id ?? null,
-          activeExpressionRecipe: activeExpression?.recipe ?? null,
-        },
-        null,
-        2
-      )
-    : null;
-  const activeCompareOrigin =
-    activeArtifact?.cohortLabel || activeArtifact?.cohortOriginKind || activeArtifact?.cohortOriginLabel
-      ? formatCapturedCohortOrigin(
-          activeArtifact?.cohortLabel ?? null,
-          activeArtifact?.cohortOriginKind ?? null,
-          activeArtifact?.cohortOriginLabel ?? null
-        )
-      : formatCohortOrigin(compareCohort);
   const activeCompareLabel = activeArtifact?.cohortLabel ?? compareCohort?.label ?? 'None';
-  const saveCurrentRecipe = async () => {
-    if (!activeArtifact || !provenanceJson) {
-      getEventBus().emit('ui.notification', {
-        type: 'warning',
-        message: 'No active artifact is available to save as a recipe.',
-      });
-      return;
-    }
-
-    const requestedTitle = (
-      await getConfirmationService().prompt({
-        title: 'Save recipe',
-        message: 'Save the current Studio recipe as:',
-        defaultValue: activeArtifact.title,
-        confirmLabel: 'Save',
-      })
-    )?.trim();
-    if (requestedTitle === '') {
-      getEventBus().emit('ui.notification', {
-        type: 'warning',
-        message: 'Saved recipe title cannot be empty.',
-      });
-      return;
-    }
-
-    const recipeTitle = requestedTitle || activeArtifact.title;
-    onSaveRecipeSnapshot({
-      title: recipeTitle,
-      subtitle: activeArtifact.subtitle,
-      artifact: activeArtifact,
-      scopeCohortLabel: scopeCohort?.label ?? null,
-      scopeCohortOriginKind: scopeCohort?.originKind ?? null,
-      scopeCohortOriginLabel: scopeCohort?.originLabel ?? null,
-      selectionSnapshot: {
-        activeLens: activeArtifact.lens,
-        activeMemberId,
-        compareCohortId: activeArtifact.cohortId ?? compareCohort?.id ?? null,
-        activeScopeCohortId: scopeCohort?.id ?? null,
-        activeExpressionId: activeExpression?.id ?? null,
-      },
-      provenanceJson,
-    });
-
-    getEventBus().emit('ui.notification', {
-      type: 'success',
-      message: `Saved recipe snapshot for ${recipeTitle}.`,
-    });
-  };
+  // The source by its file name; the full path (often a cache) is its tooltip
+  // and in ⋯ › Provenance….
+  const sourcePath = activeArtifact?.sourcePath ?? activeMember?.sourcePath ?? null;
+  const sourceName = sourcePath ? fileNameOf(sourcePath) : null;
+  // "Computed as" only when it reads as words; code-like recipes
+  // ("member(sub-1002)") are in Provenance….
+  const recipe = activeArtifact?.recipe ?? activeExpression?.recipe ?? null;
+  const readableRecipe = recipe && isReadableRecipe(recipe) ? recipe : null;
 
   return (
     <StudioPane
@@ -255,19 +156,19 @@ export function InspectorPane({
                   { label: 'Active', value: activeArtifact?.title ?? activeMemberId ?? 'No member selected' },
                   {
                     label: 'Source',
-                    value: activeArtifact?.sourcePath ?? activeMember?.sourcePath ?? 'No file',
+                    value: sourceName ? (
+                      <span title={sourcePath ?? undefined} data-testid="inspector-source">
+                        {sourceName}
+                      </span>
+                    ) : (
+                      'No file'
+                    ),
                   },
-                  {
-                    label: 'Computed as',
-                    value: activeArtifact?.recipe ?? activeExpression?.recipe ?? 'Deck(member)',
-                  },
+                  ...(readableRecipe
+                    ? [{ label: 'Computed as', value: readableRecipe, mono: false, wrap: true }]
+                    : []),
                   { label: 'Compare', value: activeCompareLabel, mono: false },
                   { label: 'Scope', value: scopeCohort?.label ?? 'All members', mono: false },
-                  { label: 'Cache', value: cacheLabel(activeArtifact), mono: false },
-                  {
-                    label: 'Provenance',
-                    value: activeArtifact?.provenancePath ?? 'None recorded',
-                  },
                 ]}
               />
             </Section>
@@ -291,69 +192,16 @@ export function InspectorPane({
                       label: 'Import',
                       value: `${activeSet.ingestAudit.join.matchedRows} matched · ${activeSet.ingestAudit.join.unmatchedRows} unmatched`,
                     },
-                    {
-                      label: 'Cache',
-                      value: `warm ${materialization.warm} · preview ${materialization.preview} · pending ${materialization.pending}`,
-                    },
                   ]}
                 />
               </Section>
             ) : null}
 
-            <Section variant="static" title="Actions">
-              <div className="flex flex-wrap gap-x-4 gap-y-2">
-                <Button
-                  variant="link"
-                  className="min-h-6"
-                  size="sm"
-                  onClick={() => {
-                    void copyText(activeArtifact?.recipe ?? activeExpression?.recipe ?? null, 'Recipe');
-                  }}
-                >
-                  Copy recipe
-                </Button>
-                <Button
-                  variant="link"
-                  className="min-h-6"
-                  size="sm"
-                  onClick={() => {
-                    void copyText(activeArtifact?.sourcePath ?? activeMember?.sourcePath ?? null, 'Source path');
-                  }}
-                >
-                  Copy path
-                </Button>
-                <Button
-                  variant="link"
-                  className="min-h-6"
-                  size="sm"
-                  onClick={() => {
-                    void copyText(activeArtifact?.provenancePath ?? null, 'Provenance path');
-                  }}
-                >
-                  Copy provenance path
-                </Button>
-                <Button
-                  variant="link"
-                  className="min-h-6"
-                  size="sm"
-                  onClick={() => {
-                    void copyText(provenanceJson, 'Provenance JSON');
-                  }}
-                >
-                  Copy JSON
-                </Button>
-                <Button
-                  variant="link"
-                  className="min-h-6"
-                  size="sm"
-                  onClick={() => {
-                    void saveCurrentRecipe();
-                  }}
-                >
-                  Save recipe
-                </Button>
-              </div>
-            </Section>
+            {/* Copy recipe, paths and JSON, Save recipe, the cache and the
+                provenance file moved to the Studio's ⋯ › Provenance… (B5). */}
+            <p className="m-0 px-3 py-2 text-bf-xs text-muted-foreground">
+              Recipe, cache and provenance: ⋯ › Provenance… in the Studio header.
+            </p>
           </div>
         )}
 
@@ -488,12 +336,18 @@ export function InspectorPane({
   );
 }
 
-function formatCohortOrigin(cohort: StudioCohortSummary | null | undefined): string {
-  if (!cohort) {
-    return 'None';
-  }
+/** A path's last part ("same_item.nii.gz"); the whole text when it has none. */
+function fileNameOf(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}
 
-  return formatCapturedCohortOrigin(cohort.label, cohort.originKind, cohort.originLabel);
+/**
+ * Whether a recipe reads as words rather than code: no call syntax, brackets
+ * or operators ("member(sub-1002)", "mean(set) - member" are code).
+ */
+function isReadableRecipe(recipe: string): boolean {
+  return !/[()[\]{}=<>|&*/\\]/.test(recipe);
 }
 
 function formatCapturedCohortOrigin(

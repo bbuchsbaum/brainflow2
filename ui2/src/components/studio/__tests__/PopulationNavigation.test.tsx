@@ -15,7 +15,7 @@ it('waits for each completed image, pauses on scrubbing and cancels a pending dw
     onFocus,
   };
   const view = render(<PopulationNavigation {...props} />);
-  fireEvent.click(screen.getByText('Play'));
+  fireEvent.click(screen.getByRole('button', { name: 'Play' }));
   act(() => vi.advanceTimersByTime(200));
   expect(onFocus).toHaveBeenCalledWith('b');
   view.rerender(<PopulationNavigation {...props} focusedId="b" ready={false} />);
@@ -28,8 +28,8 @@ it('waits for each completed image, pauses on scrubbing and cancels a pending dw
   act(() => vi.advanceTimersByTime(1));
   expect(onFocus).toHaveBeenLastCalledWith('c');
   fireEvent.keyDown(screen.getByRole('slider', { name: 'Focus observation' }), { key: 'Home' });
-  expect(screen.getByText('Play')).toBeTruthy();
-  fireEvent.click(screen.getByText('Play'));
+  expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Play' }));
   view.unmount();
   const calls = onFocus.mock.calls.length;
   act(() => vi.advanceTimersByTime(1000));
@@ -47,12 +47,13 @@ it('stops on a new context and leaves nested input shortcuts alone', () => {
     onFocus: vi.fn(),
   };
   const view = render(<PopulationNavigation {...props} />);
-  fireEvent.keyDown(screen.getByLabelText('Playback speed'), { key: ' ' });
-  expect(screen.getByText('Play')).toBeTruthy();
+  // C′: playback speed moved to the ⋯ menu; the scrubber is the nested input here.
+  fireEvent.keyDown(screen.getByRole('slider', { name: 'Focus observation' }), { key: ' ' });
+  expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy();
   fireEvent.keyDown(screen.getByLabelText('Population navigation'), { key: ' ' });
-  expect(screen.getByText('Pause')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
   view.rerender(<PopulationNavigation {...props} scope="two" />);
-  expect(screen.getByText('Play')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy();
   act(() => vi.advanceTimersByTime(1000));
   expect(props.onFocus).not.toHaveBeenCalled();
 });

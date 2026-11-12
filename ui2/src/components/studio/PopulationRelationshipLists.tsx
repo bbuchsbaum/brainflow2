@@ -7,7 +7,7 @@
  * them. A stale fit keeps its IDs visible but hides distances and disables
  * every ranking-based action (the plan's stale principle).
  */
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Button, KeyValue, Notice, SelectableRow, useRovingFocus } from '@/components/ui/bf';
 import { cn } from '@/utils/cn';
 import {
@@ -23,8 +23,10 @@ import {
   type RelationshipNeighbour,
 } from '@/services/studio/relationshipNeighbours';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
+import { populationMemberHover } from '@/services/studio/populationMemberHover';
 import {
   distanceDefinition,
+  distanceUnit,
   formatRelationshipDistance,
   ordinal,
   relationshipDistanceScale,
@@ -51,33 +53,43 @@ export function RelationshipNeighbourTable({
   usable,
   stale,
   onCompare,
+  titled = true,
+  showMethod = true,
 }: {
   fit: RelationshipFit;
   focusedId: string | null;
   /** `rankNeighbours(fit, focusedId)`; null when the focused observation has no position. */
   neighbours: RelationshipNeighbour[] | null;
-  /** False when stale or out of scope: ranks and Compare are off. */
+  /** False when stale or out of scope: ranks and Where they differ are off. */
   usable: boolean;
   stale: boolean;
   onCompare: (neighbourId: string) => void;
+  /** Show the "Nearest to …" heading (the Inspector names the table in its own header). */
+  titled?: boolean;
+  /** Show how the distance is defined (the Inspector keeps it behind ⓘ). */
+  showMethod?: boolean;
 }) {
+  // A row that goes away under the pointer leaves no tile marked.
+  useEffect(() => () => populationMemberHover.set(null, 'inspector'), []);
   if (!focusedId)
     return (
       <section aria-label="Nearest observations" className="flex flex-col gap-1.5">
-        <Heading>Nearest observations</Heading>
+        {titled && <Heading>Nearest observations</Heading>}
         <p className="m-0 text-bf-text-muted">
           Focus an observation to rank the others by distance.
         </p>
       </section>
     );
   const unassigned = relationshipUnassigned(fit).find((u) => u.memberId === focusedId);
-  if (unassigned) return <FocusedUnassigned fit={fit} entry={unassigned} />;
+  if (unassigned) return <FocusedUnassigned fit={fit} entry={unassigned} titled={titled} />;
   if (!neighbours)
     return (
       <section aria-label={`Nearest to ${focusedId}`} className="flex flex-col gap-1.5">
-        <Heading>
-          Nearest to <span className="font-mono">{focusedId}</span>
-        </Heading>
+        {titled && (
+          <Heading>
+            Nearest to <span className="font-mono">{focusedId}</span>
+          </Heading>
+        )}
         <p className="m-0 text-bf-text-muted">
           {focusedId} is not part of this fit. Refit to include it.
         </p>
@@ -91,86 +103,58 @@ export function RelationshipNeighbourTable({
     screenFirst.length > 0 && screenFirst.every((n) => n.rank > k) ? screenFirst[0] : null;
   const hidden = !usable;
   const scale = relationshipDistanceScale(fit);
+  const aside = hidden ? (stale ? 'Refit to rank' : 'Unavailable') : undefined;
   return (
     <section aria-label={`Nearest to ${focusedId}`} className="flex flex-col gap-1.5">
-      <Heading
-        aside={hidden ? (stale ? 'Refit to rank' : 'Unavailable') : 'By distance, not by the plot'}
-      >
-        Nearest to <span className="font-mono">{focusedId}</span>
-      </Heading>
-      <table
-        className="w-full border-collapse text-bf-sm"
-        aria-disabled={hidden || undefined}
-        aria-label={`Observations nearest to ${focusedId}`}
-      >
-        <thead>
-          <tr className="text-left text-bf-xs text-bf-text-muted">
-            <th scope="col" className="w-6 pb-1 pr-2 font-normal">
-              #
-            </th>
-            <th scope="col" className="pb-1 pr-2 font-normal">
-              Observation
-            </th>
-            <th scope="col" className="pb-1 pr-2 text-right font-normal">
-              Distance <span className="sr-only">({distanceDefinition(fit.request.distance)})</span>
-              <span aria-hidden className="block text-bf-xs">
-                {distanceDefinition(fit.request.distance)}
-              </span>
-            </th>
-            <th scope="col" className="pb-1 pr-2 text-right font-normal">
-              On screen
-            </th>
-            <th scope="col" className="pb-1">
-              <span className="sr-only">Action</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((n) => {
-            const flagged = !hidden && n.rank <= k && n.screenRank > k;
-            return (
-              <tr key={n.memberId} className="h-7 border-t border-bf-border-subtle">
-                <td className="pr-2 font-mono text-bf-text-muted">{n.rank}</td>
-                <td className="pr-2">
-                  <Button
-                    variant="link"
-                    size="sm"
-                    className="font-mono"
-                    aria-label={`Focus ${n.memberId}`}
-                    onClick={() => populationProbeActions.focus(n.memberId)}
-                  >
-                    {n.memberId}
-                  </Button>
-                </td>
-                <td className="pr-2 text-right font-mono tabular-nums">
-                  {hidden ? '—' : formatRelationshipDistance(n.distance, scale)}
-                </td>
-                <td
-                  className={cn(
-                    'pr-2 text-right font-mono tabular-nums',
-                    flagged ? 'text-bf-warning' : 'text-bf-text-muted',
-                  )}
-                  data-flagged={flagged || undefined}
-                >
-                  {hidden ? '—' : ordinal(n.screenRank)}
-                  {flagged && <span className="sr-only"> (far on screen)</span>}
-                </td>
-                <td className="text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={hidden}
-                    aria-label={`Compare ${focusedId} with ${n.memberId}`}
-                    onClick={() => onCompare(n.memberId)}
-                  >
-                    Compare
-                  </Button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      {titled ? (
+        <Heading aside={aside}>
+          Nearest to <span className="font-mono">{focusedId}</span>
+        </Heading>
+      ) : aside ? (
+        <p className="m-0 text-bf-xs text-bf-text-muted">{aside}</p>
+      ) : null}
+      {showMethod && !titled ? (
+        <p className="m-0 text-bf-xs text-bf-text-muted" data-testid="nearest-method">
+          Distance from <span className="font-mono">{focusedId}</span>:{' '}
+          {distanceDefinition(fit.request.distance)}, by the fit's distances on the common
+          support, not by the plot.
+        </p>
+      ) : null}
+      <NearestRowsTable
+        fit={fit}
+        ariaLabel={`Observations nearest to ${focusedId}`}
+        hidden={hidden}
+        withAction
+        rows={rows.map((n) => {
+          // The 2D layout's own rank stays one hover away, on the distance.
+          const flagged = !hidden && n.rank <= k && n.screenRank > k;
+          return {
+            memberId: n.memberId,
+            rank: n.rank,
+            distance: formatRelationshipDistance(n.distance, scale),
+            flagged,
+            title: hidden
+              ? undefined
+              : flagged
+                ? `${ordinal(n.screenRank)} nearest on screen: the 2D layout misplaces this neighbour`
+                : `${ordinal(n.screenRank)} nearest on screen`,
+          };
+        })}
+        action={(memberId) => (
+          // A row action: shown on hover or keyboard focus, not repeated down the list.
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={hidden}
+            className="opacity-0 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
+            aria-label={`Where ${focusedId} and ${memberId} differ`}
+            title={`Where ${focusedId} and ${memberId} differ`}
+            onClick={() => onCompare(memberId)}
+          >
+            Where they differ
+          </Button>
+        )}
+      />
       {hidden ? (
         <p className="m-0 text-bf-xs text-bf-text-muted">
           {stale
@@ -178,7 +162,7 @@ export function RelationshipNeighbourTable({
             : 'This fit belongs to another population. Refit to rank.'}
         </p>
       ) : misplaced ? (
-        <p className="m-0 text-bf-text-secondary" data-testid="neighbour-screen-note">
+        <p className="m-0 text-bf-xs text-bf-text-secondary" data-testid="neighbour-screen-note">
           <span className="font-mono">{misplaced.memberId}</span> is nearest on screen but{' '}
           {ordinal(misplaced.rank)} by distance. The 2D layout misplaces it.
         </p>
@@ -187,12 +171,124 @@ export function RelationshipNeighbourTable({
   );
 }
 
+interface NearestRow {
+  memberId: string;
+  rank: number;
+  /** Formatted distance. */
+  distance: string;
+  /** Kept as data (and said to screen readers); the number itself stays plain. */
+  flagged?: boolean;
+  title?: string;
+}
+
+/**
+ * The one Nearest table form: rank, ID (a link to focus it, underlined on
+ * hover), and the distance as a plain right-aligned tabular number. Hovering
+ * a row marks that subject's tile and point (`populationMemberHover`).
+ */
+function NearestRowsTable({
+  fit,
+  ariaLabel,
+  rows,
+  hidden,
+  activeMemberId = null,
+  withAction = false,
+  action,
+}: {
+  fit: RelationshipFit;
+  ariaLabel: string;
+  rows: NearestRow[];
+  /** Distances withheld (stale or out of scope): IDs stay, numbers are dashes. */
+  hidden: boolean;
+  activeMemberId?: string | null;
+  withAction?: boolean;
+  action?: (memberId: string) => ReactNode;
+}) {
+  const unit = distanceUnit(fit.request.distance);
+  return (
+    <table
+      className="w-full border-collapse text-bf-sm"
+      aria-disabled={hidden || undefined}
+      aria-label={ariaLabel}
+      onPointerLeave={() => populationMemberHover.set(null, 'inspector')}
+    >
+      <thead>
+        <tr className="text-left text-bf-xs text-bf-text-muted">
+          <th scope="col" className="w-6 pb-1 pr-2 font-normal">
+            #
+          </th>
+          <th scope="col" className="pb-1 pr-2 font-normal">
+            ID
+          </th>
+          <th
+            scope="col"
+            className="whitespace-nowrap pb-1 pr-2 text-right font-normal"
+            title={`Distance: ${distanceDefinition(fit.request.distance)}. By the fit's distances, not by the plot.`}
+            data-testid="neighbour-distance-header"
+          >
+            Distance ({unit})
+            <span className="sr-only">: {distanceDefinition(fit.request.distance)}</span>
+          </th>
+          {withAction ? (
+            <th scope="col" className="pb-1">
+              <span className="sr-only">Action</span>
+            </th>
+          ) : null}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr
+            key={row.memberId}
+            className={cn(
+              'group h-7 border-t border-bf-border-subtle hover:bg-bf-bg-hover',
+              row.memberId === activeMemberId && 'bg-bf-bg-selected',
+            )}
+            aria-current={row.memberId === activeMemberId || undefined}
+            data-member={row.memberId}
+            onPointerEnter={() => populationMemberHover.set(row.memberId, 'inspector')}
+            onPointerLeave={() => populationMemberHover.set(null, 'inspector')}
+            onFocus={() => populationMemberHover.set(row.memberId, 'inspector')}
+            onBlur={() => populationMemberHover.set(null, 'inspector')}
+          >
+            <td className="pr-2 font-mono tabular-nums text-bf-text-muted">{row.rank}</td>
+            <td className="pr-2">
+              <Button
+                variant="link"
+                size="sm"
+                className="font-mono no-underline hover:underline focus-visible:underline"
+                aria-label={`Focus ${row.memberId}`}
+                onClick={() => populationProbeActions.focus(row.memberId)}
+              >
+                {row.memberId}
+              </Button>
+            </td>
+            <td
+              className="pr-2 text-right font-mono tabular-nums"
+              data-flagged={row.flagged || undefined}
+              title={row.title}
+            >
+              {hidden ? '—' : row.distance}
+              {row.flagged && <span className="sr-only"> (far on screen)</span>}
+            </td>
+            {withAction ? (
+              <td className="w-0 whitespace-nowrap text-right">{action?.(row.memberId)}</td>
+            ) : null}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function FocusedUnassigned({
   fit,
   entry,
+  titled = true,
 }: {
   fit: RelationshipFit;
   entry: RelationshipUnassigned;
+  titled?: boolean;
 }) {
   const median = relationshipCoverageMedian(fit);
   const tau = fit.request.eligibility?.lowCoverageTau;
@@ -214,9 +310,11 @@ function FocusedUnassigned({
   ];
   return (
     <section aria-label={`Nearest to ${entry.memberId}`} className="flex flex-col gap-1.5">
-      <Heading>
-        Nearest to <span className="font-mono">{entry.memberId}</span>
-      </Heading>
+      {titled && (
+        <Heading>
+          Nearest to <span className="font-mono">{entry.memberId}</span>
+        </Heading>
+      )}
       <Notice severity="neutral" role={null}>
         {entry.memberId} is not placed in this fit, so it has no distances to rank. Reason: {reason}
         .
@@ -235,14 +333,19 @@ function FocusedUnassigned({
 
 export function RelationshipCentroidList({
   result,
+  fit,
   distanceScale,
   stale,
   activeMemberId,
   selectedCount,
   participantWeighted,
   previewLabel,
+  titled = true,
+  showMethod = true,
 }: {
   result: NearestToCentroid;
+  /** The fit ranked (for the distance header). */
+  fit: RelationshipFit;
   /** The fit's largest distance; smaller-than-resolvable distances print as 0. */
   distanceScale: number;
   stale: boolean;
@@ -252,55 +355,54 @@ export function RelationshipCentroidList({
   participantWeighted: boolean;
   /** Set while hold-to-preview applies: the centroid excludes this target. */
   previewLabel: string | null;
+  /** Show the heading (the Inspector names the table in its own header). */
+  titled?: boolean;
+  /** Show how the centre is computed (the Inspector keeps it behind ⓘ). */
+  showMethod?: boolean;
 }) {
+  // A row that goes away under the pointer leaves no tile marked.
+  useEffect(() => () => populationMemberHover.set(null, 'inspector'), []);
   const entries = result.enabled ? result.entries.slice(0, RELATIONSHIP_LIST_ROWS) : [];
-  const ids = entries.map((e) => e.memberId);
-  const roving = useRovingFocus({ ids, activeId: activeMemberId });
   const unassignedCount = result.selectedUnassigned.length;
   const unassignedNote = unassignedCount
     ? ` ${unassignedCount} selected ${unassignedCount === 1 ? 'observation' : 'observations'}, ${result.selectedUnassigned.join(', ')}, ${unassignedCount === 1 ? 'is' : 'are'} unassigned and not included.`
     : '';
+  const aside = previewLabel ? `Previewing without ${previewLabel}` : undefined;
   return (
     <section
       aria-label="Nearest the selection centroid"
       className={cn('flex flex-col gap-1.5', previewLabel && 'text-bf-text-faint')}
       data-preview={previewLabel ? 'without' : undefined}
     >
-      <Heading aside={previewLabel ? `Previewing without ${previewLabel}` : undefined}>
-        Nearest the selection centroid
-      </Heading>
+      {titled ? (
+        <Heading aside={aside}>Nearest the selection centroid</Heading>
+      ) : aside ? (
+        <p className="m-0 text-bf-xs text-bf-text-muted">{aside}</p>
+      ) : null}
       {result.enabled ? (
         <>
-          <p className="m-0 text-bf-xs text-bf-text-muted">
-            Nearest the centroid on the fit's common support ({count(result.commonVoxels)} voxels),
-            from {observations(result.weights.length)} selected and placed
-            {participantWeighted ? ', each participant weighted equally' : ''}. Not the displayed
-            mean map, which uses every voxel's own count.{unassignedNote}
-          </p>
-          <div
-            role="listbox"
-            aria-label="Observations nearest the selection centroid"
-            onKeyDown={roving.onKeyDown}
-            className="flex flex-col"
-          >
-            {entries.map((e) => (
-              <SelectableRow
-                key={e.memberId}
-                {...roving.getItemProps(e.memberId)}
-                selected={e.memberId === activeMemberId}
-                aria-label={`${e.memberId}, rank ${e.rank}, distance ${formatRelationshipDistance(e.distance, distanceScale)}`}
-                onSelect={() => populationProbeActions.focus(e.memberId)}
-              >
-                <span className="flex w-full items-center gap-2">
-                  <span className="w-5 font-mono text-bf-text-muted">{e.rank}</span>
-                  <span className="flex-1 font-mono">{e.memberId}</span>
-                  <span className="font-mono tabular-nums">
-                    {formatRelationshipDistance(e.distance, distanceScale)}
-                  </span>
-                </span>
-              </SelectableRow>
-            ))}
-          </div>
+          {showMethod ? (
+            <p className="m-0 text-bf-xs text-bf-text-muted" data-testid="nearest-method">
+              Nearest the centroid on the fit's common support ({count(result.commonVoxels)}{' '}
+              voxels), from {observations(result.weights.length)} selected and placed
+              {participantWeighted ? ', each participant weighted equally' : ''}. Not the displayed
+              mean map, which uses every voxel's own count.
+            </p>
+          ) : null}
+          {unassignedNote ? (
+            <p className="m-0 text-bf-xs text-bf-text-muted">{unassignedNote.trim()}</p>
+          ) : null}
+          <NearestRowsTable
+            fit={fit}
+            ariaLabel="Observations nearest the selection centroid"
+            hidden={false}
+            activeMemberId={activeMemberId}
+            rows={entries.map((e) => ({
+              memberId: e.memberId,
+              rank: e.rank,
+              distance: formatRelationshipDistance(e.distance, distanceScale),
+            }))}
+          />
         </>
       ) : (
         <Notice severity="neutral" role={null} data-reason={result.reason}>

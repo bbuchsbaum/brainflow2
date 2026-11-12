@@ -16,14 +16,12 @@ export function StudioInspectorPanel() {
     compareCohort,
     scopeCohort,
     activeExpression,
-    materialization,
     activeArtifact,
     artifactHistory,
     savedRecipes,
   } = useStudioDerivedState();
 
   const setActiveArtifact = useSetStudioStore((state) => state.setActiveArtifact);
-  const saveRecipeSnapshot = useSetStudioStore((state) => state.saveRecipeSnapshot);
   const renameSavedRecipe = useSetStudioStore((state) => state.renameSavedRecipe);
   const deleteSavedRecipe = useSetStudioStore((state) => state.deleteSavedRecipe);
   const restoreSelectionSnapshot = useSetStudioStore((state) => state.restoreSelectionSnapshot);
@@ -102,14 +100,12 @@ export function StudioInspectorPanel() {
       compareCohort={compareCohort}
       scopeCohort={scopeCohort}
       activeExpression={activeExpression}
-      materialization={materialization}
       activeArtifact={activeArtifact}
       artifactHistory={artifactHistory}
       savedRecipes={savedRecipes}
       onSelectArtifact={setActiveArtifact}
       onOpenArtifact={openArtifact}
       onRestoreArtifact={restoreArtifact}
-      onSaveRecipeSnapshot={saveRecipeSnapshot}
       onRestoreRecipe={restoreRecipe}
       onRenameRecipe={(recipe) => {
         void renameRecipe(recipe);

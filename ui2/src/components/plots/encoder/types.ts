@@ -35,6 +35,20 @@ export interface EncoderContext {
     readonly entryIds?: ReadonlySet<string>;
     /** What a click does, concretely ("Click to show this frame"); omitted: the tooltip is the label. */
     readonly action?: string;
+    /** The point under the pointer (null when it leaves): presentation only, never focus. */
+    readonly onHover?: (id: string | null) => void;
+    /** A point another view marks (its hover): drawn with a light ring. */
+    readonly linkedId?: string | null;
+    /**
+     * A point's mark as SVG path parts centred at (cx, cy), radius r (a group
+     * mark), each filled or stroked; null or absent: the default dot. Opt-in.
+     */
+    readonly glyph?: (
+      id: string,
+      cx: number,
+      cy: number,
+      r: number,
+    ) => readonly { readonly d: string; readonly filled: boolean }[] | null;
   };
   readonly intensityWindow?: [number, number];
   readonly threshold?: [number, number];

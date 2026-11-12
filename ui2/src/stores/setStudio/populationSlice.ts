@@ -59,7 +59,14 @@ export interface PopulationSlice {
    * when it no longer resolves. */
   reconcilePopulationPreview: (contextChanged: boolean) => void;
   setPopulationFocusedFrame: (memberId: string, frame: number) => PopulationActionResult;
-  configurePopulationInference: (definition: PopulationInference | null) => PopulationActionResult;
+  /**
+   * Set the test. `operands` records the A and B it was run on (a Run); when
+   * omitted the recorded operands stay (a channel change is not a Run).
+   */
+  configurePopulationInference: (
+    definition: PopulationInference | null,
+    operands?: string | null,
+  ) => PopulationActionResult;
   setPopulationPartition: (partition: PopulationPartition | null) => PopulationActionResult;
   undoPopulationPartition: () => void;
   setPopulationPresentation: (presentation: PopulationPresentation) => PopulationActionResult;
@@ -79,6 +86,8 @@ export interface PopulationSlice {
     operation: 'union' | 'intersection' | 'difference',
     ids: readonly string[],
     origin?: PopulationSelectionOrigin,
+    /** What the combined selection is called; default "<operation> selection". */
+    label?: string,
   ) => PopulationActionResult;
   setPopulationReferenceMode: (mode: 'cohort' | 'complement') => void;
   setPopulationProbe: (
@@ -88,6 +97,9 @@ export interface PopulationSlice {
   setPopulationRelationship: (
     relationship: PopulationRelationship | null,
   ) => PopulationActionResult;
+  /** The one similarity measure the montage and the relationship panel use. */
+  setPopulationSimilarityMeasure: (measure: 'effect' | 'pattern-shape') => void;
+  setPopulationSimilarityRegion: (region: 'support' | 'probe') => void;
   undoPopulationSelection: () => void;
   redoPopulationSelection: () => void;
 }
@@ -236,7 +248,7 @@ export function createPopulationSlice(
         });
       return ok;
     },
-    configurePopulationInference(definition) {
+    configurePopulationInference(definition, operands) {
       const state = get();
       if (
         definition &&
@@ -244,11 +256,21 @@ export function createPopulationSlice(
           definition.featureId !== state.selection.activeFeatureId)
       )
         return fail('The feature changed; declare the current feature.');
-      if (same(state.population.inference, definition)) return ok;
+      const nextOperands = !definition
+        ? null
+        : operands === undefined
+          ? (state.population.inferenceOperands ?? null)
+          : operands;
+      if (
+        same(state.population.inference, definition) &&
+        (state.population.inferenceOperands ?? null) === nextOperands
+      )
+        return ok;
       set({
         population: {
           ...state.population,
           inference: definition ? structuredClone(definition) : null,
+          inferenceOperands: nextOperands,
         },
       });
       return ok;
@@ -369,7 +391,7 @@ export function createPopulationSlice(
     selectPopulationContext() {
       changeWorking({ kind: 'context' });
     },
-    combinePopulationMembers(operation, ids, origin = 'manual') {
+    combinePopulationMembers(operation, ids, origin = 'manual', label) {
       const checked = checkedMembers(ids);
       if (!checked.ok) return checked;
       const { population } = get();
@@ -395,7 +417,7 @@ export function createPopulationSlice(
         kind: 'members',
         memberIds: members,
         origin: combinedOrigin,
-        label: `${operation} selection`,
+        label: label ?? `${operation} selection`,
       });
       return ok;
     },
@@ -427,6 +449,16 @@ export function createPopulationSlice(
       if (!same(population[key], probe))
         set({ population: { ...population, [key]: copyProbe(probe) } });
       return ok;
+    },
+    setPopulationSimilarityMeasure(measure) {
+      const { population } = get();
+      if (population.similarityMeasure === measure) return;
+      set({ population: { ...population, similarityMeasure: measure } });
+    },
+    setPopulationSimilarityRegion(region) {
+      const { population } = get();
+      if ((population.similarityRegion ?? 'support') === region) return;
+      set({ population: { ...population, similarityRegion: region } });
     },
     setPopulationRelationship(relationship) {
       const state = get();

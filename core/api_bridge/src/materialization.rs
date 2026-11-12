@@ -3,11 +3,56 @@ use bridge_types::{
     StudioMaterializationJobStatus,
 };
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
+
+/// Lends Compare the population source cache's resident volumes, so members a
+/// similarity fit or plane already decoded are not decoded again.
+pub struct ResidentSetSources(pub crate::set_sample_cache::SetSampleCache);
+impl field_table::DecodedVolumeSource for ResidentSetSources {
+    fn decoded(&self, path: &std::path::Path) -> Option<field_table::DecodedVolume> {
+        field_table::DecodedVolume::from_volume(self.0.resident(path)?.as_ref())
+    }
+}
+
+/// Compare panes on a blocking worker, borrowing resident decoded sources.
+pub fn materialize_compare_panes(
+    request: StudioCompareMaterializeRequest,
+    sources: Option<&ResidentSetSources>,
+) -> Vec<bridge_types::StudioComparePaneSpec> {
+    materialize_compare_panes_cancelable(request, sources, &AtomicBool::new(false))
+}
+
+fn materialize_compare_panes_cancelable(
+    request: StudioCompareMaterializeRequest,
+    sources: Option<&ResidentSetSources>,
+    cancel: &AtomicBool,
+) -> Vec<bridge_types::StudioComparePaneSpec> {
+    match sources {
+        Some(sources) => {
+            field_table::materialize_compare_panes_cancelable(request, sources, cancel)
+        }
+        None => field_table::materialize_compare_panes_cancelable(
+            request,
+            &field_table::NoDecodedVolumes,
+            cancel,
+        ),
+    }
+}
+
+/// Workspace teardown: drop Compare's cached member-set moments and the
+/// population source cache's decoded volumes. Both caches are process-wide
+/// and keyed by file revision, so clearing them never changes a result, only
+/// whether the next request decodes again. The source cache waits for decodes
+/// already in flight.
+pub async fn release_population_caches(state: &crate::BridgeState) -> BridgeResult<()> {
+    field_table::clear_compare_cache();
+    state.set_sample_cache.clear().await
+}
 
 #[derive(Default)]
 pub struct StudioMaterializationJobManager {
@@ -17,6 +62,8 @@ pub struct StudioMaterializationJobManager {
 struct StudioMaterializationJobEntry {
     status: Arc<Mutex<StudioMaterializationJobStatus>>,
     handle: JoinHandle<()>,
+    /// Seen by the blocking worker: aborting the task cannot stop it.
+    cancel: Arc<AtomicBool>,
 }
 
 impl StudioMaterializationJobManager {
@@ -26,14 +73,21 @@ impl StudioMaterializationJobManager {
         }
     }
 
-    pub fn insert(
+    pub fn insert_cancelable(
         &mut self,
         job_id: String,
         status: Arc<Mutex<StudioMaterializationJobStatus>>,
         handle: JoinHandle<()>,
+        cancel: Arc<AtomicBool>,
     ) {
-        self.jobs
-            .insert(job_id, StudioMaterializationJobEntry { status, handle });
+        self.jobs.insert(
+            job_id,
+            StudioMaterializationJobEntry {
+                status,
+                handle,
+                cancel,
+            },
+        );
     }
 
     pub async fn get_status(&self, job_id: &str) -> Option<StudioMaterializationJobStatus> {
@@ -63,14 +117,24 @@ impl StudioMaterializationJobManager {
             status.message = Some("Cancelled by user".to_string());
         }
 
+        entry.cancel.store(true, Ordering::Relaxed);
         entry.handle.abort();
         true
     }
 }
 
+#[cfg(test)]
 pub async fn start_compare_materialization_job(
     jobs: Arc<Mutex<StudioMaterializationJobManager>>,
     request: StudioCompareMaterializeRequest,
+) -> BridgeResult<String> {
+    start_compare_materialization_job_with_sources(jobs, request, None).await
+}
+
+pub async fn start_compare_materialization_job_with_sources(
+    jobs: Arc<Mutex<StudioMaterializationJobManager>>,
+    request: StudioCompareMaterializeRequest,
+    sources: Option<ResidentSetSources>,
 ) -> BridgeResult<String> {
     let job_id = Uuid::new_v4().to_string();
     let status = StudioMaterializationJobStatus {
@@ -85,6 +149,8 @@ pub async fn start_compare_materialization_job(
     };
     let status_arc = Arc::new(Mutex::new(status));
     let status_for_worker = Arc::clone(&status_arc);
+    let cancel = Arc::new(AtomicBool::new(false));
+    let worker_cancel = Arc::clone(&cancel);
 
     let handle = tokio::spawn(async move {
         {
@@ -94,9 +160,10 @@ pub async fn start_compare_materialization_job(
             status.message = Some("Materializing compare panes".to_string());
         }
 
-        let result =
-            tokio::task::spawn_blocking(move || field_table::materialize_compare_panes(request))
-                .await;
+        let result = tokio::task::spawn_blocking(move || {
+            materialize_compare_panes_cancelable(request, sources.as_ref(), &worker_cancel)
+        })
+        .await;
 
         let mut status = status_for_worker.lock().await;
         if status.state == StudioMaterializationJobState::Cancelled {
@@ -124,7 +191,7 @@ pub async fn start_compare_materialization_job(
 
     {
         let mut jobs_guard = jobs.lock().await;
-        jobs_guard.insert(job_id.clone(), Arc::clone(&status_arc), handle);
+        jobs_guard.insert_cancelable(job_id.clone(), Arc::clone(&status_arc), handle, cancel);
     }
 
     Ok(job_id)
@@ -186,5 +253,54 @@ mod tests {
     async fn cancel_unknown_materialization_job_returns_false() {
         let mut jobs = StudioMaterializationJobManager::new();
         assert!(!jobs.cancel("missing").await);
+    }
+}
+
+#[cfg(test)]
+mod cancellation_and_teardown_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancelling_a_job_signals_its_blocking_worker() {
+        let mut jobs = StudioMaterializationJobManager::new();
+        let status = Arc::new(Mutex::new(StudioMaterializationJobStatus {
+            job_id: "job".into(),
+            state: StudioMaterializationJobState::Running,
+            started_at_ms: None,
+            finished_at_ms: None,
+            progress: None,
+            message: None,
+            result: None,
+            error: None,
+        }));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let seen = Arc::clone(&cancel);
+        // The worker the abort cannot stop: it only ends when the flag flips.
+        let worker = tokio::task::spawn_blocking(move || {
+            let started = std::time::Instant::now();
+            while !seen.load(Ordering::Relaxed) {
+                assert!(started.elapsed() < std::time::Duration::from_secs(10));
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        });
+        let handle = tokio::spawn(async {});
+        jobs.insert_cancelable("job".into(), status, handle, Arc::clone(&cancel));
+        assert!(jobs.cancel("job").await);
+        worker.await.unwrap();
+        assert!(cancel.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn workspace_teardown_releases_population_caches() {
+        let state = crate::BridgeState::default().unwrap();
+        let source = crate::set_sample_cache::TestSource::new(&[2, 2, 2], &[1.0; 8]);
+        state
+            .set_sample_cache
+            .with_volume(source.path.clone(), |_, _| Ok(()))
+            .await
+            .unwrap();
+        assert!(state.set_sample_cache.resident(&source.path).is_some());
+        release_population_caches(&state).await.unwrap();
+        assert!(state.set_sample_cache.resident(&source.path).is_none());
     }
 }

@@ -1,14 +1,13 @@
 import { plainStudioSourceError } from '@/services/studio/studioSourceErrors';
 import type { ViewPlane } from '@/types/coordinates';
 import { populationRgba } from './PopulationSliceService';
-import { populationProbeActions } from './PopulationProbeActions';
 import { resolvePopulation } from './populationContext';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { buildPopulationSource } from './PopulationProbeController';
 import { invokeCancelable } from './PopulationExportService';
 import { formatTauriError } from '@/utils/formatTauriError';
-import { UNASSIGNED_GROUP_ID } from './populationGroups';
+import { OUTLIER_GROUP_ID, UNASSIGNED_GROUP_ID } from './populationGroups';
 import type {
   PopulationMask,
   PopulationMemberSource,
@@ -26,6 +25,34 @@ export interface RelationshipRequest {
   region: { worldMm: [number, number, number]; radiusMm: number } | null;
   distance: 'effect' | 'pattern-shape';
   eligibility?: RelationshipEligibility;
+  /**
+   * Present: a grouping fit (backend v3). Merges follow `linkage` (Ward when
+   * absent) and the geometry carries silhouette-scored cuts. Absent: the
+   * v1/v2 request, average-linkage merges and no grouping summary.
+   */
+  grouping?: { linkage?: RelationshipLinkage };
+}
+export type RelationshipLinkage = 'ward' | 'average';
+/** One cut of the dendrogram (`relationship_math.rs` `GroupingCut`). */
+export interface RelationshipGroupingCut {
+  groups: number;
+  /** Mean silhouette over every fitted member; a singleton scores 0. */
+  silhouette: number;
+  /** Group index (0-based, ordered by first fitted member) per fitted member. */
+  assignment: number[];
+  /** Fitted-member indices alone in their group: outliers, not groups. */
+  singletons: number[];
+}
+/** Grouping evidence of a v3 fit (`relationship_math.rs` `GroupingSummary`). */
+export interface RelationshipGrouping {
+  linkage: RelationshipLinkage;
+  /** Cuts for 2..=min(8, n − 1) groups, in increasing group count. */
+  cuts: RelationshipGroupingCut[];
+  /** Group count with the highest silhouette; null when none can be scored. */
+  bestGroups: number | null;
+  /** False when the best silhouette is below `silhouetteThreshold`. */
+  clearGrouping: boolean;
+  silhouetteThreshold: number;
 }
 export type RelationshipUnassignedReason =
   | { kind: 'allMissing' }
@@ -64,6 +91,8 @@ export interface RelationshipFit {
     stress: number;
     orderable: boolean;
     merges: { left: number; right: number; distance: number; count: number }[];
+    /** v3 (grouping) fits only. */
+    grouping?: RelationshipGrouping;
   };
 }
 interface Snapshot {
@@ -314,17 +343,53 @@ export function validRelationshipFit(value: unknown): value is RelationshipFit {
       active.delete(merge.right);
       active.set(m + i, merge.count);
     }
+    if (f.request.grouping !== undefined && !validGroupingRequest(f.request.grouping)) return false;
+    if (g.grouping !== undefined && !validGrouping(g.grouping, m)) return false;
     return true;
   } catch {
     return false;
   }
 }
+function validGroupingRequest(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const keys = Object.keys(value);
+  const linkage = (value as { linkage?: unknown }).linkage;
+  return (
+    keys.every((key) => key === 'linkage') &&
+    (linkage === undefined || linkage === 'ward' || linkage === 'average')
+  );
+}
+function validGrouping(value: RelationshipGrouping, m: number): boolean {
+  if (
+    !value ||
+    (value.linkage !== 'ward' && value.linkage !== 'average') ||
+    !Array.isArray(value.cuts) ||
+    typeof value.clearGrouping !== 'boolean' ||
+    !Number.isFinite(value.silhouetteThreshold) ||
+    !(value.bestGroups === null || Number.isSafeInteger(value.bestGroups))
+  )
+    return false;
+  return value.cuts.every(
+    (cut) =>
+      Number.isSafeInteger(cut.groups) &&
+      cut.groups >= 2 &&
+      cut.groups <= m &&
+      Number.isFinite(cut.silhouette) &&
+      Array.isArray(cut.assignment) &&
+      cut.assignment.length === m &&
+      cut.assignment.every((g) => Number.isSafeInteger(g) && g >= 0 && g < cut.groups) &&
+      Array.isArray(cut.singletons) &&
+      cut.singletons.every((i) => Number.isSafeInteger(i) && i >= 0 && i < m),
+  );
+}
 /** The partition group holding unassigned members. Not a similarity group: it has
  * no fitted position, is not counted in the requested group count and carries
  * `origin: 'unassigned'`. Similarity groups carry no per-group origin. */
 export const RELATIONSHIP_UNASSIGNED_GROUP_ID = UNASSIGNED_GROUP_ID;
+/** Members alone in their cluster: not a group, never a comparison operand. */
+export const RELATIONSHIP_OUTLIER_GROUP_ID = OUTLIER_GROUP_ID;
 export type RelationshipPartitionGroup = PopulationPartition['groups'][number] & {
-  readonly origin?: 'unassigned';
+  readonly origin?: 'unassigned' | 'outliers';
 };
 export function relationshipPartition(
   fit: RelationshipFit,
@@ -338,19 +403,43 @@ export function relationshipPartition(
     unassigned = relationshipUnassigned(fit).map((u) => u.memberId);
   if (!Number.isInteger(count) || count < 2 || count > n)
     throw new Error('Choose between two groups and the observation count.');
-  const groups = new Map(fitted.map((id, i) => [i, [id]]));
-  fit.geometry.merges.slice(0, n - count).forEach((merge, i) => {
-    groups.set(n + i, [...groups.get(merge.left)!, ...groups.get(merge.right)!]);
-    groups.delete(merge.left);
-    groups.delete(merge.right);
-  });
+  // A grouping fit carries its cuts: the backend's assignment is authoritative.
+  // Otherwise (a saved v1/v2 fit) the tree is cut here from its merges.
+  const cut = fit.geometry.grouping?.cuts.find((c) => c.groups === count);
+  // A grouping fit is cut only where it was scored: outside that range its
+  // outliers are unknown, so it is not cut at all.
+  if (fit.geometry.grouping && !cut) {
+    const scored = fit.geometry.grouping.cuts.map((c) => c.groups);
+    throw new Error(
+      `Choose between ${Math.min(...scored)} and ${Math.max(...scored)} groups for this fit.`,
+    );
+  }
+  const clusters: string[][] = [];
+  if (cut) {
+    cut.assignment.forEach((group, i) => {
+      (clusters[group] ??= []).push(fitted[i]);
+    });
+  } else {
+    const groups = new Map(fitted.map((id, i) => [i, [id]]));
+    fit.geometry.merges.slice(0, n - count).forEach((merge, i) => {
+      groups.set(n + i, [...groups.get(merge.left)!, ...groups.get(merge.right)!]);
+      groups.delete(merge.left);
+      groups.delete(merge.right);
+    });
+    clusters.push(...groups.values());
+  }
+  // A grouping fit reports the members alone in their cluster: outliers, not
+  // groups. A fit without that evidence keeps every cluster as a group (its
+  // one-member groups read as outliers on screen only).
+  const outliers = cut ? cut.singletons.map((i) => fitted[i]) : [];
   return {
     setId,
     column: 'Spatial similarity',
     origin: 'map-derived',
     fitId: fit.fitId,
     contextIds: ids,
-    groups: [...groups.values()]
+    groups: clusters
+      .filter((members) => members && !members.every((id) => outliers.includes(id)))
       .sort(
         (a, b) =>
           Math.min(...a.map((id) => ids.indexOf(id))) - Math.min(...b.map((id) => ids.indexOf(id))),
@@ -362,6 +451,19 @@ export function relationshipPartition(
           value: String(i + 1),
           memberIds: ids.filter((id) => members.includes(id)),
         }),
+      )
+      .concat(
+        outliers.length
+          ? [
+              {
+                id: RELATIONSHIP_OUTLIER_GROUP_ID,
+                label: 'Outliers',
+                value: null,
+                memberIds: ids.filter((id) => outliers.includes(id)),
+                origin: 'outliers',
+              },
+            ]
+          : [],
       )
       .concat(
         unassigned.length
@@ -396,6 +498,12 @@ export function relationshipSource() {
 export class PopulationRelationshipService {
   // At most the current plot and the fit that produced the retained movie order.
   private orderFit: RelationshipFit | null = null;
+  /**
+   * The session's whole-support fit per distance, on the current scope:
+   * going back to a distance reinstalls its fit instead of computing it
+   * again. Cleared with the scope; a fit whose sources changed is dropped.
+   */
+  private readonly fitsByDistance = new Map<RelationshipRequest['distance'], RelationshipFit>();
   private snapshot: Snapshot = empty;
   private listeners = new Set<() => void>();
   private generation = 0;
@@ -428,9 +536,20 @@ export class PopulationRelationshipService {
     if (this.snapshot.scope === scope) return;
     this.cancel();
     this.orderFit = null;
+    this.fitsByDistance.clear();
     this.publish({ ...empty, scope });
   }
-  async fit(distance: RelationshipRequest['distance'], regional = false) {
+  /**
+   * Fit the current population by `distance`. With `reuse` (the montage
+   * switching between measures) the session's whole-support fit by that
+   * distance is reinstalled when it still holds, instead of computed again;
+   * an explicit Fit always computes.
+   */
+  async fit(
+    distance: RelationshipRequest['distance'],
+    regional = false,
+    options: { reuse?: boolean; grouping?: boolean } = {},
+  ) {
     const { source, issue, scope } = relationshipSource();
     if (!source) {
       this.publish({ ...this.snapshot, error: issue ?? 'Load an eligible population.' });
@@ -447,6 +566,18 @@ export class PopulationRelationshipService {
     }
     this.resetScope(scope);
     this.cancel();
+    const reusable = regional || !options.reuse ? null : this.fitsByDistance.get(distance);
+    // A grouping fit serves an ordering too; an older fit cannot serve a grouping.
+    const kept = reusable && (!options.grouping || reusable.request.grouping) ? reusable : null;
+    if (kept) {
+      try {
+        this.install(kept, scope!);
+      } catch (error) {
+        this.fitsByDistance.delete(distance);
+        this.publish({ ...this.snapshot, pending: false, error: plainStudioSourceError(formatTauriError(error)) });
+      }
+      return;
+    }
     const generation = this.generation,
       abort = new AbortController();
     this.abort = abort;
@@ -456,6 +587,7 @@ export class PopulationRelationshipService {
       region: regional ? { worldMm: [...probe!.worldMm], radiusMm: probe!.radiusMm } : null,
       distance,
       eligibility: { lowCoverageTau: RELATIONSHIP_LOW_COVERAGE_TAU },
+      ...(options.grouping ? { grouping: {} } : {}),
     };
     this.publish({ ...this.snapshot, pending: true, error: null });
     try {
@@ -472,7 +604,8 @@ export class PopulationRelationshipService {
         JSON.stringify(fit.request.region) !== JSON.stringify(request.region) ||
         fit.request.distance !== request.distance ||
         JSON.stringify(fit.request.eligibility ?? null) !==
-          JSON.stringify(request.eligibility ?? null)
+          JSON.stringify(request.eligibility ?? null) ||
+        !!fit.request.grouping !== !!request.grouping
       )
         throw new Error('Similarity result does not match the requested context/support.');
       this.install(fit, scope!);
@@ -492,11 +625,28 @@ export class PopulationRelationshipService {
       distance: fit.request.distance,
     });
     if (!result.ok) throw new Error(result.reason);
+    // The fit in force names the measure the montage and the panel show.
+    state.setPopulationSimilarityMeasure(fit.request.distance);
+    if (!fit.request.region) this.fitsByDistance.set(fit.request.distance, structuredClone(fit));
     this.publish({ fit: structuredClone(fit), scope, pending: false, error: null, stale: false });
   }
   observeSources(sources: { memberId: string; revision: { sha256: string } }[], maskSha?: string) {
+    const changed = (candidate: RelationshipFit) =>
+      candidate.request.members.some(
+        (m) => sources.find((s) => s.memberId === m.memberId)?.revision.sha256 !== m.expectedSha256,
+      ) || (candidate.request.mask?.expectedSha256 ?? null) !== (maskSha ?? null);
+    let pruned = false;
+    for (const [distance, kept] of this.fitsByDistance)
+      if (changed(kept)) {
+        this.fitsByDistance.delete(distance);
+        pruned = true;
+      }
     const fit = this.snapshot.fit;
-    if (!fit || this.snapshot.stale) return;
+    if (!fit || this.snapshot.stale) {
+      // A view showing a retained fit hears that it is gone.
+      if (pruned) this.publish({ ...this.snapshot });
+      return;
+    }
     if (
       fit.request.members.some(
         (m) => sources.find((s) => s.memberId === m.memberId)?.revision.sha256 !== m.expectedSha256,
@@ -504,6 +654,22 @@ export class PopulationRelationshipService {
       (fit.request.mask?.expectedSha256 ?? null) !== (maskSha ?? null)
     )
       this.publish({ ...this.snapshot, stale: true });
+    else if (pruned) this.publish({ ...this.snapshot });
+  }
+  /**
+   * Where similarity is wanted now (the pinned sphere, or null for the whole
+   * support or mask). A fit made elsewhere is out of date: moving the pin,
+   * changing its radius or switching "Compare within" never leaves an old
+   * region's fit feeding nearest subjects or the selection's centre.
+   */
+  observeRegion(region: { worldMm: readonly number[]; radiusMm: number } | null) {
+    const fit = this.snapshot.fit;
+    if (!fit || this.snapshot.stale || this.snapshot.pending) return;
+    const made = fit.request.region
+      ? JSON.stringify([[...fit.request.region.worldMm], fit.request.region.radiusMm])
+      : null;
+    const wanted = region ? JSON.stringify([[...region.worldMm], region.radiusMm]) : null;
+    if (made !== wanted) this.publish({ ...this.snapshot, stale: true });
   }
   /** The current fit when it may drive rankings, order and groups: present,
    * not stale, and fitted on the current population scope. Null otherwise. */
@@ -511,18 +677,56 @@ export class PopulationRelationshipService {
     const { fit, stale, scope } = this.snapshot;
     return fit && !stale && scope === relationshipSource().scope ? fit : null;
   }
-  toggle(id: string) {
+  /**
+   * A fit of this session by its id: the current fit, or one the session
+   * still holds (the fit behind the retained order, or the whole-support fit
+   * kept per distance). A grouping or order keeps naming the fit that made it
+   * after another fit replaces the plot, so a view describing that grouping
+   * or order reads it here. Null once it is gone.
+   */
+  fitById(fitId: string | null | undefined): RelationshipFit | null {
+    if (!fitId) return null;
     const { fit, scope } = this.snapshot;
+    if (fit?.fitId === fitId) return fit;
+    if (!scope) return null;
+    for (const kept of this.fitsByDistance.values()) if (kept.fitId === fitId) return kept;
+    return this.orderFit?.fitId === fitId ? this.orderFit : null;
+  }
+  /**
+   * `fitById`, when that fit may drive rankings: the current usable fit, or a
+   * retained whole-support fit on the current scope (retained fits are
+   * dropped when their sources change). The order's own fit copy is not
+   * watched for source changes, so it is shown but never ranks.
+   */
+  usableFitById(fitId: string | null | undefined): RelationshipFit | null {
+    if (!fitId) return null;
+    const current = this.usableFit();
+    if (current?.fitId === fitId) return current;
+    if (this.snapshot.fit?.fitId === fitId) return null;
+    if (this.snapshot.scope !== relationshipSource().scope) return null;
+    for (const kept of this.fitsByDistance.values()) if (kept.fitId === fitId) return kept;
+    return null;
+  }
+  /**
+   * Shift-click on a point: add it to the selection or take it out. `fitId`
+   * is the fit the view draws (one fit per view: the grouping's or the
+   * order's, which can differ from the current fit); the selection names it.
+   */
+  toggle(id: string, fitId?: string) {
+    const { scope } = this.snapshot;
+    const fit = fitId === undefined ? this.snapshot.fit : this.fitById(fitId);
     if (
       !fit ||
       scope !== relationshipSource().scope ||
       !relationshipFittedIds(fit).includes(id)
     )
       return;
-    const selected = resolvePopulation(useSetStudioStore.getState()).workingMemberIds.includes(id);
-    populationProbeActions.select(
-      [id],
+    const state = useSetStudioStore.getState();
+    const selected = resolvePopulation(state).workingMemberIds.includes(id);
+    // The selection names the fit it was drawn from.
+    state.combinePopulationMembers(
       selected ? 'difference' : 'union',
+      [id],
       'map-derived',
       `Spatial relationship ${fit.fitId}`,
     );
@@ -623,6 +827,117 @@ export const populationRelationshipService = new PopulationRelationshipService()
  * the centroid list, Compare), as `order()` and `group()` require. */
 export function relationshipUsable(service = populationRelationshipService): boolean {
   return service.usableFit() !== null;
+}
+
+/** What the population view's similarity is about, and the fit that describes it. */
+export interface RelationshipViewFit {
+  /** The fit to show: the one that made the grouping (else the order) on screen, else the current fit. */
+  fit: RelationshipFit | null;
+  /** The fit may drive rankings (nearest subjects, the centroid list). */
+  usable: boolean;
+  /** Whether `fit` is the fit that made the similarity grouping, the order, or just the session's fit. */
+  basis: 'grouping' | 'order' | 'current' | null;
+  /** The similarity grouping or order on screen came from a fit this session no longer holds. */
+  missing: { basis: 'grouping' | 'order'; distance: RelationshipRequest['distance'] | null } | null;
+  /**
+   * A similarity order by another fit stands beside the grouping shown (two
+   * fits on screen at once): its distance, so the view can say so.
+   */
+  otherOrder: RelationshipRequest['distance'] | null;
+}
+
+/**
+ * The share of the fit's variance the 2-D map keeps: the backend's
+ * `explainedFraction` (its two leading positive MDS eigenvalues over all
+ * positive ones), never recomputed here. Null when it is missing or not a
+ * number, or when nothing varies (the backend then reports 1, and a map of
+ * no variation keeps no share of it).
+ */
+export function relationshipMapShare(fit: RelationshipFit): number | null {
+  const share = fit.geometry.explainedFraction as number | null | undefined;
+  if (typeof share !== 'number' || !Number.isFinite(share)) return null;
+  if (!fit.geometry.eigenvalues.some((v) => Number.isFinite(v) && v > 0)) return null;
+  return Math.min(1, Math.max(0, share));
+}
+
+/** The measure a similarity order's label records ("MDS axis 1 · effect · fit …"). */
+function orderDistance(label: string): RelationshipRequest['distance'] | null {
+  return label.includes('pattern-shape') ? 'pattern-shape' : label.includes('effect') ? 'effect' : null;
+}
+
+/**
+ * One fit per view. The similarity map, its title, the groups and the
+ * Inspector's nearest list all describe the fit that made what the montage
+ * shows: the similarity grouping's fit, else the similarity order's, else the
+ * session's current fit. The current fit can be another (an order by the
+ * other measure, or a fit made in the relationship panel, replaces the plot
+ * but leaves the grouping by its own fit), so the current fit is never shown
+ * under a grouping it did not make.
+ */
+export function relationshipViewFit(
+  population: {
+    partition: PopulationPartition | null;
+    presentation: { order?: { rule: string; fitId?: string | null; label: string } | null };
+  },
+  service: PopulationRelationshipService = populationRelationshipService,
+): RelationshipViewFit {
+  const current = service.getSnapshot().fit;
+  const grouping =
+    population.partition?.origin === 'map-derived' && population.partition.fitId
+      ? population.partition.fitId
+      : null;
+  const order = population.presentation.order;
+  const ordered = order?.rule === 'similarity' && order.fitId ? order : null;
+  const distanceOf = (fitId: string, fallback: RelationshipRequest['distance'] | null) =>
+    service.fitById(fitId)?.request.distance ??
+    (useSetStudioStore.getState().population.relationship?.fitId === fitId
+      ? useSetStudioStore.getState().population.relationship!.distance
+      : fallback);
+  const view = (fitId: string, basis: 'grouping' | 'order'): RelationshipViewFit | null => {
+    const fit = service.fitById(fitId);
+    if (!fit) return null;
+    const otherOrder =
+      basis === 'grouping' && ordered && ordered.fitId !== fitId
+        ? distanceOf(ordered.fitId!, orderDistance(ordered.label))
+        : null;
+    return {
+      fit,
+      usable: service.usableFitById(fitId) !== null,
+      basis,
+      missing: null,
+      otherOrder: otherOrder && otherOrder !== fit.request.distance ? otherOrder : null,
+    };
+  };
+  if (grouping) {
+    const shown = view(grouping, 'grouping');
+    if (shown) return shown;
+  }
+  // The grouping's fit is gone (or there is no grouping): the order's fit is
+  // what the montage shows next, before the session's current fit.
+  if (ordered) {
+    const shown = view(ordered.fitId!, 'order');
+    if (shown)
+      return grouping
+        ? {
+            ...shown,
+            otherOrder: null,
+            missing: { basis: 'grouping', distance: distanceOf(grouping, null) },
+          }
+        : shown;
+  }
+  const missing =
+    grouping && grouping !== current?.fitId
+      ? { basis: 'grouping' as const, distance: distanceOf(grouping, null) }
+      : !grouping && ordered && ordered.fitId !== current?.fitId
+        ? { basis: 'order' as const, distance: distanceOf(ordered.fitId!, orderDistance(ordered.label)) }
+        : null;
+  return {
+    fit: current,
+    usable: !!current && service.usableFit() === current,
+    basis: current ? 'current' : null,
+    missing,
+    otherOrder: null,
+  };
 }
 
 export async function explainRelationship(

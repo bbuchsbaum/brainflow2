@@ -62,9 +62,33 @@ export function isUnassignedGroup(
     (group as { origin?: unknown }).origin === 'unassigned'
   );
 }
+/** Map-derived partitions may hold one group of members that a similarity
+ * cut left alone in their cluster. They are outliers, not a group: tiled
+ * under their own header, never compared, summarised or counted as a group. */
+export const OUTLIER_GROUP_ID = 'outliers';
+export function isOutlierGroup(
+  partition: Pick<PopulationPartition, 'origin'>,
+  group: PartitionGroup,
+): boolean {
+  return (
+    partition.origin === 'map-derived' &&
+    group.id === OUTLIER_GROUP_ID &&
+    (group as { origin?: unknown }).origin === 'outliers'
+  );
+}
 /** Groups that may be compared, tiled or chosen as contributors. */
 export function comparableGroups(partition: PopulationPartition): PartitionGroup[] {
-  return partition.groups.filter((group) => !isUnassignedGroup(partition, group));
+  return partition.groups.filter(
+    (group) =>
+      !isUnassignedGroup(partition, group) &&
+      !isOutlierGroup(partition, group) &&
+      // A one-member similarity "group" (a saved fit cut without outlier
+      // evidence) is an outlier, never a comparison operand.
+      !(partition.origin === 'map-derived' && group.memberIds.length === 1),
+  );
+}
+export function outlierGroup(partition: PopulationPartition): PartitionGroup | null {
+  return partition.groups.find((group) => isOutlierGroup(partition, group)) ?? null;
 }
 export function unassignedGroup(partition: PopulationPartition): PartitionGroup | null {
   return partition.groups.find((group) => isUnassignedGroup(partition, group)) ?? null;
@@ -108,9 +132,10 @@ export function validatePopulationPartition(
       !(group.value === null || typeof group.value === 'string') ||
       !Array.isArray(group.memberIds) ||
       !group.memberIds.length ||
-      // A per-group origin is accepted only on the unassigned group of a fit.
+      // A per-group origin is accepted only on a fit's unassigned or outlier group.
       (Object.prototype.hasOwnProperty.call(group, 'origin') &&
-        !isUnassignedGroup(partition, group))
+        !isUnassignedGroup(partition, group) &&
+        !isOutlierGroup(partition, group))
     )
       return 'Grouping requires uniquely identified, nonempty groups.';
     if (partition.factorColumns) {

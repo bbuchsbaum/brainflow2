@@ -11,6 +11,7 @@ import {
   relationshipUnassignedReasonLabel,
   relationshipCoverageMedian,
   relationshipUsable,
+  relationshipViewFit,
   validRelationshipFit,
   type RelationshipFit,
   type RelationshipRequest,
@@ -303,7 +304,10 @@ it('keeps the unassigned group out of comparison operands and validates its orig
   const fit = service.getSnapshot().fit!;
   service.group(2);
   const partition = state().population.partition!;
-  expect(comparableGroups(partition).map((g) => g.id)).toEqual(['similarity-0', 'similarity-1']);
+  // The second cluster of this saved (no-outlier-evidence) fit has one member:
+  // an outlier, never a comparison operand (review item 3b).
+  expect(partition.groups.find((g) => g.id === 'similarity-1')?.memberIds).toHaveLength(1);
+  expect(comparableGroups(partition).map((g) => g.id)).toEqual(['similarity-0']);
   expect(unassignedGroup(partition)?.memberIds).toEqual(fit.unassigned!.map((u) => u.memberId));
   const workspace = useViewStateStore.getState().activeWorkspaceKey;
   const query = buildPopulationSliceQuery(state(), workspace, {
@@ -313,7 +317,7 @@ it('keeps the unassigned group out of comparison operands and validates its orig
     zoom: 1,
     summary: 'mean',
   }).query!;
-  expect(query.request.groups?.map((g) => g.id)).toEqual(['similarity-0', 'similarity-1']);
+  expect(query.request.groups?.map((g) => g.id)).toEqual(['similarity-0']);
   const context = partition.contextIds;
   const withOrigin = (edit: (p: typeof partition) => unknown) => {
     const copy = structuredClone(partition) as unknown as typeof partition;
@@ -358,4 +362,71 @@ it('labels unassigned reasons, reports the coverage median and exposes one usabi
   );
   expect(relationshipUsable(service)).toBe(false);
   expect(service.currentUnassigned()).toBeNull();
+});
+
+it('one fit per view: the grouping keeps its own fit after a fit by the other measure replaces the plot', async () => {
+  // The montage groups by correlation, then sorts by amplitude (a second fit).
+  const service = new PopulationRelationshipService(async (q) => ({
+    ...syntheticFit(q),
+    fitId: (q.distance === 'pattern-shape' ? 'c' : 'a').repeat(64),
+  }));
+  await service.fit('pattern-shape', false, { reuse: true });
+  service.group(2);
+  const grouping = service.getSnapshot().fit!;
+  await service.fit('effect', false, { reuse: true });
+  service.order();
+  expect(service.getSnapshot().fit!.request.distance).toBe('effect');
+  expect(state().population.partition?.fitId).toBe(grouping.fitId);
+
+  const view = relationshipViewFit(state().population, service);
+  // The map, its title, the groups and the nearest list read the grouping's fit…
+  expect(view.fit?.fitId).toBe(grouping.fitId);
+  expect(view.fit?.request.distance).toBe('pattern-shape');
+  expect(view.basis).toBe('grouping');
+  expect(view.usable).toBe(true);
+  // …and the order by the other measure is named, never shown under correlation.
+  expect(view.otherOrder).toBe('effect');
+  expect(view.missing).toBeNull();
+
+  // Ungrouped: the order's fit is the view's.
+  state().setPopulationPartition(null);
+  const ordered = relationshipViewFit(state().population, service);
+  expect(ordered.fit?.request.distance).toBe('effect');
+  expect(ordered.basis).toBe('order');
+
+  // A retained fit whose sources changed is gone: the view says so instead.
+  state().setPopulationPartition(relationshipPartition(grouping, 2, state().selection.activeSetId!));
+  service.observeSources(
+    grouping.request.members.map((m) => ({ memberId: m.memberId, revision: { sha256: 'd'.repeat(64) } })),
+  );
+  const gone = relationshipViewFit(state().population, service);
+  expect(gone.fit?.fitId).not.toBe(grouping.fitId);
+  expect(gone.missing).toEqual({ basis: 'grouping', distance: null });
+});
+
+it('one fit per view: a grouping whose fit is gone falls back to the order\'s fit before the current one', async () => {
+  const service = new PopulationRelationshipService(async (q) => ({
+    ...syntheticFit(q),
+    fitId: (q.distance === 'pattern-shape' ? 'c' : 'a').repeat(64),
+  }));
+  await service.fit('pattern-shape', false, { reuse: true });
+  const correlation = service.getSnapshot().fit!;
+  // Groups from a fit this session no longer holds…
+  state().setPopulationPartition({
+    ...relationshipPartition(correlation, 2, state().selection.activeSetId!),
+    fitId: 'f'.repeat(64),
+  });
+  // …an order by amplitude, then a correlation fit made elsewhere is current.
+  await service.fit('effect', false, { reuse: true });
+  service.order();
+  const ordered = service.getSnapshot().fit!;
+  await service.fit('pattern-shape', false, { reuse: true });
+  expect(service.getSnapshot().fit!.fitId).toBe(correlation.fitId);
+  expect(state().population.partition?.fitId).toBe('f'.repeat(64));
+
+  const view = relationshipViewFit(state().population, service);
+  expect(view.fit?.fitId).toBe(ordered.fitId);
+  expect(view.basis).toBe('order');
+  expect(view.missing).toEqual({ basis: 'grouping', distance: null });
+  expect(view.otherOrder).toBeNull();
 });

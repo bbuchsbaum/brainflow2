@@ -22,6 +22,11 @@ import { StudioSourceFetchNotice } from './StudioSourceFetchNotice';
 import type { ComparePaneAccent, ComparePaneLetter } from './StudioComparePane';
 import { useStudioMemberMapDisplay } from '@/hooks/useStudioMemberMapDisplay';
 import { formatStudioWindow } from '@/services/studio/studioMapDisplay';
+import {
+  OPEN_IN_VIEWER_NOT_READY,
+  OPEN_IN_VIEWER_NO_SOURCE,
+  openStudioFileInViewer,
+} from '@/services/studio/studioOpenInViewer';
 
 interface CompareLensProps {
   activeSet: SpatialFieldSetSummary | null;
@@ -41,12 +46,10 @@ interface CompareLensProps {
   sortLabel?: string | null;
   onSelectCohort: (cohortId: string | null) => void;
   onDrillToCohort: (cohortId: string | null) => void;
-  onOpenPane: (pane: StudioComparePaneSpec) => void;
-  onInspectPane: (pane: StudioComparePaneSpec) => void;
-  onInspectCurrent: () => void;
-  onOpenCurrentSource: () => void;
   onOpenCompareView: () => void;
   onRecomputePane: (pane: StudioComparePaneSpec) => void;
+  /** A pane was clicked (its map, header or menu): it becomes the Inspector's artifact. */
+  onSelectPane?: (pane: StudioComparePaneSpec) => void;
 }
 
 interface PaneSlot {
@@ -99,12 +102,9 @@ export function CompareLens({
   loading,
   refreshingPaneIds,
   onDrillToCohort,
-  onOpenPane,
-  onInspectPane,
-  onInspectCurrent,
-  onOpenCurrentSource,
   onOpenCompareView,
   onRecomputePane,
+  onSelectPane,
 }: CompareLensProps) {
   // Before the first result for a set there are no specs. The panes are then
   // what the local builder says of the same inputs: A is the member's image,
@@ -174,22 +174,23 @@ export function CompareLens({
         const isCurrent = slot.paneId === 'current';
         const isRefreshing = pane ? refreshingPaneIds.includes(pane.id) : false;
 
-        const onInspect = isCurrent
-          ? onInspectCurrent
-          : pane
-            ? () => onInspectPane(pane)
-            : undefined;
         const onRecompute =
           !isCurrent && pane?.binding?.kind === 'derived_field'
             ? () => onRecomputePane(pane)
             : undefined;
-        const onOpen = isCurrent
-          ? activeMember?.sourcePath
-            ? onOpenCurrentSource
-            : undefined
-          : pane?.binding?.ready && pane.binding.sourcePath
-            ? () => onOpenPane(pane)
-            : undefined;
+        // "Open in viewer": A's member file, or B–D's source or derived
+        // output, in a new viewer tab. Said why when there is nothing to open.
+        const openPath = isCurrent
+          ? activeMember?.sourcePath?.trim() || null
+          : pane?.binding?.ready
+            ? pane.binding.sourcePath?.trim() || null
+            : null;
+        const openUnavailable = openPath
+          ? null
+          : isCurrent || (pane?.binding && pane.binding.ready)
+            ? OPEN_IN_VIEWER_NO_SOURCE
+            : OPEN_IN_VIEWER_NOT_READY;
+        const onOpen = isCurrent || pane ? () => openStudioFileInViewer(openPath) : undefined;
         const onDrill =
           !isCurrent && cohortId ? () => onDrillToCohort(cohortId) : undefined;
 
@@ -264,9 +265,10 @@ export function CompareLens({
             cohortId={cohortId}
             activeMemberId={activeMemberId}
             activeSet={activeSet}
-            onInspect={onInspect}
             onRecompute={onRecompute}
+            onSelect={pane && onSelectPane ? () => onSelectPane(pane) : undefined}
             onOpen={onOpen}
+            openUnavailable={openUnavailable}
             onDrillToCohort={onDrill}
             scaleNote={scaleNote}
             extraActions={extraActions}

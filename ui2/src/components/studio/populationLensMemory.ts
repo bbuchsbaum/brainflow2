@@ -9,12 +9,14 @@ interface LensView {
   orientation: PopulationOrientation;
   summary: PopulationSummary;
   zoom: number;
+  /** Montage tiles per row, when one was chosen. */
+  tilesPerRow?: number;
 }
 
 let last: LensView | null = null;
 
 /**
- * The Population lens's last view (plane, summary, zoom) per Studio session.
+ * The Population lens's last view (plane, summary, zoom, tiles per row) per Studio session.
  * The lens is a singleton; reopening it in the same session and restore
  * keeps its view (QA F44: the Summary fell back from Median to Mean).
  */

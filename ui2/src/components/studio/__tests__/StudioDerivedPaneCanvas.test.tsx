@@ -355,11 +355,11 @@ describe('StudioDerivedPaneCanvas (review H1/M1/M2/M4)', () => {
       const state = api.applyAndRenderViewState.mock.calls.at(-1)?.[0];
       expect(state?.layers.map((l: { volumeId: string; colormap: string }) => [l.volumeId, l.colormap])).toEqual([
         ['template_t1', 'gray'],
-        [expect.stringMatching(/^vol-/), 'fmri'],
+        [expect.stringMatching(/^vol-/), 'cold_hot'],
       ]);
     });
     const bar = screen.getByTestId('studio-scale-bar');
-    expect(bar.dataset.colormap).toBe('fmri');
+    expect(bar.dataset.colormap).toBe('cold_hot');
     // Symmetric about zero for the mean, its near-zero band hidden.
     expect(bar.getAttribute('aria-label')).toMatch(/−2 to 2, −0\.2 to 0\.2 hidden/);
   });

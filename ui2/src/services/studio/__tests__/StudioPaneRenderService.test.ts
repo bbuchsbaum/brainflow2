@@ -54,7 +54,7 @@ describe('Studio Compare pane render (QA F8)', () => {
     // The anatomy first, the map over it; never a workspace layer.
     expect((state as ViewState).layers.map((l) => [l.id, l.colormap])).toEqual([
       ['studio-derived-2:t1', 'gray'],
-      [map.layerId, 'fmri'],
+      [map.layerId, 'cold_hot'],
     ]);
     expect(useRenderStateStore.getState().states[tag]?.lastImage).toBeTruthy();
     clearStudioPane(tag);
@@ -64,7 +64,7 @@ describe('Studio Compare pane render (QA F8)', () => {
   it('draws signed maps diverging and nonnegative ones sequential over the anatomy (N10, review L2)', () => {
     // A map with negative values: diverging, symmetric, near-zero hidden.
     expect(studioDerivedDisplay(map, 'Mean')).toMatchObject({
-      colormap: 'fmri',
+      colormap: 'cold_hot',
       intensity: [-3, 3],
       threshold: [-0.30000000000000004, 0.30000000000000004],
     });
@@ -77,7 +77,7 @@ describe('Studio Compare pane render (QA F8)', () => {
       threshold: [0.5, 0.5 + 0.1 * 3.5],
     });
     // Residual and z-score are signed by construction, whatever this map holds.
-    expect(studioDerivedDisplay(positive, 'Z', true)).toMatchObject({ colormap: 'fmri', intensity: [-4, 4] });
+    expect(studioDerivedDisplay(positive, 'Z', true)).toMatchObject({ colormap: 'cold_hot', intensity: [-4, 4] });
     expect(studioAnatomyDisplay(positive)).toMatchObject({ colormap: 'gray', intensity: [0.5, 4] });
   });
 });

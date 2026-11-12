@@ -5,7 +5,7 @@ import { getSetStudioService } from '@/services/studio/SetStudioService';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import type { StudioJoinIssueDetail } from '@/types/studio';
 import { DesignPane } from './DesignPane';
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { buildPopulationSource } from '@/services/studio/PopulationProbeController';
 import {
   DISTANCE_TO_MEAN_SORT,
@@ -15,6 +15,8 @@ import {
 import { studioWorkspaceKey } from '@/hooks/useStudioWorkspace';
 import { Button } from '@/components/ui/Button';
 import { DropdownMenu } from '@/components/ui/DropdownMenu';
+import { usePopulationViewStore } from '@/stores/populationViewStore';
+import { orderSubjectsForLens } from './subjectsOrder';
 
 export function StudioDesignPanel() {
   const studioService = getSetStudioService();
@@ -81,6 +83,18 @@ export function StudioDesignPanel() {
 
   // The image the set is showing; there is no action that picks one from here.
   const activeFeatureId = useSetStudioStore((state) => state.selection.activeFeatureId);
+  // In the Population lens the list follows the lens's order (or lists by ID).
+  const populationLens = useSetStudioStore((state) => state.selection.activeLens === 'population');
+  const lensOrder = usePopulationViewStore((state) => state.lensOrder);
+  const subjectsOrder = usePopulationViewStore((state) => state.subjectsOrder);
+  const setSubjectsOrder = usePopulationViewStore((state) => state.setSubjectsOrder);
+  const listedIds = useMemo(
+    () =>
+      populationLens
+        ? orderSubjectsForLens(visibleMemberIds, subjectsOrder, lensOrder?.ids ?? null)
+        : visibleMemberIds,
+    [populationLens, visibleMemberIds, subjectsOrder, lensOrder],
+  );
   const setActiveMember = useSetStudioStore((state) => state.setActiveMember);
   const setCompareCohort = useSetStudioStore((state) => state.setCompareCohort);
   const setActiveScopeCohort = useSetStudioStore((state) => state.setActiveScopeCohort);
@@ -284,7 +298,12 @@ export function StudioDesignPanel() {
       activeCompareCohortId={compareCohort?.id ?? null}
       activeScopeCohortId={scopeCohort?.id ?? null}
       activeIssueMemberIds={activeIssueMemberIds}
-      visibleMemberIds={visibleMemberIds}
+      visibleMemberIds={listedIds}
+      lensOrder={
+        populationLens
+          ? { value: subjectsOrder, onChange: setSubjectsOrder, label: lensOrder?.label ?? null }
+          : null
+      }
       designSearch={designSearch}
       sortColumn={sortColumn}
       sortDirection={sortDirection}

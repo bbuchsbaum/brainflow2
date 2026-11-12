@@ -1,0 +1,183 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-11-11T20:15:09Z"
+  },
+  "title": "Set studio montage toolbar",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1280,
+      "h": 800,
+      "title": "1 Montage: one toolbar, then the brains"
+    },
+    "Grouped.dc.html": {
+      "x": 1360,
+      "y": 0,
+      "w": 940,
+      "h": 800,
+      "title": "2 Grouped by similarity, with a selection"
+    },
+    "SortMenu.dc.html": {
+      "x": 2380,
+      "y": 0,
+      "w": 300,
+      "h": 400,
+      "title": "3 Sort menu"
+    },
+    "Layout-C-1-Opened.dc.html": {
+      "x": 0,
+      "y": 1300,
+      "w": 1440,
+      "h": 900,
+      "title": "C1 Just opened: montage, dock minimised"
+    },
+    "Layout-C-2-Similarity.dc.html": {
+      "x": 1520,
+      "y": 1300,
+      "w": 1440,
+      "h": 900,
+      "title": "C2 Similarity read on the Map view"
+    },
+    "Layout-C-3-Selection.dc.html": {
+      "x": 3040,
+      "y": 1300,
+      "w": 1440,
+      "h": 900,
+      "title": "C3 Selection made, about to compare"
+    },
+    "Layout-C-4-Summary.dc.html": {
+      "x": 4560,
+      "y": 1300,
+      "w": 1440,
+      "h": 900,
+      "title": "C4 Summary with a pinned point"
+    },
+    "Layout-C-5-Narrow.dc.html": {
+      "x": 6080,
+      "y": 1300,
+      "w": 1100,
+      "h": 800,
+      "title": "C5 1100 px with Files open"
+    },
+    "Layout-B-1-Opened.dc.html": {
+      "x": 0,
+      "y": 2600,
+      "w": 1440,
+      "h": 900,
+      "title": "B1 Inspector holds the results: just opened"
+    },
+    "Layout-B-2-Similarity.dc.html": {
+      "x": 1520,
+      "y": 2600,
+      "w": 1440,
+      "h": 900,
+      "title": "B2 Inspector holds the results: similarity"
+    },
+    "Layout-D-1-Opened.dc.html": {
+      "x": 0,
+      "y": 3900,
+      "w": 1440,
+      "h": 900,
+      "title": "D1 Just opened: dock open on Values, pinned tiles guarded"
+    },
+    "Layout-D-2-Similarity.dc.html": {
+      "x": 1520,
+      "y": 3900,
+      "w": 1440,
+      "h": 900,
+      "title": "D2 Similarity strip beside the grouped montage"
+    },
+    "Layout-D-2b-Busy.dc.html": {
+      "x": 3040,
+      "y": 3900,
+      "w": 700,
+      "h": 500,
+      "title": "D2b Strip states: computing, refused, collapsed"
+    },
+    "Layout-D-3-Selection.dc.html": {
+      "x": 3820,
+      "y": 3900,
+      "w": 1440,
+      "h": 900,
+      "title": "D3 Exploratory selection, compare with an explicit Run"
+    },
+    "Layout-D-4-Summary.dc.html": {
+      "x": 5340,
+      "y": 3900,
+      "w": 1440,
+      "h": 900,
+      "title": "D4 Summary with a pin: cutouts, mean first, Values tab"
+    },
+    "Layout-D-5-Narrow.dc.html": {
+      "x": 6860,
+      "y": 3900,
+      "w": 1100,
+      "h": 800,
+      "title": "D5 1100 px with Files open: strip as a sheet"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Grouped.dc.html",
+    "SortMenu.dc.html",
+    "Layout-C-1-Opened.dc.html",
+    "Layout-C-2-Similarity.dc.html",
+    "Layout-C-3-Selection.dc.html",
+    "Layout-C-4-Summary.dc.html",
+    "Layout-C-5-Narrow.dc.html",
+    "Layout-B-1-Opened.dc.html",
+    "Layout-B-2-Similarity.dc.html",
+    "Layout-D-1-Opened.dc.html",
+    "Layout-D-2-Similarity.dc.html",
+    "Layout-D-2b-Busy.dc.html",
+    "Layout-D-3-Selection.dc.html",
+    "Layout-D-4-Summary.dc.html",
+    "Layout-D-5-Narrow.dc.html"
+  ],
+  "notes": {
+    "t1": {
+      "x": 0,
+      "y": -300,
+      "text": "Set studio montage",
+      "kind": "title1",
+      "maxW": 2680
+    },
+    "t2": {
+      "x": 0,
+      "y": 1050,
+      "text": "Population layout: recommended",
+      "kind": "title1",
+      "maxW": 7180
+    },
+    "t3": {
+      "x": 0,
+      "y": 2350,
+      "text": "Population layout: runner-up",
+      "kind": "title1",
+      "maxW": 2960
+    },
+    "t4": {
+      "x": 0,
+      "y": 3650,
+      "text": "Population layout: revised recommendation (C′)",
+      "kind": "title1",
+      "maxW": 7960
+    }
+  },
+  "designSystems": [
+    {
+      "title": "Brainflow",
+      "namespace": "brainflow",
+      "artifact": "https://claude.ai/artifact/J4cm3oJbcvw4D54z7fxE4H",
+      "version": "1794427987-bb3c",
+      "copiedAt": "2026-11-11T20:15:09Z"
+    }
+  ]
+}

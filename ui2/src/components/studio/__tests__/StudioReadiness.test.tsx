@@ -7,13 +7,14 @@ import { useSetStudioStore } from '@/stores/setStudioStore';
 import { buildStudioComparePaneSpecs } from '@/services/studio/StudioCompareService';
 import { folderCandidate } from '@/services/studio/__tests__/studioFixtures';
 import { LensCanvas } from '../LensCanvas';
-import { StudioAuditBanner } from '../StudioAuditBanner';
+import { StudioAuditBanner, StudioSetStatusWord } from '../StudioAuditBanner';
+import { useStudioSetAudit, type WorkspaceReadiness } from '../useStudioSetAudit';
 import { StudioComparePane } from '../StudioComparePane';
 import { StudioFolderReview } from '../StudioFolderReview';
 import { folderReviewSummary } from '@/services/studio/folderOpenDecision';
 import { StudioOpenNotice } from '../StudioOpenNotice';
 import { StudioReadinessNotice } from '../StudioReadinessNotice';
-import { StudioToolbar } from '../StudioToolbar';
+import { StudioSetInfo, StudioToolbar } from '../StudioToolbar';
 import { StudioLensSwitcher } from '../StudioLensSwitcher';
 import { StudioFolderOpening } from '../StudioFolderOpening';
 import { deriveWorkspaceReadiness } from '@/hooks/useStudioDerivedState';
@@ -77,11 +78,7 @@ const lensProps = {
   onSelectMember: () => {},
   onSelectCohort: () => {},
   onDrillToCohort: () => {},
-  onOpenComparePane: () => {},
-  onInspectComparePane: () => {},
   onRecomputeComparePane: () => {},
-  onInspectCurrentArtifact: () => {},
-  onOpenCurrentSource: () => {},
   onOpenCompareView: () => {},
   onClearScope: () => {},
 };
@@ -338,9 +335,11 @@ describe('Set header', () => {
     expect(name.title).toContain('/scratch/brad/dsets/pcmri/derivatives/enc_rep_rsa');
     // The name gives way last; the audit facts take only what it leaves.
     expect(name.className).toContain('[flex:0_1_auto]');
-    expect(screen.getByRole('banner')).toContainElement(
-      screen.getByRole('button', { name: 'Open saved population…' }),
-    );
+    // No menu of its own: its items are in the lens row's one "⋯" menu.
+    expect(screen.queryByRole('button', { name: 'Open saved population…' })).toBeNull();
+    expect(screen.queryByTitle('More')).toBeNull();
+    // A folder set the Files panel is not browsing: its name is plain text.
+    expect(name.tagName).not.toBe('BUTTON');
     expect(screen.getByRole('banner').className).not.toMatch(/\blg:|flex-wrap/);
   });
 
@@ -364,6 +363,58 @@ describe('Set header', () => {
     const ready = screen.getByRole('region', { name: 'Set studio audit summary' });
     expect(ready).toHaveTextContent('Ready to compare');
     expect(ready).toHaveTextContent('Grid 2 mm grid (sampled)');
+  });
+
+  it('says nothing on the header when the set is ready; its status and facts are behind ⓘ', () => {
+    const MATCHED = 'MNI152 6th Gen matched from the images (91×109×91); not declared by the files.';
+    function Header({ readiness }: { readiness?: WorkspaceReadiness }) {
+      const set = useSetStudioStore((state) => state.sets['folder-set']);
+      const audit = useStudioSetAudit(set, readiness ?? deriveWorkspaceReadiness(set));
+      return (
+        <>
+          <StudioSetStatusWord audit={audit} />
+          <StudioSetInfo audit={audit} backgroundNote={MATCHED} />
+        </>
+      );
+    }
+    const checked = openSet(true);
+    const view = render(<Header />);
+    // Ready: no pill, no word on the header.
+    expect(screen.queryByTestId('studio-set-status')).toBeNull();
+    // The facts that were chips are in the ⓘ panel, with the grid's provenance.
+    const info = screen.getByTestId('studio-set-info');
+    expect(info).toHaveTextContent('Ready to compare');
+    expect(info).toHaveTextContent('9 images');
+    expect(info).toHaveTextContent('2 mm grid (sampled)');
+    expect(info).toHaveTextContent('not declared by the files');
+    expect(screen.getByTitle('Dataset details').closest('details')!.open).toBe(false);
+    view.unmount();
+
+    // Blocked: the status word is on the header, with its message.
+    const blocked: WorkspaceReadiness = {
+      state: 'blocked',
+      eyebrow: 'Cannot compare',
+      title: 'Blocked',
+      message: 'These images are on different grids, so they cannot be averaged.',
+      className: '',
+    };
+    render(<Header readiness={blocked} />);
+    const status = screen.getByTestId('studio-set-status');
+    expect(status).toHaveTextContent('Cannot compare');
+    expect(within(status).getByTitle(blocked.message)).toBeInTheDocument();
+    expect(checked.id).toBe('folder-set');
+  });
+
+  it('keeps a pending grid check as the header\'s status word', () => {
+    openSet();
+    function Header() {
+      const set = useSetStudioStore((state) => state.sets['folder-set']);
+      return <StudioSetStatusWord audit={useStudioSetAudit(set, deriveWorkspaceReadiness(set))} />;
+    }
+    render(<Header />);
+    expect(screen.getByTestId('studio-set-status')).toHaveTextContent('Image grids not checked');
+    act(() => useSetStudioStore.getState().setGridCheck({ status: 'checking', message: null }));
+    expect(screen.getByTestId('studio-set-status')).toHaveTextContent('Checking image grids');
   });
 
   it('says how a set was opened without its review, and leads back to the review', () => {

@@ -51,7 +51,9 @@ const LAYOUT_SETTINGS_PERSIST_NAME = 'brainflow2-layout-settings';
 // dock (`bottomDock*`), open by default in all imaging modes.
 // v3: `bottomDockHeight` became `bottomDockHeights`, keyed by tool (N13).
 // v4: `bottomDockOpen` became `bottomDockOpenByKey`, keyed the same way (N24).
-const LAYOUT_SETTINGS_PERSIST_VERSION = 4;
+// v5: the Set studio's dock sizes to its Values tab (auto-height); a height
+//     saved before that existed is dropped once so it does not pin the dock.
+const LAYOUT_SETTINGS_PERSIST_VERSION = 5;
 
 /**
  * Migrate persisted layout settings to the current version. v1 stored
@@ -85,6 +87,17 @@ export function migrateLayoutSettings(
     const single = state.bottomDockOpen;
     state.bottomDockOpenByKey = typeof single === 'boolean' ? { imaging: single } : {};
     delete state.bottomDockOpen;
+  }
+  if (version < 5) {
+    // A Set studio height saved before its dock sized itself would hold it
+    // forever (a stored height wins over auto-height). Drop it once; a drag
+    // after this migration is remembered as before.
+    const heights = state.bottomDockHeights;
+    if (heights && typeof heights === 'object' && !Array.isArray(heights)) {
+      const rest = { ...(heights as Record<string, unknown>) };
+      delete rest['set-studio'];
+      state.bottomDockHeights = rest;
+    }
   }
   return state;
 }

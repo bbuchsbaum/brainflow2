@@ -7,10 +7,19 @@ use ndarray::ShapeBuilder;
 use nifti::writer::WriterOptions;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::UNIX_EPOCH;
+
+mod compare_inputs;
+pub use compare_inputs::{
+    clear_compare_cache, DecodedVolume, DecodedVolumeSource, NoDecodedVolumes,
+};
+use compare_inputs::{decode_volume, member_set_stats, MemberSetStats};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -60,9 +69,93 @@ struct RoleInput {
     path: String,
 }
 
+/// One Compare request's inputs: decoded member volumes are memoized for the
+/// request, member-set moments come from the process cache when their sources
+/// are unchanged, and a lent host volume replaces a decode when available.
+struct CompareContext<'a> {
+    source: &'a dyn DecodedVolumeSource,
+    cancel: &'a AtomicBool,
+    decoded: RefCell<HashMap<String, DecodedVolume>>,
+}
+
+impl<'a> CompareContext<'a> {
+    fn new(source: &'a dyn DecodedVolumeSource, cancel: &'a AtomicBool) -> Self {
+        Self {
+            source,
+            cancel,
+            decoded: RefCell::new(HashMap::new()),
+        }
+    }
+
+    fn check_cancel(&self) -> Result<(), String> {
+        compare_inputs::check_cancel(self.cancel)
+    }
+
+    fn stats(
+        &self,
+        paths: &[String],
+        dims_error: &compare_inputs::DimsError,
+    ) -> Result<Arc<MemberSetStats>, String> {
+        member_set_stats(paths, self.source, self.cancel, dims_error)
+    }
+
+    /// One member volume: memoized, then a retained member-set copy, then a
+    /// lent host volume, then the NIfTI loader.
+    fn volume(&self, path: &str) -> Result<DecodedVolume, String> {
+        if let Some(decoded) = self.decoded.borrow().get(path) {
+            return Ok(decoded.clone());
+        }
+        self.check_cancel()?;
+        let decoded = match compare_inputs::retained_member(path) {
+            Some(decoded) => decoded,
+            None => decode_volume(path, self.source)?,
+        };
+        self.decoded
+            .borrow_mut()
+            .insert(path.to_string(), decoded.clone());
+        Ok(decoded)
+    }
+}
+
 pub fn materialize_compare_panes(
     request: StudioCompareMaterializeRequest,
 ) -> Vec<StudioComparePaneSpec> {
+    materialize_compare_panes_with_source(request, &NoDecodedVolumes)
+}
+
+/// As [`materialize_compare_panes`], borrowing already-decoded volumes from
+/// `source` where it has them instead of decoding those files again.
+pub fn materialize_compare_panes_with_source(
+    request: StudioCompareMaterializeRequest,
+    source: &dyn DecodedVolumeSource,
+) -> Vec<StudioComparePaneSpec> {
+    materialize_compare_panes_cancelable(request, source, &AtomicBool::new(false))
+}
+
+/// As [`materialize_compare_panes_with_source`]; once `cancel` is set no
+/// further member is decoded and the remaining panes report cancellation.
+pub fn materialize_compare_panes_cancelable(
+    request: StudioCompareMaterializeRequest,
+    source: &dyn DecodedVolumeSource,
+    cancel: &AtomicBool,
+) -> Vec<StudioComparePaneSpec> {
+    let started = std::time::Instant::now();
+    let ctx = CompareContext::new(source, cancel);
+    let panes = materialize_compare_panes_in(&request, &ctx);
+    log::info!(
+        "[perf] compare panes: {} panes, {} cohort members, {} ms",
+        panes.len(),
+        request.cohort_member_source_paths.len(),
+        started.elapsed().as_millis()
+    );
+    panes
+}
+
+fn materialize_compare_panes_in(
+    request: &StudioCompareMaterializeRequest,
+    ctx: &CompareContext,
+) -> Vec<StudioComparePaneSpec> {
+    let request = request.clone();
     let has_member_path = request
         .active_member_source_path
         .as_ref()
@@ -73,7 +166,7 @@ pub fn materialize_compare_panes(
         build_materialization_key("cohort-mean", &[&request.support_label, cohort_id])
     });
     let cohort_mean_materialization = if cohort_selected && request.compare_ready {
-        materialize_cohort_mean(&request, cohort_mean_key.as_deref())
+        materialize_cohort_mean(&request, cohort_mean_key.as_deref(), ctx)
     } else {
         Err(if !cohort_selected {
             "No cohort selected.".to_string()
@@ -110,6 +203,7 @@ pub fn materialize_compare_panes(
             &request,
             residual_key.as_deref(),
             cohort_mean_live_path.as_deref(),
+            ctx,
         )
     } else {
         Err(if !has_member_path {
@@ -151,6 +245,7 @@ pub fn materialize_compare_panes(
             &request,
             zscore_key.as_deref(),
             cohort_mean_live_path.as_deref(),
+            ctx,
         )
     } else {
         Err(if !has_member_path {
@@ -299,12 +394,13 @@ pub fn materialize_compare_panes(
             )),
         },
     ];
-    panes.extend(materialize_reducer_panes(&request));
+    panes.extend(materialize_reducer_panes(&request, ctx));
     panes
 }
 
 fn materialize_reducer_panes(
     request: &StudioCompareMaterializeRequest,
+    ctx: &CompareContext,
 ) -> Vec<StudioComparePaneSpec> {
     let specs = request.reducer_specs.as_deref().unwrap_or(&[]);
     specs
@@ -312,7 +408,7 @@ fn materialize_reducer_panes(
         .map(|spec| {
             let materialization_key = Some(reducer_materialization_key(request, spec));
             let materialization = if request.compare_ready {
-                materialize_reducer(request, spec, materialization_key.as_deref())
+                materialize_reducer(request, spec, materialization_key.as_deref(), ctx)
             } else {
                 Err("Set ingest audit does not yet permit compare-safe reductions.".to_string())
             };
@@ -346,6 +442,7 @@ fn materialize_reducer(
     request: &StudioCompareMaterializeRequest,
     spec: &StudioReducerSpec,
     materialization_key: Option<&str>,
+    ctx: &CompareContext,
 ) -> Result<StudioCompareMaterializationRecord, String> {
     let role_inputs = resolve_role_inputs(request, spec)?;
     let materialization_key = materialization_key
@@ -369,19 +466,72 @@ fn materialize_reducer(
         return Ok(record);
     }
 
-    let (volumes, dims, reference_source_path) = load_role_input_values(&role_inputs)?;
-    let data = match spec.kind {
-        StudioReducerKind::Mean | StudioReducerKind::LeaveOneOutMean => mean_values(&volumes)?,
-        StudioReducerKind::Sd => sd_values(&volumes)?,
+    let paths: Vec<String> = role_inputs.iter().map(|input| input.path.clone()).collect();
+    let role_dims_error = |path: &str, actual: &[usize], expected: &[usize]| {
+        format!(
+            "Role input {} has dims {:?}, expected {:?}.",
+            path, actual, expected
+        )
     };
+    let leave_one_out = matches!(spec.kind, StudioReducerKind::LeaveOneOutMean);
+    // A leave-one-out mean over a retained member set reduces the retained
+    // values (bit-exact, no decode). Past the values budget it is downdated
+    // from the full set's cached moments and the left-out member's values.
+    let retained = if leave_one_out {
+        compare_inputs::retained_set(&paths)
+    } else {
+        None
+    };
+    if leave_one_out && retained.is_none() {
+        if let Some(data) = leave_one_out_by_downdate(request, spec, &role_inputs, ctx)? {
+            let (data, dims) = data;
+            write_f32_nifti(&cache_plan.output_path, &dims, &role_inputs[0].path, &data)
+                .map_err(|error| format!("Failed to write reducer NIfTI: {}", error))?;
+            write_cache_manifest(&cache_plan.manifest_path, &cache_plan.manifest)?;
+            return Ok(StudioCompareMaterializationRecord {
+                output_path: cache_plan.output_path.to_string_lossy().into_owned(),
+                cache_status: cache_plan.cache_status,
+                cache_message: cache_plan.cache_message,
+                provenance_path: Some(cache_plan.manifest_path.to_string_lossy().into_owned()),
+            });
+        }
+    }
+    let stats;
+    let reduced;
+    let (moments, dims) = match retained {
+        Some(values) => {
+            let first = &values[0];
+            let mut moments = crate::population::CompactMoments::new(first.values.len());
+            for (input, decoded) in role_inputs.iter().zip(&values) {
+                ctx.check_cancel()?;
+                validate_grid_affines(&first.affine, &decoded.affine)
+                    .map_err(|error| format!("{} ({})", error, input.path))?;
+                if decoded.dims != first.dims {
+                    return Err(role_dims_error(&input.path, &decoded.dims, &first.dims));
+                }
+                moments
+                    .push(&decoded.values)
+                    .map_err(|error| error.to_string())?;
+            }
+            reduced = moments;
+            (&reduced, first.dims.clone())
+        }
+        None => {
+            stats = ctx.stats(&paths, &role_dims_error)?;
+            (&stats.moments, stats.dims.clone())
+        }
+    };
+    let data = (0..moments.len())
+        .map(|index| {
+            summary_to_f32(match spec.kind {
+                StudioReducerKind::Mean | StudioReducerKind::LeaveOneOutMean => moments.mean(index),
+                StudioReducerKind::Sd => moments.sample_sd(index),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
-    write_f32_nifti(
-        &cache_plan.output_path,
-        &dims,
-        &reference_source_path,
-        &data,
-    )
-    .map_err(|error| format!("Failed to write reducer NIfTI: {}", error))?;
+    write_f32_nifti(&cache_plan.output_path, &dims, &role_inputs[0].path, &data)
+        .map_err(|error| format!("Failed to write reducer NIfTI: {}", error))?;
     write_cache_manifest(&cache_plan.manifest_path, &cache_plan.manifest)?;
 
     Ok(StudioCompareMaterializationRecord {
@@ -390,6 +540,73 @@ fn materialize_reducer(
         cache_message: cache_plan.cache_message,
         provenance_path: Some(cache_plan.manifest_path.to_string_lossy().into_owned()),
     })
+}
+
+/// Leave-one-out mean from the full role set's moments (shared with SD and
+/// cached across pages) and the left-out member's values. `None` when the
+/// exclusion is not exactly one member of the full set.
+#[allow(clippy::type_complexity)] // (values, dims)
+fn leave_one_out_by_downdate(
+    request: &StudioCompareMaterializeRequest,
+    spec: &StudioReducerSpec,
+    loo_inputs: &[RoleInput],
+    ctx: &CompareContext,
+) -> Result<Option<(Vec<f32>, Vec<usize>)>, String> {
+    let full_spec = StudioReducerSpec {
+        kind: StudioReducerKind::Mean,
+        excluded_member_id: None,
+        ..spec.clone()
+    };
+    let full = resolve_role_inputs(request, &full_spec)?;
+    let left_out: Vec<&RoleInput> = full
+        .iter()
+        .filter(|input| {
+            !loo_inputs
+                .iter()
+                .any(|kept| kept.member_id == input.member_id)
+        })
+        .collect();
+    let kept_in_order = full
+        .iter()
+        .filter(|input| {
+            loo_inputs
+                .iter()
+                .any(|kept| kept.member_id == input.member_id)
+        })
+        .map(|input| &input.path)
+        .eq(loo_inputs.iter().map(|input| &input.path));
+    let [left_out] = left_out.as_slice() else {
+        return Ok(None);
+    };
+    if !kept_in_order {
+        return Ok(None);
+    }
+    let paths: Vec<String> = full.iter().map(|input| input.path.clone()).collect();
+    let stats =
+        ctx.stats(&paths, &|path: &str,
+                            actual: &[usize],
+                            expected: &[usize]| {
+            format!(
+                "Role input {} has dims {:?}, expected {:?}.",
+                path, actual, expected
+            )
+        })?;
+    let member = ctx.volume(&left_out.path)?;
+    validate_grid_affines(&stats.affine, &member.affine)
+        .map_err(|error| format!("{} ({})", error, left_out.path))?;
+    if member.dims != stats.dims {
+        return Err(format!(
+            "Role input {} has dims {:?}, expected {:?}.",
+            left_out.path, member.dims, stats.dims
+        ));
+    }
+    let data = member
+        .values
+        .iter()
+        .enumerate()
+        .map(|(index, &value)| summary_to_f32(stats.moments.mean_without(index, value)))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Some((data, stats.dims.clone())))
 }
 
 fn resolve_role_inputs(
@@ -528,52 +745,6 @@ fn resolve_legacy_role_inputs(
     Ok(paths)
 }
 
-// Returns (per-input values, shared dims, reference path); a named alias adds no clarity here.
-#[allow(clippy::type_complexity)]
-fn load_role_input_values(
-    inputs: &[RoleInput],
-) -> Result<(Vec<Vec<f32>>, Vec<usize>, String), String> {
-    let mut all_values = Vec::new();
-    let mut dims: Option<Vec<usize>> = None;
-    let mut reference_source_path = None;
-    let mut reference_affine: Option<Vec<f32>> = None;
-    for input in inputs {
-        let (volume, affine) = nifti_loader::load_nifti_volume_auto(Path::new(&input.path))
-            .map_err(|error| format!("Failed to load {}: {}", input.path, error))?;
-        let affine = affine.to_homogeneous();
-        validate_grid_affines(
-            reference_affine.as_deref().unwrap_or(affine.as_slice()),
-            affine.as_slice(),
-        )
-        .map_err(|error| format!("{} ({})", error, input.path))?;
-        if reference_affine.is_none() {
-            reference_affine = Some(affine.as_slice().to_vec());
-        }
-        let (values, volume_dims) = extract_volume_values(&volume)
-            .map_err(|error| format!("{} ({})", error, input.path))?;
-        match &dims {
-            Some(expected_dims) if expected_dims != &volume_dims => {
-                return Err(format!(
-                    "Role input {} has dims {:?}, expected {:?}.",
-                    input.path, volume_dims, expected_dims
-                ));
-            }
-            None => {
-                dims = Some(volume_dims);
-                reference_source_path = Some(input.path.clone());
-            }
-            _ => {}
-        }
-        all_values.push(values);
-    }
-    Ok((
-        all_values,
-        dims.ok_or_else(|| "Missing dimensions for reducer inputs.".to_string())?,
-        reference_source_path
-            .ok_or_else(|| "Missing reference source path for reducer inputs.".to_string())?,
-    ))
-}
-
 /// Indexed reductions require matching world frames as well as dimensions.
 /// The absolute tolerance is for header float rounding, never registration.
 /// The comparison is `nifti_loader::affines_match` (1e-5 on the 3×3 block,
@@ -605,10 +776,12 @@ fn validate_grid_affines(reference: &[f32], candidate: &[f32]) -> Result<(), Str
     Ok(())
 }
 
+#[cfg(test)]
 fn mean_values(volumes: &[Vec<f32>]) -> Result<Vec<f32>, String> {
     reduce_population_values(volumes, |summary| summary.mean)
 }
 
+#[cfg(test)]
 fn sd_values(volumes: &[Vec<f32>]) -> Result<Vec<f32>, String> {
     reduce_population_values(volumes, |summary| summary.sample_sd)
 }
@@ -622,6 +795,7 @@ fn summary_to_f32(value: Option<f64>) -> Result<f32, String> {
 }
 
 /// Bound numerical scratch space independently of the full export grid.
+#[cfg(test)]
 fn reduce_population_values(
     volumes: &[Vec<f32>],
     select: impl Fn(crate::population::LocationSummary) -> Option<f64>,
@@ -1099,6 +1273,7 @@ fn derived_binding(
 fn materialize_cohort_mean(
     request: &StudioCompareMaterializeRequest,
     materialization_key: Option<&str>,
+    ctx: &CompareContext,
 ) -> Result<StudioCompareMaterializationRecord, String> {
     let mut candidate_paths: Vec<String> = request
         .cohort_member_source_paths
@@ -1135,67 +1310,20 @@ fn materialize_cohort_mean(
         return Ok(record);
     }
 
-    let mut moments: Option<crate::population::MeanField> = None;
-    let mut dims: Option<Vec<usize>> = None;
-    let mut reference_source_path: Option<&str> = None;
-    let mut reference_affine: Option<Vec<f32>> = None;
-    let mut used_paths = 0usize;
-
-    for source_path in &candidate_paths {
-        let path = Path::new(source_path);
-        let (volume, affine) = nifti_loader::load_nifti_volume_auto(path)
-            .map_err(|error| format!("Failed to load {}: {}", source_path, error))?;
-        let affine = affine.to_homogeneous();
-        validate_grid_affines(
-            reference_affine.as_deref().unwrap_or(affine.as_slice()),
-            affine.as_slice(),
+    let stats = ctx.stats(&candidate_paths, &|path, actual, expected| {
+        format!(
+            "Cohort member {} has dims {:?}, expected {:?}.",
+            path, actual, expected
         )
-        .map_err(|error| format!("{} ({})", error, source_path))?;
-        if reference_affine.is_none() {
-            reference_affine = Some(affine.as_slice().to_vec());
-        }
-        let (values, volume_dims) = extract_volume_values(&volume)
-            .map_err(|error| format!("{} ({})", error, source_path))?;
-
-        match &dims {
-            Some(existing_dims) if existing_dims != &volume_dims => {
-                return Err(format!(
-                    "Cohort member {} has dims {:?}, expected {:?}.",
-                    source_path, volume_dims, existing_dims
-                ));
-            }
-            None => {
-                dims = Some(volume_dims.clone());
-                reference_source_path = Some(source_path.as_str());
-                moments = Some(crate::population::MeanField::new(values.len()));
-            }
-            _ => {}
-        }
-
-        if let Some(moments) = moments.as_mut() {
-            moments.push(&values).map_err(|error| error.to_string())?;
-        }
-        used_paths += 1;
-    }
-
-    if used_paths == 0 {
-        return Err("No cohort members could be loaded for the cohort mean.".to_string());
-    }
-
-    let moments =
-        moments.ok_or_else(|| "Cohort mean accumulation never initialized.".to_string())?;
-    let mean_data = moments
-        .means()
-        .map(summary_to_f32)
+    })?;
+    let mean_data = (0..stats.moments.len())
+        .map(|index| summary_to_f32(stats.moments.mean(index)))
         .collect::<Result<Vec<_>, _>>()?;
-    drop(moments);
-
-    let dims = dims.ok_or_else(|| "Missing dimensions for cohort mean.".to_string())?;
-    let reference_source_path = reference_source_path
-        .ok_or_else(|| "Missing reference source path for cohort mean.".to_string())?;
+    let dims = &stats.dims;
+    let reference_source_path = stats.reference_path.as_str();
     write_f32_nifti(
         &cache_plan.output_path,
-        &dims,
+        dims,
         reference_source_path,
         &mean_data,
     )
@@ -1214,6 +1342,7 @@ fn materialize_residual(
     request: &StudioCompareMaterializeRequest,
     materialization_key: Option<&str>,
     cohort_mean_path: Option<&str>,
+    ctx: &CompareContext,
 ) -> Result<StudioCompareMaterializationRecord, String> {
     let member_source_path = request
         .active_member_source_path
@@ -1262,30 +1391,34 @@ fn materialize_residual(
         return Ok(record);
     }
 
-    let (member_volume, member_affine) =
-        nifti_loader::load_nifti_volume_auto(Path::new(member_source_path)).map_err(|error| {
-            format!(
-                "Failed to load member source {}: {}",
-                member_source_path, error
-            )
-        })?;
-    let (cohort_mean_volume, mean_affine) =
-        nifti_loader::load_nifti_volume_auto(Path::new(cohort_mean_path)).map_err(|error| {
-            format!(
-                "Failed to load cached cohort mean {}: {}",
-                cohort_mean_path, error
-            )
-        })?;
+    let member = ctx.volume(member_source_path)?;
+    // The cohort mean as the cached artifact stores it (f32): from the member
+    // set's moments when they are already in memory, else the artifact itself.
+    let (cohort_values, cohort_affine, cohort_dims) =
+        match compare_inputs::cached_stats(&cohort_paths) {
+            Some(stats) => (
+                Arc::new(
+                    (0..stats.moments.len())
+                        .map(|index| summary_to_f32(stats.moments.mean(index)))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                stats.affine.clone(),
+                stats.dims.clone(),
+            ),
+            None => {
+                let mean = decode_volume(cohort_mean_path, &NoDecodedVolumes).map_err(|error| {
+                    format!(
+                        "Failed to load cached cohort mean {}: {}",
+                        cohort_mean_path, error
+                    )
+                })?;
+                (mean.values, mean.affine, mean.dims)
+            }
+        };
 
-    validate_grid_affines(
-        member_affine.to_homogeneous().as_slice(),
-        mean_affine.to_homogeneous().as_slice(),
-    )?;
-    let (member_values, member_dims) = extract_volume_values(&member_volume)
-        .map_err(|error| format!("{} ({})", error, member_source_path))?;
-    let (cohort_values, cohort_dims) = extract_volume_values(&cohort_mean_volume)
-        .map_err(|error| format!("{} ({})", error, cohort_mean_path))?;
-    if member_dims != cohort_dims {
+    validate_grid_affines(&member.affine, &cohort_affine)?;
+    let (member_values, member_dims) = (&member.values, &member.dims);
+    if *member_dims != cohort_dims {
         return Err(format!(
             "Residual inputs have mismatched dims {:?} vs {:?}.",
             member_dims, cohort_dims
@@ -1299,7 +1432,7 @@ fn materialize_residual(
         .collect();
     write_f32_nifti(
         &cache_plan.output_path,
-        &member_dims,
+        member_dims,
         member_source_path,
         &residual_data,
     )
@@ -1318,6 +1451,7 @@ fn materialize_zscore(
     request: &StudioCompareMaterializeRequest,
     materialization_key: Option<&str>,
     cohort_mean_path: Option<&str>,
+    ctx: &CompareContext,
 ) -> Result<StudioCompareMaterializationRecord, String> {
     let member_source_path = request
         .active_member_source_path
@@ -1325,7 +1459,8 @@ fn materialize_zscore(
         .map(str::trim)
         .filter(|path| !path.is_empty())
         .ok_or_else(|| "No active member source path was provided.".to_string())?;
-    let cohort_mean_path = cohort_mean_path
+    // Z-scores reduce the members directly; the mean artifact must exist.
+    cohort_mean_path
         .map(str::trim)
         .filter(|path| !path.is_empty())
         .ok_or_else(|| "No cohort mean path was provided.".to_string())?;
@@ -1363,72 +1498,31 @@ fn materialize_zscore(
         return Ok(record);
     }
 
-    let (member_volume, member_affine) =
-        nifti_loader::load_nifti_volume_auto(Path::new(member_source_path)).map_err(|error| {
-            format!(
-                "Failed to load member source {}: {}",
-                member_source_path, error
-            )
-        })?;
-    let (cohort_mean_volume, mean_affine) =
-        nifti_loader::load_nifti_volume_auto(Path::new(cohort_mean_path)).map_err(|error| {
-            format!(
-                "Failed to load cached cohort mean {}: {}",
-                cohort_mean_path, error
-            )
-        })?;
-
-    validate_grid_affines(
-        member_affine.to_homogeneous().as_slice(),
-        mean_affine.to_homogeneous().as_slice(),
-    )?;
-    let (member_values, member_dims) = extract_volume_values(&member_volume)
-        .map_err(|error| format!("{} ({})", error, member_source_path))?;
-    let (_, cohort_mean_dims) = extract_volume_values(&cohort_mean_volume)
-        .map_err(|error| format!("{} ({})", error, cohort_mean_path))?;
-    if member_dims != cohort_mean_dims {
+    let member = ctx.volume(member_source_path)?;
+    let stats = ctx.stats(&cohort_paths, &|path, actual, expected| {
+        format!(
+            "Cohort variance input {} has dims {:?}, expected {:?}.",
+            path, actual, expected
+        )
+    })?;
+    validate_grid_affines(&member.affine, &stats.affine)
+        .map_err(|error| format!("{} ({})", error, stats.reference_path))?;
+    let (member_values, member_dims) = (&member.values, &member.dims);
+    if *member_dims != stats.dims {
         return Err(format!(
             "Z-score inputs have mismatched dims {:?} vs {:?}.",
-            member_dims, cohort_mean_dims
+            member_dims, stats.dims
         ));
-    }
-
-    let mut moments = crate::population::FieldMoments::new(member_values.len(), 0.0)
-        .map_err(|error| error.to_string())?;
-    let mut cohort_count = 0usize;
-    for cohort_path in &cohort_paths {
-        let (cohort_volume, cohort_affine) =
-            nifti_loader::load_nifti_volume_auto(Path::new(cohort_path)).map_err(|error| {
-                format!("Failed to load cohort member {}: {}", cohort_path, error)
-            })?;
-        validate_grid_affines(
-            member_affine.to_homogeneous().as_slice(),
-            cohort_affine.to_homogeneous().as_slice(),
-        )
-        .map_err(|error| format!("{} ({})", error, cohort_path))?;
-        let (cohort_values, cohort_dims) = extract_volume_values(&cohort_volume)
-            .map_err(|error| format!("{} ({})", error, cohort_path))?;
-        if cohort_dims != member_dims {
-            return Err(format!(
-                "Cohort variance input {} has dims {:?}, expected {:?}.",
-                cohort_path, cohort_dims, member_dims
-            ));
-        }
-        moments
-            .push(&cohort_values, None)
-            .map_err(|error| error.to_string())?;
-        cohort_count += 1;
-    }
-
-    if cohort_count == 0 {
-        return Err("No cohort members could be loaded for the z-score.".to_string());
     }
 
     let zscore_data: Vec<f32> = member_values
         .iter()
-        .zip(moments.summaries())
-        .map(|(member, summary)| {
-            let value = match (summary.mean, summary.population_sd) {
+        .enumerate()
+        .map(|(index, member)| {
+            let value = match (
+                stats.moments.mean(index),
+                stats.moments.population_sd(index),
+            ) {
                 (Some(mean), Some(sd)) if member.is_finite() && sd > 0.0 => {
                     Some((f64::from(*member) - mean) / sd)
                 }
@@ -1439,7 +1533,7 @@ fn materialize_zscore(
         .collect::<Result<Vec<_>, _>>()?;
     write_f32_nifti(
         &cache_plan.output_path,
-        &member_dims,
+        member_dims,
         member_source_path,
         &zscore_data,
     )
@@ -1516,6 +1610,9 @@ fn write_f32_nifti(
         .write_nifti(&array)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod compare_tests;
 
 #[cfg(test)]
 mod population_reducers {

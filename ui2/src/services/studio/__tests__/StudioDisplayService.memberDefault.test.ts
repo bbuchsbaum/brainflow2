@@ -5,13 +5,25 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { StudioDisplayService } from '../StudioDisplayService';
-import { studioMapDisplay } from '../studioMapDisplay';
+import { useSetStudioStore } from '@/stores/setStudioStore';
+import {
+  clearStudioPopulationScales,
+  setStudioPopulationScale,
+  studioMapDisplay,
+  STUDIO_SIGNED_ALPHA_MOD,
+  STUDIO_SIGNED_OPACITY,
+} from '../studioMapDisplay';
 
 const TEMPLATE = 'template:MNI152NLin2009cAsym_T1w_1mm';
 const M1 = '/set/sub-1001_rsa_coef.nii.gz';
 const M2 = '/set/sub-1002_rsa_coef.nii.gz';
 const M3 = '/set/sub-1003_rsa_coef.nii.gz';
 const SET = [M1, M2, M3];
+const SET_ID = 'set-a';
+/** The Studio's active set: the population limit is looked up under it. */
+function activateSet(id: string | null) {
+  useSetStudioStore.setState((state) => ({ selection: { ...state.selection, activeSetId: id } }));
+}
 
 type Range = { min: number; max: number };
 type MockLayer = { id: string; sourcePath?: string | null; visible: boolean; name?: string; type?: string; source?: string };
@@ -137,7 +149,7 @@ describe('the member layer follows the Studio map rule by default', () => {
     // The member that drew grey: −0.02 … 0.0034.
     await service.ensureSourcePathDisplayed(M2, SET);
     expect(shown(idFor(M2))).toEqual(rule(RANGES[M2], { limit: 0.0145 }));
-    expect(shown(idFor(M2))).toMatchObject({ colormap: 'fmri', intensity: [-0.0145, 0.0145] });
+    expect(shown(idFor(M2))).toMatchObject({ colormap: 'cold_hot', intensity: [-0.0145, 0.0145] });
     expect(view(idFor(M2)).threshold[1]).toBeCloseTo(0.00145, 12);
     // One histogram, asked for with the kind the rule gives the data.
     expect(h.fetchLimit).toHaveBeenCalledTimes(1);
@@ -196,7 +208,7 @@ describe('the member layer follows the Studio map rule by default', () => {
     expect(layerState.layers.find((layer) => layer.id === idFor(M1))?.visible).toBe(false);
     expect(layerState.layers.find((layer) => layer.id === idFor(M2))?.visible).toBe(true);
     expect(view(idFor(M1)).colormap).toBe('gray');
-    expect(view(idFor(M2)).colormap).toBe('fmri');
+    expect(view(idFor(M2)).colormap).toBe('cold_hot');
   });
 });
 
@@ -234,6 +246,32 @@ describe('the default never fights the user', () => {
     expect(shown(idFor(M1))).toEqual(mine);
   });
 
+  it('an opacity ramp the user changed counts as their display: the default is not rewritten over it', async () => {
+    const service = new StudioDisplayService();
+    await service.ensureSourcePathDisplayed(M1, SET);
+    expect((view(idFor(M1)) as { alphaMod?: unknown }).alphaMod).toEqual(STUDIO_SIGNED_ALPHA_MOD);
+    const before = shown(idFor(M1));
+    const mine = { mode: 'linear' as const, gamma: 1, center: 0 };
+    (view(idFor(M1)) as { alphaMod?: unknown }).alphaMod = mine;
+    expect(service.isStudioMap(idFor(M1))).toBe(true);
+    // A group mean beside it would widen a default; this is no longer one.
+    service.setCompareMeanLimit(0.5);
+    expect(shown(idFor(M1))).toEqual(before);
+    expect((view(idFor(M1)) as { alphaMod?: unknown }).alphaMod).toEqual(mine);
+  });
+
+  it('a flat (sequential) default removes a ramp left on the layer', async () => {
+    h.loadFile.mockImplementationOnce(async (path: string) => {
+      addLayer(idFor(path), path);
+      (view(idFor(path)) as { alphaMod?: unknown }).alphaMod = { ...STUDIO_SIGNED_ALPHA_MOD };
+    });
+    const service = new StudioDisplayService();
+    await service.ensureSourcePathDisplayed(M3, SET);
+    expect(view(idFor(M3)).colormap).not.toBe('gray');
+    expect(view(idFor(M3)).intensity[0]).toBeGreaterThanOrEqual(0);
+    expect('alphaMod' in view(idFor(M3))).toBe(false);
+  });
+
   it('a layer the user opened themselves is left as it is, on first show and when paged to', async () => {
     addLayer('user-m2', M2);
     const before = shown('user-m2');
@@ -247,7 +285,7 @@ describe('the default never fights the user', () => {
     layerState.layers.find((layer) => layer.id === 'user-m2')!.visible = false;
     const fresh = new StudioDisplayService();
     await fresh.ensureSourcePathDisplayed(M1, SET);
-    expect(view(idFor(M1)).colormap).toBe('fmri');
+    expect(view(idFor(M1)).colormap).toBe('cold_hot');
     await fresh.ensureSourcePathDisplayed(M2, SET);
     expect(shown('user-m2')).toEqual(before);
     // The user's layer's own display is carried on, as before.
@@ -273,20 +311,134 @@ describe('the member and the group mean beside it (Compare A and B)', () => {
   });
 });
 
+describe('the member on the population scale of its set (Subject lens, Subject vs mean)', () => {
+  it('a member of a set the Population lens drew takes that limit, not its own robust one', async () => {
+    clearStudioPopulationScales();
+    activateSet(SET_ID);
+    try {
+      setStudioPopulationScale(SET_ID, SET, 0.0145);
+      const service = new StudioDisplayService();
+      // Its own histogram says 0.012; the population scale of the set is 0.0145.
+      await service.ensureSourcePathDisplayed(M1, SET);
+      expect(shown(idFor(M1))).toEqual(rule(RANGES[M1], { limit: 0.0145 }));
+      // Every member of the set: one scale, not one that only widens.
+      await service.ensureSourcePathDisplayed(M2, SET);
+      expect(shown(idFor(M2))).toEqual(rule(RANGES[M2], { limit: 0.0145 }));
+    } finally {
+      clearStudioPopulationScales();
+    }
+  });
+
+  it('before Population has drawn, the set\'s limit is measured and the member is drawn on it from the first write', async () => {
+    clearStudioPopulationScales();
+    activateSet(SET_ID);
+    try {
+      const service = new StudioDisplayService();
+      const measure = vi.fn(async () => {
+        setStudioPopulationScale(SET_ID, SET, 0.0217);
+        return 0.0217;
+      });
+      service.populationScaleSource = measure;
+      await service.ensureSourcePathDisplayed(M1, SET);
+      expect(measure).toHaveBeenCalledTimes(1);
+      // Never its own robust 0.012: the population scale, as Population will draw it.
+      expect(shown(idFor(M1))).toEqual(rule(RANGES[M1], { limit: 0.0217 }));
+      // Known now: the next member asks nothing.
+      await service.ensureSourcePathDisplayed(M2, SET);
+      expect(measure).toHaveBeenCalledTimes(1);
+      expect(shown(idFor(M2))).toEqual(rule(RANGES[M2], { limit: 0.0217 }));
+    } finally {
+      clearStudioPopulationScales();
+    }
+  });
+
+  it('a population limit drawn later re-scales a member still at its default, never one the user set', async () => {
+    clearStudioPopulationScales();
+    activateSet(SET_ID);
+    try {
+      const service = StudioDisplayService.getInstance();
+      await service.ensureSourcePathDisplayed(M1, SET);
+      expect(shown(idFor(M1))).toEqual(rule(RANGES[M1], { limit: 0.012 }));
+      setStudioPopulationScale(SET_ID, SET, 0.0217);
+      expect(shown(idFor(M1))).toEqual(rule(RANGES[M1], { limit: 0.0217 }));
+      edit(idFor(M1), { intensity: [-0.5, 0.5] });
+      setStudioPopulationScale(SET_ID, SET, 0.03);
+      expect(view(idFor(M1)).intensity).toEqual([-0.5, 0.5]);
+    } finally {
+      clearStudioPopulationScales();
+    }
+  });
+});
+
+describe('the population limit registry is keyed by set and cleared with its session', () => {
+  it("another set's limit for the same file does not apply", async () => {
+    clearStudioPopulationScales();
+    activateSet('set-b');
+    try {
+      setStudioPopulationScale(SET_ID, SET, 0.0145);
+      const service = new StudioDisplayService();
+      await service.ensureSourcePathDisplayed(M1, SET);
+      // set-b's member: its own robust limit, not set-a's population scale.
+      expect(shown(idFor(M1))).toEqual(rule(RANGES[M1], { limit: 0.012 }));
+    } finally {
+      clearStudioPopulationScales();
+      activateSet(null);
+    }
+  });
+
+  it('forgets limits on a session reset, a removed set and a Studio release', async () => {
+    const { studioPopulationScale } = await import('../studioMapDisplay');
+    clearStudioPopulationScales();
+    setStudioPopulationScale(SET_ID, SET, 0.02);
+    setStudioPopulationScale('set-b', [{ sourcePath: M1, stackIndex: 2 }], 0.03);
+    expect(studioPopulationScale(SET_ID, M1)).toBe(0.02);
+    expect(studioPopulationScale('set-b', M1, 2)).toBe(0.03);
+    expect(studioPopulationScale('set-b', M1)).toBeNull();
+    // A set removed from the store takes its limits with it.
+    useSetStudioStore.setState((state) => ({
+      sets: { ...state.sets, [SET_ID]: {} as never, 'set-b': {} as never },
+    }));
+    useSetStudioStore.setState((state) => {
+      const rest = { ...state.sets };
+      delete rest[SET_ID];
+      return { sets: rest };
+    });
+    expect(studioPopulationScale(SET_ID, M1)).toBeNull();
+    expect(studioPopulationScale('set-b', M1, 2)).toBe(0.03);
+    // A session reset forgets every set's.
+    useSetStudioStore.getState().loadDemoSession();
+    expect(studioPopulationScale('set-b', M1, 2)).toBeNull();
+    // Releasing the Studio's layers does too.
+    setStudioPopulationScale(SET_ID, SET, 0.02);
+    await new StudioDisplayService().releaseStudioLayers();
+    expect(studioPopulationScale(SET_ID, M1)).toBeNull();
+    useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
+  });
+});
+
 describe('opacity and leaving the Studio', () => {
-  it('a member the rule draws is opaque over the template, as the computed panes draw their maps', async () => {
+  it('a member the rule draws carries the Population opacity ramp over the template, as the computed panes do', async () => {
     const service = new StudioDisplayService();
     await service.ensureSourcePathDisplayed(M2, SET);
     await service.syncBackground(TEMPLATE);
     expect(service.isStudioMap(idFor(M2))).toBe(true);
-    expect(view(idFor(M2)).opacity).toBe(1);
+    // A signed map: the ramp's peak opacity (0.9) with alpha rising with |v|
+    // (gamma 0.5, the shader's closest to Population's 0.35 → 0.9); an
+    // unsigned map is opaque, its hidden band letting the anatomy through.
+    const ramped = (id: string) => {
+      const layer = view(id);
+      const signed = layer.intensity[0] < 0;
+      expect(layer.opacity).toBe(signed ? STUDIO_SIGNED_OPACITY : 1);
+      if (signed) expect(layer.alphaMod).toEqual(STUDIO_SIGNED_ALPHA_MOD);
+    };
+    ramped(idFor(M2));
     expect(view(idFor(TEMPLATE)).opacity).toBe(1);
     // Paged to with the template on: the same. An all-positive map too,
     // which the stack rule alone would open translucent as an image.
     await service.ensureSourcePathDisplayed(M1, SET);
-    expect(view(idFor(M1)).opacity).toBe(1);
+    ramped(idFor(M1));
     await service.ensureSourcePathDisplayed(M3, SET);
-    expect(view(idFor(M3)).opacity).toBe(1);
+    ramped(idFor(M3));
     // An anatomy-like member keeps the stack rule's opacity.
     const T1 = '/anat/sub-01_T1w.nii.gz';
     h.loadFile.mockImplementationOnce(async (path: string) => addLayer(idFor(path), path, { min: 0, max: 1.7 }));

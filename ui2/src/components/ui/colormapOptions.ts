@@ -16,6 +16,14 @@ export const colormaps: ColormapOption[] = [
   { name: 'turbo', label: 'Turbo', gradient: 'linear-gradient(to right, #30123b, #4454c4, #1fc9de, #72f91e, #fde725, #c42503)' },
   { name: 'pet', label: 'PET Hot Metal', gradient: 'linear-gradient(to right, #000000, #5a0000, #ff0000, #ffff00, #ffffff)' },
   { name: 'fmri', label: 'fMRI Red-Blue', gradient: 'linear-gradient(to right, #0000ff, #ffffff, #ff0000)' },
+  {
+    name: 'cold_hot',
+    label: 'Cold-hot',
+    // Dark-centred: light cyan at −max, dark near zero, yellow at +max
+    // (core/colormap COLD_HOT; the Set studio's population ramp).
+    gradient:
+      'linear-gradient(to right, #96e1ff, #286eeb, #192d78 45%, #781419 55%, #e6461e, #ffeb6e)',
+  },
   { name: 'jet', label: 'Jet', gradient: 'linear-gradient(to right, #000080, #0000ff, #00ffff, #ffff00, #ff0000, #800000)' },
   { name: 'parula', label: 'Parula', gradient: 'linear-gradient(to right, #352a87, #0363e1, #1485d4, #06a7c6, #38b99e, #92bf73, #d9ba56, #fcce2e, #f9fb0e)' },
   { name: 'hsv', label: 'HSV', gradient: 'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)' },
@@ -44,6 +52,7 @@ const COLORMAP_NAME_TO_ID: Record<string, number> = {
   parula: 11,
   hsv: 12,
   phase: 13,
+  cold_hot: 14,
 };
 
 /**

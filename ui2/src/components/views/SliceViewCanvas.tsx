@@ -483,6 +483,7 @@ function SliceViewCanvasBody({
     group: colorbarGroup,
     compactOnImageBelow = 0,
     offImage: colorbarOffImage = false,
+    hidden: colorbarHidden = false,
   } = useColorbarGroup();
   const sideLetterY = (canvasHeight + SLIDER_HEIGHT) / 2;
   // The block's forms, measured once per layer (review W4) and with the same
@@ -495,7 +496,7 @@ function SliceViewCanvasBody({
     [colorbarLayer],
   );
   const colorbarFit = useMemo(() => {
-    if (!hasLayers || !colorbarForms || !frameImageRect) return null;
+    if (colorbarHidden || !hasLayers || !colorbarForms || !frameImageRect) return null;
     // The same inputs the colorbar itself places with (review S5).
     const placed = placeColorbarBlock(
       {
@@ -529,6 +530,7 @@ function SliceViewCanvasBody({
     sideLetterY,
     compactOnImageBelow,
     colorbarOffImage,
+    colorbarHidden,
   ]);
   // While a resize or zoom runs (a splitter drag) the colorbar holds its
   // slot and its view; it chooses again once quiet (the image and the pane
@@ -855,7 +857,7 @@ function SliceViewCanvasBody({
             rangeMm={headerRangeMm}
           />
         )}
-        {showColorbar && colorbarLayer && !colorbarBelow && (
+        {showColorbar && colorbarLayer && !colorbarBelow && !colorbarHidden && (
           <ViewportColorbar
             layer={colorbarLayer}
             width={width}
@@ -917,7 +919,7 @@ function SliceViewCanvasBody({
               onChange={handleSliderChange}
             />
           </div>
-          {showColorbar && colorbarLayer && colorbarBelow && (
+          {showColorbar && colorbarLayer && colorbarBelow && !colorbarHidden && (
             <ViewportColorbarStrip layer={colorbarLayer} rowWidth={width} />
           )}
         </div>

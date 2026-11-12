@@ -66,11 +66,7 @@ const lensProps = {
   onSelectMember: () => {},
   onSelectCohort: () => {},
   onDrillToCohort: () => {},
-  onOpenComparePane: () => {},
-  onInspectComparePane: () => {},
   onRecomputeComparePane: () => {},
-  onInspectCurrentArtifact: () => {},
-  onOpenCurrentSource: () => {},
   onOpenCompareView: () => {},
   onClearScope: () => {},
 };

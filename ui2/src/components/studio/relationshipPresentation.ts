@@ -8,6 +8,7 @@ import {
   type PopulationOrientation,
 } from '@/services/studio/PopulationSliceService';
 import type { RelationshipFit } from '@/services/studio/PopulationRelationshipService';
+import { shortImageNames } from '@/services/studio/designPanelModel';
 import type { ViewPlane } from '@/types/coordinates';
 
 /** The peek's own slice: where it is and which plane it shows. */
@@ -38,9 +39,12 @@ export function relationshipDistanceScale(fit: RelationshipFit): number {
   return max;
 }
 
-/** The declared distance, as a column header. */
+/**
+ * The declared distance in full: the measure's one name with its formula
+ * ("correlation (√(2−2r))"), as captions, tooltips and screen readers say it.
+ */
 export function distanceDefinition(distance: RelationshipFit['request']['distance']): string {
-  return distance === 'effect' ? 'RMS difference, map units' : 'pattern shape, √(2 − 2r)';
+  return distance === 'effect' ? 'amplitude (RMS difference, map units)' : 'correlation (√(2−2r))';
 }
 
 /** Hover delay before the peek opens. */
@@ -100,4 +104,62 @@ export function steppedPeekView(
   const crosshairMm = [...view.crosshairMm] as [number, number, number];
   crosshairMm[NORMAL_AXIS[view.orientation].index] += direction * WHEEL_STEP_MM;
   return { ...view, crosshairMm };
+}
+
+/** The measure's one name, short enough for a column header ("correlation", "amplitude"). */
+export function distanceUnit(distance: RelationshipFit['request']['distance']): string {
+  return distance === 'effect' ? 'amplitude' : 'correlation';
+}
+
+/** Where one subject's value stands among the others at the pin. */
+export interface ValueStanding {
+  /** 1 = lowest, among finite values (ties share the lower rank). */
+  rank: number;
+  /** Finite values ranked. */
+  of: number;
+  /** Leave-one-out z: (value − mean of the others) / SD of the others; null when undefined. */
+  z: number | null;
+}
+
+/**
+ * The rank of `value` among the finite `values` (which include it) and its
+ * leave-one-out z against the others. Null when `value` is not finite.
+ */
+export function valueStanding(
+  value: number | null | undefined,
+  values: readonly (number | null | undefined)[],
+): ValueStanding | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const finite = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  const rank = finite.filter((v) => v < value).length + 1;
+  // The others: every finite value but one copy of this one.
+  const at = finite.indexOf(value);
+  const others = at < 0 ? finite : [...finite.slice(0, at), ...finite.slice(at + 1)];
+  let z: number | null = null;
+  if (others.length >= 2) {
+    const mean = others.reduce((a, v) => a + v, 0) / others.length;
+    const variance = others.reduce((a, v) => a + (v - mean) ** 2, 0) / (others.length - 1);
+    z = variance > 0 ? (value - mean) / Math.sqrt(variance) : null;
+  }
+  return { rank, of: Math.max(finite.length, rank), z };
+}
+
+/** A signed number with a true minus sign ("−0.1"). */
+export function signed(text: string): string {
+  return text.replace(/^-/, '−');
+}
+
+/**
+ * A metadata value that lists several file paths ("a/x.nii.gz,a/y.nii.gz"):
+ * their short names, in order. Null when the value is not such a list.
+ */
+export function pathListNames(value: string): { path: string; name: string }[] | null {
+  const parts = value
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2 || !parts.every((part) => /[\\/]|\.[A-Za-z0-9]{1,8}$/.test(part)))
+    return null;
+  const names = shortImageNames(parts);
+  return parts.map((path) => ({ path, name: names.get(path) ?? path }));
 }

@@ -254,12 +254,57 @@ struct Sums {
     count: Vec<u32>,
     sum: Vec<f64>,
     magnitude: Vec<f64>,
-    square: Vec<f64>,
+    /// Welford running mean and sum of squared deviations: the textbook
+    /// `Σx² − n·m²` cancels catastrophically when |mean| ≫ SD.
+    running_mean: Vec<f64>,
+    m2: Vec<f64>,
+    /// Strictly positive and strictly negative unit counts (sign share).
+    positive: Vec<u32>,
+    negative: Vec<u32>,
+}
+
+/// Sample SD from a Welford sum of squared deviations; zero when it is
+/// numerically indistinguishable from a constant (below 1e-12 of the scale,
+/// well under the f32 resolution of the inputs and well above f64 rounding).
+fn welford_sd(n: u32, mean: f64, m2: f64) -> f64 {
+    if n < 2 {
+        return 0.0;
+    }
+    let count = n as f64;
+    let sd = (m2.max(0.0) / (count - 1.0)).sqrt();
+    let rms = (m2.max(0.0) / count + mean * mean).sqrt();
+    if sd <= 1e-12 * mean.abs().max(rms) {
+        0.0
+    } else {
+        sd
+    }
+}
+
+/// |one-sample t| against zero for the peak search; zero without spread.
+fn t_score(n: u32, mean: f64, m2: f64) -> f64 {
+    let sd = welford_sd(n, mean, m2);
+    if sd > 0.0 {
+        (mean / (sd / (n as f64).sqrt())).abs()
+    } else {
+        0.0
+    }
+}
+
+/// Distance of the positive share from an even split: 0 when signs are
+/// balanced (or none is signed), 0.5 when every signed unit agrees.
+fn sign_share_score(positive: u32, negative: u32) -> f64 {
+    let signed = positive + negative;
+    if signed == 0 {
+        0.0
+    } else {
+        (positive as f64 / signed as f64 - 0.5).abs()
+    }
 }
 
 /// The crosshair moved along the view normal onto the source slice with the
-/// largest summed |summary|. Mean, mean absolute magnitude, cancellation,
-/// sample SD and coverage are exact; median and MAD use the mean and the SD,
+/// largest summed |summary| (|share − 0.5| for the positive fraction).
+/// Mean, mean absolute magnitude, cancellation, sample SD, sign share and
+/// coverage are exact; median and MAD use the mean and the SD,
 /// whose voxelwise order they share closely and which need no retained
 /// observations. Groups, comparisons and tests use the working mean. Null
 /// when the population holds no signal, or when the search fails: it only
@@ -389,9 +434,10 @@ async fn search_peak(
         SummaryKind::Mean | SummaryKind::Median => (true, false, false),
         SummaryKind::MeanAbsolute => (false, true, false),
         SummaryKind::Cancellation => (true, true, false),
-        SummaryKind::SampleSd | SummaryKind::Mad => (true, false, true),
-        SummaryKind::Coverage => (false, false, false),
+        SummaryKind::SampleSd | SummaryKind::Mad | SummaryKind::OneSampleT => (false, false, true),
+        SummaryKind::PositiveFraction | SummaryKind::Coverage => (false, false, false),
     };
+    let want_signs = matches!(kind, SummaryKind::PositiveFraction);
     let mut sums = Sums::default();
     let mut shape: Option<(Vec<usize>, Matrix4<f32>)> = None;
     for unit in units {
@@ -435,7 +481,12 @@ async fn search_peak(
                 sums.magnitude = vec![0.0; voxels];
             }
             if want_square {
-                sums.square = vec![0.0; voxels];
+                sums.running_mean = vec![0.0; voxels];
+                sums.m2 = vec![0.0; voxels];
+            }
+            if want_signs {
+                sums.positive = vec![0; voxels];
+                sums.negative = vec![0; voxels];
             }
         }
         for index in 0..voxels {
@@ -456,7 +507,16 @@ async fn search_peak(
                 sums.magnitude[index] += v.abs();
             }
             if want_square {
-                sums.square[index] += v * v;
+                let delta = v - sums.running_mean[index];
+                sums.running_mean[index] += delta / sums.count[index] as f64;
+                sums.m2[index] += delta * (v - sums.running_mean[index]);
+            }
+            if want_signs {
+                if v > 0.0 {
+                    sums.positive[index] += 1;
+                } else if v < 0.0 {
+                    sums.negative[index] += 1;
+                }
             }
         }
     }
@@ -491,13 +551,15 @@ async fn search_peak(
         let mean = || sums.sum[index] / count;
         let score = match kind {
             SummaryKind::Mean | SummaryKind::Median => mean().abs(),
+            SummaryKind::PositiveFraction => {
+                sign_share_score(sums.positive[index], sums.negative[index])
+            }
+            SummaryKind::OneSampleT => t_score(n, sums.running_mean[index], sums.m2[index]),
             SummaryKind::MeanAbsolute => sums.magnitude[index] / count,
             SummaryKind::Cancellation => (sums.magnitude[index] / count - mean().abs()).max(0.0),
-            SummaryKind::SampleSd | SummaryKind::Mad if n > 1 => {
-                let m = mean();
-                ((sums.square[index] - count * m * m).max(0.0) / (count - 1.0)).sqrt()
+            SummaryKind::SampleSd | SummaryKind::Mad => {
+                welford_sd(n, sums.running_mean[index], sums.m2[index])
             }
-            SummaryKind::SampleSd | SummaryKind::Mad => 0.0,
             SummaryKind::Coverage => count,
         };
         if score.is_finite() {
@@ -531,6 +593,37 @@ async fn search_peak(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn peak_spread_survives_a_large_common_offset() {
+        // 1e9 + {0, 1, 2}: SD 1. The textbook Σx² − n·m² loses it entirely
+        // (ulp(3e18) = 512), so the voxel's t was 0 or arbitrary.
+        let (mut n, mut mean, mut m2) = (0u32, 0.0f64, 0.0f64);
+        for v in [1e9, 1e9 + 1.0, 1e9 + 2.0] {
+            n += 1;
+            let delta = v - mean;
+            mean += delta / n as f64;
+            m2 += delta * (v - mean);
+        }
+        assert!((welford_sd(n, mean, m2) - 1.0).abs() < 1e-9);
+        let t = t_score(n, mean, m2);
+        assert!((t - (1e9 + 1.0) * 3f64.sqrt()).abs() / t < 1e-9, "{t}");
+        // A constant voxel has no spread, and rounding residue below 1e-7
+        // of the scale (1e-12) is treated as none.
+        // Below: sd ≈ 7e-4 against a scale of 1e9.
+        assert_eq!(t_score(3, 12345.678, 0.0), 0.0);
+        assert_eq!(welford_sd(3, 1e9, 1e-6), 0.0);
+        assert_eq!(t_score(1, 5.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn peak_sign_share_scores_distance_from_an_even_split() {
+        assert_eq!(sign_share_score(0, 0), 0.0);
+        assert_eq!(sign_share_score(2, 2), 0.0);
+        assert_eq!(sign_share_score(4, 0), 0.5);
+        assert_eq!(sign_share_score(0, 4), 0.5);
+        assert_eq!(sign_share_score(1, 3), 0.25);
+    }
 
     #[tokio::test]
     async fn template_paths_are_remembered_without_decoding_or_refetching() {

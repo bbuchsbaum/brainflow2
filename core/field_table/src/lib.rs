@@ -6,7 +6,10 @@ mod preview;
 mod promote;
 mod series;
 
-pub use materialize::materialize_compare_panes;
+pub use materialize::{
+    clear_compare_cache, materialize_compare_panes, materialize_compare_panes_cancelable,
+    materialize_compare_panes_with_source, DecodedVolume, DecodedVolumeSource, NoDecodedVolumes,
+};
 pub use preview::{
     preview_folder_ontology, preview_folder_ontology_with_discovery_inventory,
     preview_import_candidates, preview_import_candidates_with_discovery_inventory,

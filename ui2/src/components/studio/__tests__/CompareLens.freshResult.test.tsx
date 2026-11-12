@@ -153,10 +153,6 @@ function Lens() {
       refreshingPaneIds={derived.compareRefreshingPaneIds}
       onSelectCohort={vi.fn()}
       onDrillToCohort={vi.fn()}
-      onOpenPane={vi.fn()}
-      onInspectPane={vi.fn()}
-      onInspectCurrent={vi.fn()}
-      onOpenCurrentSource={vi.fn()}
       onOpenCompareView={vi.fn()}
       onRecomputePane={vi.fn()}
     />

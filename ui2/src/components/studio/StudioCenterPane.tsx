@@ -1,26 +1,50 @@
-import { PopulationProbeController } from '@/services/studio/PopulationProbeController';
-import { useCallback, useEffect, useState } from 'react';
+import { populationProbeController } from '@/services/studio/PopulationProbeController';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { StudioMenuSection, StudioToolbarMore } from './StudioToolbarSlot';
 import {
   STUDIO_MIN_VIEW_PX,
+  StudioMenuDataSlotContext,
+  StudioMenuSlotContext,
+  StudioProvenanceSlotContext,
   StudioToolbarSlotContext,
   StudioViewportHeightContext,
-} from './StudioToolbarSlot';
+  StudioViewSlotContext,
+} from './studioToolbarSlots';
 import { getStudioDisplayService } from '@/services/studio/StudioDisplayService';
 import { getStudioCoordinationService } from '@/services/studio/StudioCoordinationService';
 import { useSetStudioStore } from '@/stores/setStudioStore';
-import { buildDeckArtifact, useStudioDerivedState } from '@/hooks/useStudioDerivedState';
+import { useStudioDerivedState } from '@/hooks/useStudioDerivedState';
 import type {
   SpatialFieldSetSummary,
   StudioArtifactSummary,
-  StudioComparePaneSpec,
   StudioCohortSummary,
+  StudioComparePaneSpec,
 } from '@/types/studio';
 import { LensCanvas } from './LensCanvas';
-import { StudioLensSwitcher } from './StudioLensSwitcher';
+import { StudioCompareSelect, StudioLensSwitcher } from './StudioLensSwitcher';
 import { StudioBackgroundControl } from './StudioBackgroundControl';
+import { X } from 'lucide-react';
+import { Button, IconButton, Notice } from '@/components/ui/bf';
+import { getSetIngestionService } from '@/services/studio/SetIngestionService';
+import { useFileBrowserStore } from '@/stores/fileBrowserStore';
+import {
+  openStudioDatasetCard,
+  studioDatasetCardTarget,
+} from '@/services/studio/studioDatasetCard';
+import { PopulationOpenControls } from './PopulationOpenControls';
+import {
+  selectStudioBackgroundAttention,
+  selectStudioBackgroundNote,
+  selectStudioBackgroundPath,
+} from '@/services/studio/studioBackground';
+import { StudioSetStatusWord } from './StudioAuditBanner';
+import { useStudioSetAudit } from './useStudioSetAudit';
+import { StudioMapSelect, StudioSetInfo, StudioSetName } from './StudioToolbar';
+import { StudioProvenance } from './StudioProvenance';
+import { studioSetMaps } from '@/services/studio/studioMaps';
 import { StudioStrip } from './StudioStrip';
 import { StudioTimeRow } from './StudioTimeRow';
-import { PopulationProbePanel } from './PopulationProbePanel';
+import { usePopulationProbeDriver } from './usePopulationProbeDriver';
 
 function buildCompareArtifact(args: {
   pane: StudioComparePaneSpec | null;
@@ -78,10 +102,43 @@ const COMPARE_PANE_CHROME_PX = 64;
 const COMPARE_MIN_BODY_PX = 160;
 
 export function StudioCenterPane() {
-  const [populationProbeController] = useState(() => new PopulationProbeController());
+  // The Studio's one probe controller: sampled from here, shown in the dock's Values tab.
+  usePopulationProbeDriver(populationProbeController, true, { populationOnly: true });
   // The toolbar slot the active lens portals its controls into, and the
   // visible height under the toolbar its maps fill (QA N13).
   const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const [viewSlot, setViewSlot] = useState<HTMLElement | null>(null);
+  const [menuSlot, setMenuSlot] = useState<HTMLElement | null>(null);
+  const [menuDataSlot, setMenuDataSlot] = useState<HTMLElement | null>(null);
+  const [provenanceSlot, setProvenanceSlot] = useState<HTMLElement | null>(null);
+  // The folder the set was opened from can be reviewed for as long as the
+  // store remembers it, whether or not its notice is still on screen.
+  const canReviewFolder = useSetStudioStore(
+    (state) =>
+      !!state.studioOpenNotice && state.studioOpenNotice.setId === state.selection.activeSetId,
+  );
+  // The lens's own row is shown only while something has been put in it.
+  const [rowTwoFilled, setRowTwoFilled] = useState(false);
+  useEffect(() => {
+    if (!slot) return;
+    const check = () => setRowTwoFilled(slot.childElementCount > 0);
+    check();
+    if (typeof MutationObserver === 'undefined') return;
+    const observer = new MutationObserver(check);
+    observer.observe(slot, { childList: true });
+    return () => observer.disconnect();
+  }, [slot]);
+  // A background note the reader has read and put away (per set and wording).
+  const [dismissedAttention, setDismissedAttention] = useState<string | null>(null);
+  // A background that failed to open, or whose note asks for a choice.
+  const backgroundAttention = useSetStudioStore((state) => {
+    const path = selectStudioBackgroundPath(state);
+    return state.studioBackgroundIssue && state.studioBackgroundIssue.sourcePath === path
+      ? state.studioBackgroundIssue.message
+      : selectStudioBackgroundAttention(state);
+  });
+  const attentionSet = useSetStudioStore((state) => state.selection.activeSetId);
+  const attentionKey = `${attentionSet}:${backgroundAttention}`;
   const [column, setColumn] = useState<HTMLElement | null>(null);
   const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
@@ -119,7 +176,33 @@ export function StudioCenterPane() {
     sortLabel,
     visibleMemberIds,
     population,
+    workspaceReadiness,
+    materialization,
   } = useStudioDerivedState();
+  // The set's maps (its roles): the header names the one Population shows.
+  const features = useSetStudioStore((state) => state.features);
+  const activeFeatureId = useSetStudioStore((state) => state.selection.activeFeatureId);
+  const setActiveFeature = useSetStudioStore((state) => state.setActiveFeature);
+  const maps = useMemo(() => studioSetMaps(activeSet, features), [activeSet, features]);
+  // The set's status and facts: a status word on the row only for a problem,
+  // the rest behind ⓘ.
+  const setAudit = useStudioSetAudit(activeSet, workspaceReadiness);
+  const backgroundNote = useSetStudioStore(selectStudioBackgroundNote);
+  const dataStateLabel = activeSet?.savedPopulation
+    ? 'Saved calculation'
+    : activeSet?.sourceKind === 'demo'
+      ? 'Demo data'
+      : null;
+  // The set's source folder has a card when the Files panel is browsing it.
+  // A primitive is selected, so expanding the Files tree does not re-render the Studio.
+  const datasetCardReason = useFileBrowserStore((state) => {
+    const target = studioDatasetCardTarget(activeSet, state.entries);
+    return target.available ? null : target.reason;
+  });
+  const datasetCard =
+    datasetCardReason === null
+      ? { available: true as const }
+      : { available: false as const, reason: datasetCardReason };
 
   const activeDesignFilters = useSetStudioStore((state) => state.activeDesignFilters);
   const setActiveLens = useSetStudioStore((state) => state.setActiveLens);
@@ -127,9 +210,9 @@ export function StudioCenterPane() {
   const setCompareCohort = useSetStudioStore((state) => state.setCompareCohort);
   const setActiveScopeCohort = useSetStudioStore((state) => state.setActiveScopeCohort);
   const drillToCohort = useSetStudioStore((state) => state.drillToCohort);
-  const setActiveArtifact = useSetStudioStore((state) => state.setActiveArtifact);
   const setDesignSearch = useSetStudioStore((state) => state.setDesignSearch);
   const removeDesignFilter = useSetStudioStore((state) => state.removeDesignFilter);
+  const setActiveArtifact = useSetStudioStore((state) => state.setActiveArtifact);
 
   // Pane-A-scoped frame index. The 4D detection / global frame integration is
   // tracked separately; until a member-level frameCount/TR exists on the
@@ -140,7 +223,10 @@ export function StudioCenterPane() {
     setPaneAFrame(frame);
   }, []);
 
-  const handleOpenComparePane = (pane: StudioComparePaneSpec) => {
+  // Deck and Compare open a file in a viewer tab of its own (studioOpenInViewer).
+  // A Compare pane clicked (its map, header or menu) becomes the Inspector's
+  // artifact: its provenance and recipe, and the pane "Open compare view" uses.
+  const handleSelectComparePane = (pane: StudioComparePaneSpec) => {
     setActiveArtifact(
       buildCompareArtifact({
         pane,
@@ -151,65 +237,6 @@ export function StudioCenterPane() {
         activeExpressionId,
       }),
     );
-
-    const sourcePath = pane.binding?.ready ? (pane.binding.sourcePath?.trim() ?? null) : null;
-    if (!sourcePath) {
-      return;
-    }
-
-    void getStudioDisplayService().ensureSourcePathDisplayed(sourcePath, [sourcePath]);
-  };
-
-  const handleInspectComparePane = (pane: StudioComparePaneSpec) => {
-    setActiveArtifact(
-      buildCompareArtifact({
-        pane,
-        activeSet,
-        compareCohort,
-        scopeCohort,
-        activeMemberId,
-        activeExpressionId,
-      }),
-    );
-  };
-
-  const handleInspectCurrentArtifact = () => {
-    if (activeLens === 'compare') {
-      const currentPane = comparePaneSpecs.find((pane) => pane.id === 'current') ?? null;
-      setActiveArtifact(
-        buildCompareArtifact({
-          pane: currentPane,
-          activeSet,
-          compareCohort,
-          scopeCohort,
-          activeMemberId,
-          activeExpressionId,
-        }),
-      );
-      return;
-    }
-
-    setActiveArtifact(
-      buildDeckArtifact({
-        activeSet,
-        activeMember,
-        activeFeatureLabel: activeFeature?.label ?? null,
-        scopeCohort,
-        activeExpressionId,
-      }),
-    );
-  };
-
-  const handleOpenCurrentSource = () => {
-    const sourcePath =
-      (activeArtifact?.lens === activeLens ? activeArtifact.sourcePath?.trim() : null) ??
-      activeMember?.sourcePath?.trim() ??
-      null;
-    if (!sourcePath) {
-      return;
-    }
-
-    void getStudioDisplayService().ensureSourcePathDisplayed(sourcePath, [sourcePath]);
   };
 
   const handleOpenCompareView = () => {
@@ -272,37 +299,151 @@ export function StudioCenterPane() {
     >
       <div
         ref={setToolbar}
-        // Wraps to the column's width (not the window's): the centre column
-        // is narrow in a wide window, where a viewport breakpoint kept this
-        // on one line and clipped it. Its height is measured, so the lens
-        // below gives up exactly what a second row takes.
-        className="sticky top-0 z-20 flex min-w-0 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-sm border border-border bg-card px-2 py-1"
+        // Two rows on one left edge, no box: the lens and its view switch with
+        // the one menu at the far end, then the lens's own controls. Their
+        // height is measured, so the lens below gives up exactly what they take.
+        className="sticky top-0 z-20 flex min-w-0 shrink-0 flex-col gap-2 border-b border-bf-border-subtle bg-background pb-2"
         aria-label="Set studio toolbar"
       >
-        <StudioLensSwitcher
-          bare
-          activeLens={activeLens}
-          populationOnly={!!activeSet?.savedPopulation}
-          onSelectLens={setActiveLens}
-          compareCohort={compareCohort}
-          cohorts={cohortList}
-          onSelectCompareCohort={setCompareCohort}
-        />
-        {/* One home for the set's background: it serves all three lenses. */}
-        {activeSet?.supportKind === 'volume' ? (
-          <>
-            <StudioBackgroundControl />
-          </>
-        ) : null}
-        {/* The lens's own controls: beside the switcher while they fit, else
-            a row of their own, wrapping there if they must. */}
+        <div className="flex min-w-0 items-center gap-x-2" data-testid="studio-toolbar-row-1">
+          {/* The set's name leads the row; a status word follows only when something is wrong. */}
+          {activeSet ? (
+            <>
+              {/* Never shortened: the background select gives up its width first. */}
+              <span className="flex shrink-0 items-center" data-testid="studio-set-name-slot">
+                <StudioSetName
+                  className="max-w-[24rem]"
+                  setName={activeSet.name}
+                  setLocation={activeSet.sourceLocation ?? null}
+                  onOpenDatasetCard={
+                    datasetCard.available
+                      ? (from) => openStudioDatasetCard(activeSet, from)
+                      : undefined
+                  }
+                />
+              </span>
+              {/* The map Population shows; Deck and Subject vs mean show the member's own image. */}
+              {activeLens === 'population' ? (
+                <StudioMapSelect
+                  maps={maps}
+                  activeId={activeFeatureId}
+                  onSelect={setActiveFeature}
+                />
+              ) : null}
+              <StudioSetStatusWord audit={setAudit} />
+            </>
+          ) : null}
+          <StudioLensSwitcher
+            bare
+            switchOnly
+            activeLens={activeLens}
+            populationOnly={!!activeSet?.savedPopulation}
+            onSelectLens={setActiveLens}
+            compareCohort={compareCohort}
+            cohorts={cohortList}
+            onSelectCompareCohort={setCompareCohort}
+          />
+          {/* The Population lens puts its view switch (Summary | Montage) here. */}
+          <div ref={setViewSlot} className="flex min-w-0 shrink-0 items-center empty:hidden" />
+          <span className="min-w-0 flex-1" />
+          {/* One home for the set's background, in sight: it serves all three lenses. */}
+          {activeSet?.supportKind === 'volume' ? <StudioBackgroundControl compact /> : null}
+          {/* The set's facts: status, images, grid, where the background came from. */}
+          {activeSet ? (
+            <StudioSetInfo
+              audit={setAudit}
+              backgroundNote={backgroundNote}
+              dataStateLabel={dataStateLabel}
+              setLocation={activeSet.sourceLocation ?? null}
+              maps={maps}
+              activeMapId={activeFeatureId}
+              datasetCard={
+                datasetCard.available
+                  ? { open: (from) => openStudioDatasetCard(activeSet, from) }
+                  : { reason: datasetCard.reason }
+              }
+            />
+          ) : null}
+          {/* The Studio's one menu, in two parts: View (the lens's view
+              controls) and Data (review, save, open, provenance). */}
+          <StudioToolbarMore iconOnly>
+            {/* The active lens's rarely used view controls; hidden when it has none. */}
+            <StudioMenuSection title="View" testId="studio-menu-view" bodyRef={setMenuSlot} />
+            <StudioMenuSection title="Data" testId="studio-menu-data">
+              {canReviewFolder ? (
+                <div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void getSetIngestionService().reviewOpenedFolder()}
+                  >
+                    Review…
+                  </Button>
+                </div>
+              ) : null}
+              {/* The lens's own data commands (Population's Save calculation). */}
+              <div ref={setMenuDataSlot} className="flex flex-col gap-2 empty:hidden" />
+              {/* Was the set header's own menu: another saved calculation. */}
+              <PopulationOpenControls part="open" />
+              {/* Recipe, paths, cache, refresh and moved sources: one disclosure (B5). */}
+              <StudioProvenance
+                activeSet={activeSet}
+                activeMemberId={activeMemberId}
+                activeMember={activeMember}
+                compareCohort={compareCohort}
+                scopeCohort={scopeCohort}
+                activeExpression={activeExpression}
+                activeArtifact={activeArtifact}
+                materialization={materialization}
+                lensSlotRef={setProvenanceSlot}
+                relocate={<PopulationOpenControls part="relocate" />}
+              />
+            </StudioMenuSection>
+          </StudioToolbarMore>
+        </div>
         <div
-          ref={setSlot}
-          className="flex min-w-0 flex-auto flex-wrap items-center justify-end gap-x-2 gap-y-1"
-        />
+          className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
+          data-testid="studio-toolbar-row-2"
+          // A lens with no controls of its own leaves no empty row.
+          hidden={!rowTwoFilled && activeLens !== 'compare'}
+        >
+          {activeLens === 'compare' ? (
+            <StudioCompareSelect
+              hideLabel
+              compareCohort={compareCohort}
+              cohorts={cohortList}
+              onSelectCompareCohort={setCompareCohort}
+            />
+          ) : null}
+          {/* The lens's own controls, portalled in. */}
+          <div ref={setSlot} className="contents" />
+        </div>
+        {/* Said on the page only when there is something to do about it. */}
+        {backgroundAttention && attentionKey !== dismissedAttention ? (
+          <Notice
+            severity="warning"
+            data-testid="studio-background-attention"
+            action={
+              <IconButton
+                size="xs"
+                variant="ghost"
+                icon={<X />}
+                aria-label="Dismiss background note"
+                title="Dismiss"
+                onClick={() => setDismissedAttention(attentionKey)}
+              />
+            }
+          >
+            {backgroundAttention}
+          </Notice>
+        ) : null}
       </div>
 
       <StudioToolbarSlotContext.Provider value={slot}>
+      <StudioViewSlotContext.Provider value={viewSlot}>
+      <StudioMenuSlotContext.Provider value={menuSlot}>
+      <StudioMenuDataSlotContext.Provider value={menuDataSlot}>
+      <StudioProvenanceSlotContext.Provider value={provenanceSlot}>
       <StudioViewportHeightContext.Provider value={viewportHeight}>
       <div
         className={activeLens === 'population' ? 'shrink-0' : 'min-h-0 shrink-0'}
@@ -329,17 +470,18 @@ export function StudioCenterPane() {
           onSelectMember={setActiveMember}
           onSelectCohort={setCompareCohort}
           onDrillToCohort={drillToCohort}
-          onOpenComparePane={handleOpenComparePane}
-          onInspectComparePane={handleInspectComparePane}
           onRecomputeComparePane={handleRecomputeComparePane}
-          onInspectCurrentArtifact={handleInspectCurrentArtifact}
-          onOpenCurrentSource={handleOpenCurrentSource}
+          onSelectComparePane={handleSelectComparePane}
           onOpenCompareView={handleOpenCompareView}
           onClearScope={() => setActiveScopeCohort(null)}
           visibleMemberIds={visibleMemberIds}
         />
       </div>
       </StudioViewportHeightContext.Provider>
+      </StudioProvenanceSlotContext.Provider>
+      </StudioMenuDataSlotContext.Provider>
+      </StudioMenuSlotContext.Provider>
+      </StudioViewSlotContext.Provider>
       </StudioToolbarSlotContext.Provider>
 
       {activeLens === 'compare' ? (
@@ -351,8 +493,6 @@ export function StudioCenterPane() {
           onFrameChange={handlePaneAFrame}
         />
       ) : null}
-
-      <PopulationProbePanel controller={populationProbeController} />
 
       <StudioStrip
         contextIssue={population.context.issue}
@@ -368,6 +508,9 @@ export function StudioCenterPane() {
         onClearScope={() => setActiveScopeCohort(null)}
         onClearSearch={() => setDesignSearch('')}
         onRemoveFilter={removeDesignFilter}
+        // Population's montage and Summary show every member: the strip keeps
+        // only its context there, and the cards take the room.
+        showMembers={activeLens !== 'population'}
       />
     </div>
   );

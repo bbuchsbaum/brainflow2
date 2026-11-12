@@ -1,9 +1,15 @@
-import { Button, Select, Slider } from '@/components/ui/bf';
+import { IconButton, Slider } from '@/components/ui/bf';
+import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { usePopulationViewStore } from '@/stores/populationViewStore';
 
-
-/** Discrete observations, never interpolated frames. Each completed display
- * receives its full dwell time; a cache miss slows playback rather than skipping. */
+/**
+ * The footer's transport: step, play and the focused subject's place in the
+ * order on screen. Discrete observations, never interpolated frames: each
+ * completed display receives its full dwell time; a cache miss slows
+ * playback rather than skipping. Playback follows the order on screen (Reverse
+ * order reverses it); its speed is set in the ⋯ menu.
+ */
 export function PopulationNavigation({
   ids,
   focusedId,
@@ -12,6 +18,7 @@ export function PopulationNavigation({
   scope,
   onFocus,
   label,
+  scrubber = true,
 }: {
   ids: readonly string[];
   focusedId: string | null;
@@ -19,11 +26,13 @@ export function PopulationNavigation({
   failed: boolean;
   scope: string;
   onFocus: (id: string) => void;
+  /** The order playing, for the tooltip and the screen reader. */
   label: string;
+  /** A scrubber across the order (Summary; the grid is its own scrubber). */
+  scrubber?: boolean;
 }) {
   const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(5);
-  const [direction, setDirection] = useState(1);
+  const speed = usePopulationViewStore((state) => state.playbackSpeed);
   const index = ids.indexOf(focusedId ?? '');
   useEffect(() => setPlaying(false), [scope, ids]);
   useEffect(() => {
@@ -31,26 +40,28 @@ export function PopulationNavigation({
   }, [failed]);
   useEffect(() => {
     if (!playing || !ready) return;
-    const next = index + direction;
-    if (next < 0 || next >= ids.length) {
+    const next = index + 1;
+    if (next >= ids.length) {
       setPlaying(false);
       return;
     }
     const timer = setTimeout(() => onFocus(ids[next]), 1000 / speed);
     return () => clearTimeout(timer);
-  }, [playing, ready, index, ids, speed, direction, onFocus]);
+  }, [playing, ready, index, ids, speed, onFocus]);
   const move = (next: number) => {
     setPlaying(false);
     if (ids[next]) onFocus(ids[next]);
   };
   return (
     <div
+      role="group"
       aria-label="Population navigation"
+      title={label}
       tabIndex={0}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setPlaying(false);
       }}
-      className="rounded-sm border border-border bg-muted/20 p-2 space-y-2"
+      className="flex min-w-0 shrink-0 items-center gap-1 text-bf-sm outline-none"
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
         if (event.key === ' ') {
@@ -63,72 +74,57 @@ export function PopulationNavigation({
         }
       }}
     >
-      <div className="flex flex-wrap items-center gap-2 text-bf-sm">
-        <Button variant="secondary" size="sm"
-          aria-label="Previous observation"
-          disabled={index <= 0}
-          onClick={() => move(index - 1)}
-        >
-          ←
-        </Button>
-        <Button variant="secondary" size="sm"
-          disabled={!ids.length || failed}
-          onClick={() => setPlaying((value) => !value)}
-        >
-          {playing ? 'Pause' : 'Play'}
-        </Button>
-        <Button variant="secondary" size="sm"
-          aria-label="Next observation"
-          disabled={index + 1 >= ids.length}
-          onClick={() => move(index + 1)}
-        >
-          →
-        </Button>
-        <span className="min-w-[130px] flex-1 tabular-nums">
-          {focusedId ?? 'No focus'} · {index + 1} / {ids.length}
-        </span>
-        <Select className="w-auto max-w-full"
-          aria-label="Playback direction"
-          value={direction}
-          onChange={(e) => {
-            setPlaying(false);
-            setDirection(Number(e.target.value));
-          }}
-        >
-          <option value={1}>Forward</option>
-          <option value={-1}>Reverse</option>
-        </Select>
-        <Select className="w-auto max-w-full"
-          aria-label="Playback speed"
-          value={speed}
-          onChange={(e) => setSpeed(Number(e.target.value))}
-        >
-          <option value={5}>5 observations/s</option>
-          <option value={10}>10 observations/s</option>
-        </Select>
-      </div>
-      <Slider
-        className="w-full"
-        label="Focus observation"
-        min={0}
-        max={Math.max(0, ids.length - 1)}
-        step={1}
-        snap={1}
-        fill={false}
-        value={Math.max(0, index)}
-        disabled={!ids.length}
-        valueText={(v) => `Observation ${Math.round(v) + 1} of ${ids.length}`}
-        onDragChange={(dragging) => {
-          if (dragging) setPlaying(false);
-        }}
-        onValueChange={(v) => {
-          const next = Math.round(v);
-          if (next !== index) move(next);
-        }}
+      <IconButton
+        icon={<ChevronLeft />}
+        aria-label="Previous subject in order"
+        disabled={index <= 0}
+        onClick={() => move(index - 1)}
       />
-      <p className="text-bf-sm text-muted-foreground" title={label}>
-        {label} · Show every observation{playing && !ready ? ' · Buffering…' : ''}
-      </p>
+      <IconButton
+        icon={playing ? <Pause /> : <Play />}
+        aria-label={playing ? 'Pause' : 'Play'}
+        title={`${playing ? 'Pause' : 'Play'} · ${label}`}
+        disabled={!ids.length || failed}
+        onClick={() => setPlaying((value) => !value)}
+      />
+      <IconButton
+        icon={<ChevronRight />}
+        aria-label="Next subject in order"
+        disabled={index + 1 >= ids.length}
+        onClick={() => move(index + 1)}
+      />
+      {/* The place in the order only: the focused subject is named on its
+          tile, the strip and the Inspector; here it is the tooltip. */}
+      <span
+        className="whitespace-nowrap font-mono tabular-nums text-bf-text-secondary"
+        data-testid="population-transport-position"
+        title={focusedId ?? 'No focus'}
+      >
+        <span className="sr-only">{focusedId ?? 'No focus'}, </span>
+        {index < 0 ? '–' : index + 1} / {ids.length}
+        {playing && !ready ? ' · Buffering…' : ''}
+      </span>
+      {scrubber && (
+        <Slider
+          className="w-32 min-w-[96px] shrink"
+          label="Focus observation"
+          min={0}
+          max={Math.max(0, ids.length - 1)}
+          step={1}
+          snap={1}
+          fill={false}
+          value={Math.max(0, index)}
+          disabled={!ids.length}
+          valueText={(v) => `Observation ${Math.round(v) + 1} of ${ids.length}`}
+          onDragChange={(dragging) => {
+            if (dragging) setPlaying(false);
+          }}
+          onValueChange={(v) => {
+            const next = Math.round(v);
+            if (next !== index) move(next);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -81,9 +81,12 @@ const WIDTHS: Record<string, [string, string]> = {
   voxel: ["auto", "16ch"],
   region: ["auto", "6ch"],
   pointerRegion: ["auto", "6ch"],
-  // Pointer value: a reserved width, so the bar does not jitter while a new
+  // Crosshair and pointer values: a reserved width for a typical
+  // four-significant-digit reading ("−0.01718", "−123.5"; tabular mono
+  // digits), so the bar does not jitter as the value changes or while a new
   // reading is pending (blank, never the previous voxel's value).
-  pointerValue: ["auto", "6ch"],
+  value: ["auto", "8ch"],
+  pointerValue: ["auto", "8ch"],
 };
 
 /** Content-sized slots stop growing here (a long file name). */

@@ -240,6 +240,12 @@ export interface StudioOpenNotice {
   message: string;
   /** The folder, so "Review…" can bring its review up. */
   root: string;
+  /**
+   * The notice asks the reader to do something (review needed, an error):
+   * it then stays until dismissed. Without it the notice is information and
+   * goes away by itself.
+   */
+  requiresAction?: boolean;
 }
 
 /** Why a folder asked to be opened in one step stopped at its review. */

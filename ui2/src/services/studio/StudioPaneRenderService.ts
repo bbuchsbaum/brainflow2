@@ -19,8 +19,9 @@ import type { ViewLayer, ViewState } from '@/types/viewState';
 import type { StudioDerivedMap } from './StudioDerivedMapService';
 import {
   STUDIO_HIDDEN_FRACTION,
-  STUDIO_MAP_OPACITY,
+  STUDIO_SIGNED_ALPHA_MOD,
   studioMapDisplay,
+  studioMapOpacity,
   type StudioMapWindow,
 } from './studioMapDisplay';
 
@@ -61,7 +62,9 @@ export function studioDerivedDisplay(
     name,
     volumeId: map.volumeId,
     visible: true,
-    opacity: STUDIO_MAP_OPACITY,
+    // A signed map carries the Population opacity ramp (studioMapDisplay.ts).
+    opacity: studioMapOpacity(display),
+    ...(display.intensity[0] < 0 ? { alphaMod: { ...STUDIO_SIGNED_ALPHA_MOD } } : {}),
     colormap: display.colormap,
     intensity: [display.intensity[0], display.intensity[1]],
     threshold: [display.threshold[0], display.threshold[1]],

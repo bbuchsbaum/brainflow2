@@ -760,5 +760,6 @@ pub(crate) async fn dispose_module_workspace(
     state
         .modules
         .dispose_workspace(state.inner(), &workspace)
-        .await
+        .await?;
+    crate::materialization::release_population_caches(state.inner()).await
 }

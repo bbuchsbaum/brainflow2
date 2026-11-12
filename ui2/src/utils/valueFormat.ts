@@ -73,22 +73,33 @@ export function formatLayerValue(value: number): string {
 
 /**
  * A voxel value for the status bar: fixed decimals, never an exponent (QA
- * 2026-10-31: "9.2e-3"). Below 1, three significant digits (0.0123,
- * 0.00920 → "0.0092", 0.456); from 1, the layer formatter (2 decimals,
- * grouped thousands); from 1e6, grouped integers. A non-zero value smaller
- * than 1e-6 reads "<0.000001" (or ">−0.000001"), never a misleading zero.
+ * 2026-10-31: "9.2e-3"). Below 1000, four significant digits by default on
+ * both sides of 1, the precision every pointer value in the Set studio uses
+ * (0.01718, 0.00920 → "0.0092", 0.9876, 1.235, 12.35, 123.5);
+ * `significant` sets another (scale ends and colorbar ticks use 3). Trailing
+ * zeros are trimmed (0.4560 → "0.456", 2.300 → "2.3"). A value that rounds up
+ * to 1000 or beyond (999.96 → 1000) takes the large-magnitude rule; from 1000,
+ * the layer formatter (2 decimals, grouped thousands from 10,000); from 1e6,
+ * grouped integers. A non-zero value smaller than 1e-6 reads "<0.000001" (or
+ * ">−0.000001"), never a misleading zero; zero (either sign) reads "0".
  * Display minus.
  */
-export function formatReadoutValue(value: number): string {
+export function formatReadoutValue(value: number, significant = 4): string {
   if (!Number.isFinite(value)) return EMPTY_VALUE;
   const abs = Math.abs(value);
   if (abs === 0) return "0";
   if (abs >= 1e6) return displayMinus(Math.round(value).toLocaleString('en-US'));
-  if (abs >= 1) return formatLayerValue(value);
   if (abs < 1e-6) return value > 0 ? "<0.000001" : `>${MINUS}0.000001`;
-  // toPrecision stays in fixed notation from 1e-6 up; trim trailing zeros.
-  const fixed = value.toPrecision(3).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
-  return displayMinus(fixed);
+  if (abs < 1000) {
+    // Number() of the rounded text trims trailing zeros and folds the
+    // exponent form toPrecision uses at the boundary ("1.00e+3"); String()
+    // stays in fixed notation for 1e-6 <= |v| < 1e21.
+    const rounded = Number(value.toPrecision(significant));
+    if (Math.abs(rounded) < 1000) return displayMinus(String(rounded));
+    // Rounded up across the boundary (999.96 → 1000): the large rule.
+    return formatLayerValue(rounded);
+  }
+  return formatLayerValue(value);
 }
 
 /** World mm at 0.1 mm, ASCII, negative zero folded ("-0.0" never shows). */

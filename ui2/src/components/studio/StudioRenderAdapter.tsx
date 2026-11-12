@@ -42,6 +42,8 @@ interface StudioRenderAdapterProps {
    * margin beside the image it is the compact bar and its two window ends.
    */
   compactColorbar?: boolean;
+  /** No colorbar in the view: the caller draws the scale outside it (the Subject lens footer). */
+  hideColorbar?: boolean;
 }
 
 /**
@@ -62,6 +64,7 @@ export function StudioRenderAdapter({
   plane,
   describeBase = false,
   compactColorbar = false,
+  hideColorbar = false,
 }: StudioRenderAdapterProps) {
   // The set's background template is drawn beneath the member (never alone
   // in place of a member view that has no member).
@@ -92,8 +95,9 @@ export function StudioRenderAdapter({
       // so the legend never covers it. It takes a free margin beside the
       // image, else the row under the canvas that holds the slice slider.
       ...(hideChrome && plane ? { offImage: true } : {}),
+      ...(hideColorbar ? { hidden: true } : {}),
     }),
-    [group, memberLayerId, compactColorbar, hideChrome, plane],
+    [group, memberLayerId, compactColorbar, hideChrome, plane, hideColorbar],
   );
 
   if (hideChrome) {

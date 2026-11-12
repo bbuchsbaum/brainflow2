@@ -202,6 +202,8 @@ pub(super) async fn export_checked(
             affine,
             center_world: [0.; 3],
             voxels,
+            index: Default::default(),
+            outside_mask: None,
             pixels,
             cutouts: None,
         });
@@ -238,13 +240,15 @@ pub(super) async fn export_checked(
             mask_revision: mask.as_ref().map(|m| m.revision.clone()),
             guard: guard.clone(),
             bytes: 0,
+            // An export writes values, not a colour scale.
+            magnitude: None,
         };
         let query = population.clone();
         let check = token.clone();
         let worker_permit = permit.clone();
         let result = tokio::task::spawn_blocking(move || {
             let _permit = worker_permit;
-            reduce_plane(&cached, &query, false, &check, None)
+            reduce_plane(&cached, &query, false, &check, None, None)
         })
         .await
         .map_err(|e| input(e.to_string()))??;

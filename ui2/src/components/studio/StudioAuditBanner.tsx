@@ -1,14 +1,11 @@
-import { Chip, StatusPill, type StatusKind } from '@/components/ui/bf';
+import { Chip, StatusPill } from '@/components/ui/bf';
 import type { SpatialFieldSetSummary, StudioAuditSeverity } from '@/types/studio';
-import { useStudioReadiness } from '@/hooks/useStudioReadiness';
+import {
+  useStudioSetAudit,
+  type StudioSetAudit,
+  type WorkspaceReadiness,
+} from './useStudioSetAudit';
 
-interface WorkspaceReadiness {
-  state: 'ready' | 'review' | 'blocked';
-  eyebrow: string;
-  title: string;
-  message: string;
-  className: string;
-}
 
 interface StudioAuditBannerProps {
   activeSet: SpatialFieldSetSummary | null;
@@ -21,87 +18,81 @@ interface StudioAuditBannerProps {
 }
 
 /**
+ * The header's status word: shown only when something is wrong or still
+ * pending (a blocked import, grids unchecked or being checked, unmatched or
+ * duplicate rows). A ready set shows nothing here.
+ */
+export function StudioSetStatusWord({ audit }: { audit: StudioSetAudit | null }) {
+  if (!audit) return null;
+  const join = audit.unmatched > 0 || audit.duplicates > 0 || audit.imagesSeverity === 'error';
+  if (!audit.problem && !join) return null;
+  return (
+    <span
+      className="flex min-w-0 shrink items-center gap-1 overflow-hidden"
+      data-testid="studio-set-status"
+      title={audit.summary}
+    >
+      {audit.problem ? (
+        <StatusPill
+          status={audit.status.status}
+          title={audit.status.detail ?? undefined}
+          data-phase={audit.phase}
+        >
+          {audit.status.label}
+        </StatusPill>
+      ) : null}
+      {audit.imagesSeverity === 'error' ? <AuditFact value={audit.images} severity="error" /> : null}
+      {audit.unmatched > 0 ? (
+        <AuditFact value={`${audit.unmatched} unmatched`} severity="warning" />
+      ) : null}
+      {audit.duplicates > 0 ? (
+        <AuditFact value={`${audit.duplicates} duplicates`} severity="warning" />
+      ) : null}
+    </span>
+  );
+}
+
+/**
  * What the import found, at set level and once: whether the set can be read
  * together (the state of its image grids), how many images matched, and any
  * that did not. Counts of zero are not shown; a clean set reads
- * "Ready to compare · 105 images". The grid state lives here, not in every
- * pane.
+ * "Ready to compare · 105 images". The Studio's header shows only a problem
+ * (StudioSetStatusWord) and keeps these facts behind its ⓘ; this banner is
+ * the whole line, for a header shown on its own.
  */
 export function StudioAuditBanner({ activeSet, readiness, inline = false }: StudioAuditBannerProps) {
-  const grids = useStudioReadiness('compare');
-  if (!activeSet || !readiness) {
+  const audit = useStudioSetAudit(activeSet, readiness);
+  if (!audit || !readiness) {
     return null;
   }
-
-  const audit = activeSet.ingestAudit;
-  const pill = statePill(readiness, grids.phase, !!activeSet.savedPopulation);
-  const grid =
-    audit.support.alignmentClass === 'same-grid' && audit.support.supportLabel
-      ? audit.support.supportLabel
-      : null;
-  const images = `${audit.join.matchedRows} ${audit.join.matchedRows === 1 ? 'image' : 'images'}`;
-
-  const summary = [
-    pill.label,
-    pill.detail,
-    images,
-    audit.join.unmatchedRows > 0 ? `${audit.join.unmatchedRows} unmatched` : null,
-    audit.join.duplicateKeys > 0 ? `${audit.join.duplicateKeys} duplicates` : null,
-    grid ? `Grid ${grid}` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
 
   return (
     <section
       aria-label="Set studio audit summary"
-      title={inline ? summary : undefined}
+      title={inline ? audit.summary : undefined}
       className={
         inline
           ? 'flex min-w-0 flex-1 flex-nowrap items-center gap-2 overflow-hidden text-bf-sm [&>*]:shrink-0'
           : `mx-3 mt-3 flex flex-wrap items-center gap-2 rounded-sm border px-3 py-1.5 text-bf-sm ${toneClasses(readiness.state)}`
       }
     >
-      <StatusPill status={pill.status} title={pill.detail ?? undefined} data-phase={grids.phase}>
-        {pill.label}
+      <StatusPill
+        status={audit.status.status}
+        title={audit.status.detail ?? undefined}
+        data-phase={audit.phase}
+      >
+        {audit.status.label}
       </StatusPill>
-      <AuditFact value={images} severity={audit.join.severity === 'error' ? 'error' : 'ok'} />
-      {audit.join.unmatchedRows > 0 ? (
-        <AuditFact value={`${audit.join.unmatchedRows} unmatched`} severity="warning" />
+      <AuditFact value={audit.images} severity={audit.imagesSeverity} />
+      {audit.unmatched > 0 ? (
+        <AuditFact value={`${audit.unmatched} unmatched`} severity="warning" />
       ) : null}
-      {audit.join.duplicateKeys > 0 ? (
-        <AuditFact value={`${audit.join.duplicateKeys} duplicates`} severity="warning" />
+      {audit.duplicates > 0 ? (
+        <AuditFact value={`${audit.duplicates} duplicates`} severity="warning" />
       ) : null}
-      {grid ? <AuditFact label="Grid" value={grid} wide /> : null}
+      {audit.grid ? <AuditFact label="Grid" value={audit.grid} wide /> : null}
     </section>
   );
-}
-
-/**
- * The set's one status. A set whose grids are unchecked or being checked is
- * waiting, not at fault: only a check that failed, images that cannot be
- * read together, or a blocked import carry a status colour.
- */
-function statePill(
-  readiness: WorkspaceReadiness,
-  phase: ReturnType<typeof useStudioReadiness>['phase'],
-  savedPopulation: boolean,
-): { status: StatusKind; label: string; detail: string | null } {
-  if (savedPopulation) return { status: 'success', label: readiness.eyebrow, detail: null };
-  if (readiness.state === 'blocked')
-    return { status: 'failed', label: readiness.eyebrow, detail: readiness.message };
-  switch (phase) {
-    case 'ready':
-      return { status: 'success', label: 'Ready to compare', detail: null };
-    case 'checking':
-      return { status: 'running', label: 'Checking image grids', detail: null };
-    case 'needs-check':
-      return { status: 'queued', label: 'Image grids not checked', detail: null };
-    case 'check-failed':
-      return { status: 'warning', label: 'Grid check failed', detail: null };
-    default:
-      return { status: 'warning', label: 'Browse only', detail: readiness.message };
-  }
 }
 
 /**

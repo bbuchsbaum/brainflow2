@@ -1,8 +1,13 @@
 import { PopulationBrush } from './PopulationBrush';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { meanCutoutSource } from './meanCutout';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { sliceImagePointToWorld } from '@/components/views/sliceViewer';
 import type { PopulationSliceDisplay } from '@/services/studio/PopulationSliceService';
 import { useMirrorsView } from '@/stores/viewDisplaySettingsStore';
+
+const MIN_CELL_PX = 132;
+const USAGE =
+  'Click to focus. Shift-click or Shift-Enter to change selection. Outlined cells are selected; the focused observation has a brighter border.';
 
 interface Props {
   display: PopulationSliceDisplay;
@@ -12,6 +17,10 @@ interface Props {
   onFocus: (id: string) => void;
   onToggle: (id: string) => void;
   onHover?: (world: [number, number, number]) => void;
+  /** The summary map cut to the same window, first in the grid. */
+  meanFirst?: boolean;
+  /** What the first tile's caption says ("Group mean"). */
+  meanLabel?: string;
 }
 
 /** A single canvas composes the observed sprite sheet. DOM buttons supply
@@ -24,6 +33,8 @@ export function PopulationCutoutGrid({
   onFocus,
   onToggle,
   onHover,
+  meanFirst = false,
+  meanLabel = 'Group mean',
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const focusedButton = useRef<HTMLButtonElement>(null);
@@ -34,11 +45,21 @@ export function PopulationCutoutGrid({
   const cutouts = display.data.cutouts;
   const image = display.images.cutouts;
   const availableWidth = Math.max(100, Math.min(width, measuredWidth));
-  const columns = Math.max(1, Math.min(8, Math.floor(availableWidth / 105)));
+  // Wide enough to read a map's pattern, not only that a map is there.
+  const columns = Math.max(1, Math.min(8, Math.floor(availableWidth / MIN_CELL_PX)));
   const cellWidth = availableWidth / columns;
   const imageSize = cellWidth - 8;
-  const cellHeight = imageSize + 40;
-  const height = Math.ceil((cutouts?.members.length ?? 0) / columns) * cellHeight;
+  const cellHeight = imageSize + 26;
+  const summaryImage = display.images.summary;
+  const summaryPlane = display.data.plane;
+  const meanSource = useMemo(
+    () =>
+      meanFirst && cutouts && summaryImage ? meanCutoutSource(summaryPlane, cutouts.plane) : null,
+    [meanFirst, cutouts, summaryImage, summaryPlane],
+  );
+  // The mean leads the grid: every subject moves one cell on.
+  const lead = meanSource ? 1 : 0;
+  const height = Math.ceil(((cutouts?.members.length ?? 0) + lead) / columns) * cellHeight;
   // Radiological convention: axial/coronal cutouts drawn mirrored; the hover
   // mapping below reads the same mirrored column back.
   const mirrorX = useMirrorsView(display.query.request?.orientation ?? 'sagittal');
@@ -60,9 +81,18 @@ export function PopulationCutoutGrid({
     ctx.imageSmoothingEnabled = false;
     const [w, h] = cutouts.plane.dim_px;
     const sourceColumns = Math.min(8, cutouts.members.length);
+    if (meanSource && summaryImage) {
+      if (mirrorX) {
+        ctx.save();
+        ctx.translate(4 + imageSize, 4);
+        ctx.scale(-1, 1);
+        ctx.drawImage(summaryImage, ...meanSource, 0, 0, imageSize, imageSize);
+        ctx.restore();
+      } else ctx.drawImage(summaryImage, ...meanSource, 4, 4, imageSize, imageSize);
+    }
     for (let i = 0; i < cutouts.members.length; i++) {
-      const x = (i % columns) * cellWidth + 4;
-      const y = Math.floor(i / columns) * cellHeight + 4;
+      const x = ((i + lead) % columns) * cellWidth + 4;
+      const y = Math.floor((i + lead) / columns) * cellHeight + 4;
       const source = [(i % sourceColumns) * w, Math.floor(i / sourceColumns) * h, w, h] as const;
       if (mirrorX) {
         ctx.save();
@@ -74,7 +104,20 @@ export function PopulationCutoutGrid({
         ctx.drawImage(image, ...source, x, y, imageSize, imageSize);
       }
     }
-  }, [image, cutouts, availableWidth, height, columns, cellWidth, cellHeight, imageSize, mirrorX]);
+  }, [
+    image,
+    cutouts,
+    availableWidth,
+    height,
+    columns,
+    cellWidth,
+    cellHeight,
+    imageSize,
+    mirrorX,
+    meanSource,
+    summaryImage,
+    lead,
+  ]);
   useLayoutEffect(() => {
     const scroll = scroller.current,
       button = focusedButton.current;
@@ -88,16 +131,23 @@ export function PopulationCutoutGrid({
   if (!cutouts || !image) return null;
 
   return (
-    <div aria-label="Individual population cutouts" className="min-w-0">
-      <p className="mb-1 text-bf-sm text-muted-foreground">
-        Click to focus. Shift-click or Shift-Enter to change selection. Outlined cells are selected;
-        the focused observation has a blue border.
-      </p>
-      <p aria-live="polite" className="mb-1 h-4 text-bf-sm tabular-nums">
-        {hover ?? 'Hover a cutout to inspect its observed value.'}
-      </p>
-      <PopulationBrush scope={display.query.key}>
-        <div ref={scroller} className="max-h-[520px] overflow-y-auto overflow-x-hidden">
+    <div aria-label="Individual population cutouts" aria-description={USAGE} className="min-w-0">
+      <PopulationBrush
+        scope={display.query.key}
+        status={
+          <span
+            aria-live="polite"
+            title={USAGE}
+            className="ml-auto truncate tabular-nums text-muted-foreground"
+          >
+            {hover ?? 'Click to focus · Shift-click to select · hover for values'}
+          </span>
+        }
+      >
+        <div
+          ref={scroller}
+          className="max-h-[max(520px,calc(100vh-18rem))] overflow-y-auto overflow-x-hidden"
+        >
           <div ref={container} className="relative" style={{ height }}>
             <canvas
               ref={canvas}
@@ -114,6 +164,18 @@ export function PopulationCutoutGrid({
                 gridAutoRows: cellHeight,
               }}
             >
+              {lead ? (
+                <div
+                  data-testid="population-cutout-mean"
+                  className="relative min-w-0 border border-bf-border-strong"
+                  style={{ gridColumn: 1 }}
+                  title={`${meanLabel} over the same window`}
+                >
+                  <span className="absolute inset-x-0 bottom-0 bg-background/95 px-1 py-0.5 text-bf-sm font-medium">
+                    <span className="block truncate">{meanLabel}</span>
+                  </span>
+                </div>
+              ) : null}
               {cutouts.members.map((member, index) => (
                 <button
                   data-datum-id={member.memberId}
@@ -148,7 +210,7 @@ export function PopulationCutoutGrid({
                     onHover?.(sliceImagePointToWorld(px, py, cutouts.plane));
                   }}
                   className={`relative min-w-0 border p-0 bg-transparent text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring ${focusedId === member.memberId ? 'border-foreground' : selectedIds.has(member.memberId) ? 'border-primary/70' : 'border-transparent'}`}
-                  style={{ gridColumn: (index % columns) + 1 }}
+                  style={{ gridColumn: ((index + lead) % columns) + 1 }}
                 >
                   {member.validPixels === 0 && (
                     <span className="absolute inset-x-0 top-1/3 text-center text-bf-sm text-muted-foreground">
@@ -157,9 +219,6 @@ export function PopulationCutoutGrid({
                   )}
                   <span className="absolute inset-x-0 bottom-0 bg-background/95 px-1 py-0.5 text-bf-sm">
                     <span className="block truncate">{member.memberId}</span>
-                    <span className="block text-bf-2xs text-muted-foreground">
-                      {member.validPixels}/{member.values.length} pixels
-                    </span>
                   </span>
                 </button>
               ))}
