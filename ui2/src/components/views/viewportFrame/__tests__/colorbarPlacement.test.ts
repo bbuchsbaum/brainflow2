@@ -360,6 +360,24 @@ describe('holdColorbarSlot (splitter drag flicker)', () => {
     expect(held.top + held.barH + 40).toBeLessThanOrEqual(300 - 8);
   });
 
+  it('keeps a bar the rule nudged off the image middle exactly in place while held', () => {
+    // A narrow right margin: the block reaches the "R" letter band at the
+    // pane's middle, so the rule pushes it off centre; holding (any view
+    // zooming) must not snap it back to centre.
+    const input = base({
+      width: 740,
+      imageRect: { left: 80, top: 0, right: 650, bottom: 400 },
+      sideLetterY: 200,
+    });
+    const settled = placeColorbar(input)!;
+    expect(settled.slot).toBe('right');
+    const plain = holdColorbarSlot(input, settled);
+    const offset = { dx: settled.left - plain.left, dy: settled.top - plain.top };
+    expect(offset.dy).not.toBe(0);
+    const held = holdColorbarSlot(input, { ...settled, offset });
+    expect([held.left, held.top, held.barH]).toEqual([settled.left, settled.top, settled.barH]);
+  });
+
   it('shortens the bar to the pane when it gets shorter', () => {
     const held = holdColorbarSlot(
       base({ height: 150, imageRect: { left: 250, top: 0, right: 650, bottom: 150 } }),

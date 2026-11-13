@@ -534,7 +534,17 @@ export function placeColorbarBlock(
  */
 export function holdColorbarSlot(
   input: ColorbarPlacementInput,
-  held: { slot: ColorbarSlot; barH: number },
+  held: {
+    slot: ColorbarSlot;
+    barH: number;
+    /**
+     * Where the settled block sat relative to this slot's plain anchor (the
+     * rule nudges it off the image's middle to clear the side letters and
+     * the crosshair). Kept while holding, so a pane that does not change
+     * keeps its bar exactly where it was.
+     */
+    offset?: { dx: number; dy: number };
+  },
 ): ColorbarPlacement {
   const { width: w, height: h, chromeH, boxWidth, minBarH } = input;
   // Under the canvas: nothing in the pane to follow.
@@ -575,6 +585,8 @@ export function holdColorbarSlot(
       y = isTop ? Math.max(COLORBAR_EDGE, HEADER_CLEAR_H) : h - COLORBAR_EDGE - boxH;
     }
   }
+  x += held.offset?.dx ?? 0;
+  y += held.offset?.dy ?? 0;
   const box = { left: Math.round(clampX(x)), top: Math.round(clampY(y)), right: 0, bottom: 0 };
   box.right = box.left + boxW;
   box.bottom = box.top + boxH;
