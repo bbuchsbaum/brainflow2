@@ -16,6 +16,14 @@ import { statisticLongName, statisticUnits } from '@/utils/statistic';
 import { EMPTY_VALUE, formatLayerValue } from '@/utils/valueFormat';
 import type { ReadoutPoint } from '@/hooks/useReadoutPoint';
 
+/**
+ * Width floor shared by every Scene row's value cell: wide enough for a
+ * signed statistic ("z −12.34") or a grouped number ("59,000"), so a value
+ * changing under the pointer never moves the column. Region names may grow
+ * past it, up to the 24ch cap.
+ */
+export const READOUT_MIN_WIDTH = 'min-w-[9ch]';
+
 /** Readout sampling waits less than the status bar: it follows the pointer. */
 const READOUT_DELAY_MS = 30;
 
@@ -86,7 +94,9 @@ export function LayerReadoutValue({
       id={id}
       // Room for a region name ("R_occipitotemporal"): the layer name column
       // gives way first; a longer value ends in an ellipsis, never a hard cut.
-      className="flex min-w-0 max-w-[24ch] shrink-0 justify-end overflow-hidden text-right font-mono text-bf-xs tabular-nums text-bf-text-secondary"
+      // A floor of READOUT_MIN_WIDTH keeps the name column still as values
+      // change ("0" → "2.38", "1504" → "8230"); tabular figures do the rest.
+      className={`flex min-w-0 max-w-[24ch] shrink-0 justify-end overflow-hidden whitespace-nowrap text-right font-mono text-bf-xs tabular-nums text-bf-text-secondary ${READOUT_MIN_WIDTH}`}
       title={title}
       data-testid={`layer-readout-${layerId}`}
     >

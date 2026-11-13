@@ -5,7 +5,7 @@ import { useSurfaceValueAtCrosshair } from "@/hooks/useSurfaceValueAtCrosshair";
 import { EMPTY_VALUE, formatLayerValue } from "@/utils/valueFormat";
 import type { SceneItem, SceneItemKind } from "@/types/sceneItem";
 import { SelectableRow, type RovingItemProps } from "@/components/ui/bf";
-import { LayerReadoutValue } from "./LayerReadoutValue";
+import { LayerReadoutValue, READOUT_MIN_WIDTH } from "./LayerReadoutValue";
 import { useReadoutPoint } from "@/hooks/useReadoutPoint";
 
 /** A surface overlay's value at its vertex nearest the crosshair (within 3 mm). */
@@ -22,7 +22,7 @@ function SurfaceRowReadout({
   return (
     <span
       id={id}
-      className="max-w-[14ch] shrink-0 truncate text-right font-mono text-bf-xs tabular-nums text-bf-text-secondary"
+      className={`max-w-[14ch] shrink-0 truncate whitespace-nowrap text-right font-mono text-bf-xs tabular-nums text-bf-text-secondary ${READOUT_MIN_WIDTH}`}
       title={
         !anatomical
           ? "Load the matching pial or white surface for an anatomical readout"
@@ -47,7 +47,11 @@ function VolumeRowReadout({ layerId, id }: { layerId: string; id: string }) {
   });
   if (!drawn) {
     return (
-      <span id={id} className="shrink-0 text-bf-xs text-bf-text-muted" data-testid={`layer-readout-${layerId}`}>
+      <span
+        id={id}
+        className={`shrink-0 whitespace-nowrap text-right text-bf-xs text-bf-text-muted ${READOUT_MIN_WIDTH}`}
+        data-testid={`layer-readout-${layerId}`}
+      >
         hidden
       </span>
     );
@@ -217,7 +221,7 @@ export const SceneStackItem = forwardRef<HTMLDivElement, SceneStackItemProps>(
           ) : (
             <span
               id={valueId}
-              className="shrink-0 font-mono text-bf-xs tabular-nums text-muted-foreground"
+              className={`shrink-0 text-right font-mono text-bf-xs tabular-nums text-muted-foreground ${READOUT_MIN_WIDTH}`}
               aria-label="no value"
             >
               —
