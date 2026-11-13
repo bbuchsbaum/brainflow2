@@ -107,3 +107,30 @@ that cannot just be deleted:
 
 ## Open item before starting
 - ⌥-scroll zoom in the segmentation view still needs one manual check (not R6 work).
+
+## Native check after R6c — 2026-11-13 (branch `refactor/r6c-residency-cleanup` at `ee42fb2a`)
+
+Debug `.app` built from the branch, fixtures `cruft/r4-native/fixtures-v2`, full-screen control. ChatGPT's invisible window was open and blocked clicks in the middle of the screen, so some clicks went through the window-local tools instead.
+
+**Byte budget (`BRAINFLOW_GPU_RESIDENCY_BUDGET_BYTES=24576`): passed**
+- **Load:** groups 1–3 and the 6-frame series, 31 layers over five tabs (layers are shared across tabs).
+- **Over the draw cap:** a view past 13 layers raised one "not drawn" alert per tab ("r4-3-07.nii and 7 more…"), and the extra rows were badged.
+- **Tab switches:** 12 rapid switches with crosshair moves. Every view rendered.
+- **Pressure:** 11 releases under pressure.
+- **4D:** stepped 1→6→3 through the ring, with no "Re-uploading 4D".
+- **Close a tab:** the other views kept rendering.
+- **Segmentation on r4-1-01:**
+  - setup preview rendered (no stall);
+  - paint 22 mm³, undo 0, redo 22;
+  - label intact after switching through every tab;
+  - discard asked first, then removed the label layer, whose texture was released.
+- **Log:** no 6001/6008/6021, no ERROR lines, no panics. The only warnings were draw-cap skips.
+
+**Fixed slots (`…BUDGET_BYTES=0`, 13 slots): passed, with one transient warning**
+- **All 13 slots front-drawn:** with every slot holding a layer drawn in the front view, a 14th load is refused with "GPU texture slots full (all 13 in use). Hide or remove a layer, then load again." Nothing could be evicted, so this is the correct answer.
+- **Eviction:** in a tab where two layers were background, adding two layers evicted those two (R6a's fixed-slot eviction).
+- **Switching back:** returning to the tab that draws them evicted the other two and drew all 13.
+- **Transient warning:** one frame logged a single `6024 Maximum texture limit 13 reached` skip for a returning layer before admission caught up. The layer was re-added and drawn within a second, which is the starved-layer retry covered by `an_admission_eviction_keeps_starved_layers_waiting_until_the_upload_ends`.
+- **Log:** no ERROR lines, no panics.
+
+**Not checked:** ⌥-scroll zoom in the segmentation view. Computer-use scroll does not carry modifier keys, so this still needs a manual check. Logs are at the session scratchpad (`r6-native-bytes.log`, `r6-native-slots.log`); they are local and not committed.
