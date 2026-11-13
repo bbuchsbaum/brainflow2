@@ -209,15 +209,19 @@ function ReadoutCaption() {
     const index = worldToVoxelIndex(world, grid);
     ijk = voxelIndexInBounds(index, grid.dims) ? formatVoxelIndex(index) : null;
   }
-  // Prose in sans, the voxel numbers in mono.
+  const where = source === "pointer" ? "At pointer" : "At crosshair";
+  const full = ijk && grid ? `${where} · ijk ${ijk} (${suffix ?? grid.label})` : where;
+  // Prose in sans, the voxel numbers in mono. One line, always: the caption
+  // follows the pointer, so a wrap would resize the section on every move.
+  // A long readout ends in an ellipsis; the full text is in the tooltip.
   return (
     <>
       <span
-        className="ml-auto"
+        className="ml-auto min-w-0 truncate whitespace-nowrap text-right"
         data-testid="scene-readout-caption"
-        title={grid ? `Voxel on the grid of ${grid.name}` : undefined}
+        title={grid ? `${full} — voxel on the grid of ${grid.name}` : full}
       >
-        {source === "pointer" ? "At pointer" : "At crosshair"}
+        {where}
         {ijk && grid ? (
           <>
             {" · ijk "}
@@ -369,8 +373,15 @@ function VolumeSceneGroup({
   return (
     <div className="mt-2 first:mt-0">
       {/* The grid is named by the stable title only, not the caption / Copy. */}
-      <div className="mb-1 flex items-baseline gap-2 px-2 text-bf-xs text-muted-foreground">
-        <span id={titleId}>Volume view</span>
+      {/* Fixed height (the 24px Copy control), one line: pointer motion
+          never changes the section's layout. */}
+      <div
+        className="mb-1 flex h-6 items-center gap-2 overflow-hidden px-2 text-bf-xs text-muted-foreground"
+        data-testid="scene-readout-row"
+      >
+        <span id={titleId} className="shrink-0 whitespace-nowrap">
+          Volume view
+        </span>
         {items.length > 0 ? <ReadoutCaption /> : null}
       </div>
       {items.length === 0 ? (
