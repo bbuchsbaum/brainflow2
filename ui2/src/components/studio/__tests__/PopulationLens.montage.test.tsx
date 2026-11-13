@@ -507,6 +507,8 @@ it('the selection bar saves a group and compares with the rest; Open in Deck is 
 });
 
 it('grouped Summary: Show chooses the All card\'s statistic (labelled, enabled); no switch on a card', async () => {
+  // No B yet: Show holds the statistics alone (A and B join once B is set, below).
+  useSetStudioStore.getState().setCompareCohort(null);
   const { evaluate } = setup();
   await waitFor(() => expect(tiles()).toEqual(IDS));
   fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), {
@@ -530,6 +532,43 @@ it('grouped Summary: Show chooses the All card\'s statistic (labelled, enabled);
   await waitFor(() => expect(evaluate.mock.calls.at(-1)?.[0].summary).toBe('oneSampleT'));
   expect(screen.getByRole('combobox', { name: 'Show' })).toHaveValue('oneSampleT');
   expect(screen.queryByRole('radiogroup', { name: 'All: statistic' })).toBeNull();
+});
+
+it('grouped Summary: once B is set, Show also offers A and B / A − B and leaves the groups for them', async () => {
+  setup();
+  await waitFor(() => expect(tiles()).toEqual(IDS));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), {
+    target: { value: 'factor:site' },
+  });
+  fireEvent.click(
+    within(screen.getByRole('region', { name: 'site: X' })).getByRole('button', {
+      name: 'Show mean of site: X',
+    }),
+  );
+  expect(useSetStudioStore.getState().population.presentation.arrangement).toBe('groups');
+  // A = site X, B = site Y (as a card's "Use as A" / "Use as B" would).
+  act(() => {
+    populationProbeActions.select(IDS.slice(0, 5), 'replace', 'metadata', 'site: X');
+    const state = useSetStudioStore.getState();
+    const b = state.createSavedCohort({
+      memberIds: IDS.slice(5),
+      label: 'site: Y',
+      originLabel: 'Factor site',
+    })!;
+    state.setPopulationReferenceMode('cohort');
+    state.setCompareCohort(b);
+  });
+  const show = screen.getByRole('combobox', { name: 'Show' });
+  expect([...show.querySelectorAll('option')].map((o) => o.getAttribute('value'))).toEqual([
+    'mean',
+    'oneSampleT',
+    'positiveFraction',
+    'compare:ab',
+    'compare:diff',
+  ]);
+  fireEvent.change(show, { target: { value: 'compare:diff' } });
+  expect(useSetStudioStore.getState().population.presentation.arrangement).toBe('difference');
+  expect(screen.getByRole('combobox', { name: 'Show' })).toHaveValue('compare:diff');
 });
 
 it('Group by a factor shows every member of each group, wrapped, with no "more" cell', async () => {

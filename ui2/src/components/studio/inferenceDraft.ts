@@ -79,6 +79,17 @@ export function draftMissing(draft: InferenceDraft): string | null {
 }
 
 
+/**
+ * Whether a method compares A with a B. A one-population test and a linear
+ * model take A alone (the model's design is its covariates; a B is refused
+ * by the request); the descriptive comparison and two-group tests need B.
+ */
+export function methodNeedsB(method: Method): boolean {
+  if (method === 'descriptive') return true;
+  const { inputs } = inferenceMethod(method);
+  return inputs !== 'onePopulation' && inputs !== 'designMatrix';
+}
+
 /** Whether two member lists hold the same subjects (order and repeats ignored). */
 export function sameMembers(a: readonly string[], b: readonly string[]): boolean {
   const left = new Set(a);

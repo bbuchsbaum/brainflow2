@@ -1125,9 +1125,9 @@ export function PopulationLens({
   const statisticOptions: MontageOption[] = Object.entries(
     activeTest ? inferenceChannelNames(activeTest.method) : names,
   ).map(([value, label]) => ({ value, label }));
-  const showOptions: MontageOption[] = [
-    ...statisticOptions,
-    ...(!activeTest && (referenceReady || comparing)
+  // "A and B" and "A − B" once B is set: Show is their one home (grouped too).
+  const compareShowOptions: MontageOption[] =
+    !activeTest && (referenceReady || comparing)
       ? [
           {
             value: 'compare:ab',
@@ -1142,19 +1142,23 @@ export function PopulationLens({
             description: 'The difference of the two means',
           },
         ]
-      : []),
+      : [];
+  const showOptions: MontageOption[] = [...statisticOptions, ...compareShowOptions];
+  // Grouped, Show chooses the "All" card's statistic (the groups stay means),
+  // or leaves the groups for A and B once B is set.
+  const groupedShowOptions: MontageOption[] = [
+    ...ALL_CARD_STATISTICS.map(({ value, label }) => ({
+      value,
+      label,
+      description:
+        value === 'oneSampleT'
+          ? 'All card: one-sample t of the mean against zero, at each voxel'
+          : value === 'positiveFraction'
+            ? 'All card: share of nonzero members above zero, at each voxel (50 % is no lean)'
+            : 'All card: mean of the members, at each voxel',
+    })),
+    ...compareShowOptions,
   ];
-  // Grouped, Show chooses the "All" card's statistic (the groups stay means).
-  const groupedShowOptions: MontageOption[] = ALL_CARD_STATISTICS.map(({ value, label }) => ({
-    value,
-    label,
-    description:
-      value === 'oneSampleT'
-        ? 'All card: one-sample t of the mean against zero, at each voxel'
-        : value === 'positiveFraction'
-          ? 'All card: share of nonzero members above zero, at each voxel (50 % is no lean)'
-          : 'All card: mean of the members, at each voxel',
-  }));
   const showValue = activeTest
     ? activeTest.channel
     : comparing
@@ -1356,7 +1360,12 @@ export function PopulationLens({
               label: 'Show',
               value: showValue,
               options: grouped ? groupedShowOptions : showOptions,
-              onChange: grouped ? (value) => setSummary(value as PopulationSummary) : chooseShow,
+              onChange: grouped
+                ? (value) =>
+                    value.startsWith('compare:')
+                      ? chooseShow(value)
+                      : setSummary(value as PopulationSummary)
+                : chooseShow,
               title: grouped ? 'What the All card shows; the groups show their means' : undefined,
             }}
             // Offered once a point is pinned; never a disabled button on the row.

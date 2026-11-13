@@ -12,9 +12,33 @@ async function choose(page: Page, label: string, value: string) {
 
 /** The population toolbar's overflow (QA N13): open it to reach its controls. */
 async function openMore(page: Page) {
-  const more = page.locator('details:has(> summary[title="More"])').first();
+  // Scoped: the set header has its own ⋯ ("More") for Data commands.
+  const more = page.locator(
+    '[aria-label="Population controls"] details:has(> summary[title="More"])',
+  );
   if (!(await more.evaluate((element) => (element as HTMLDetailsElement).open)))
     await more.locator('> summary').click();
+}
+
+/**
+ * "Open saved population…" is a Data command in the set header's ⋯ menu
+ * (calm round 1: one header row; commands behind ⋯).
+ */
+async function openSavedPopulation(page: Page) {
+  const menu = page.locator('header.studio-set-header details:has(> summary[title="More"])');
+  if (!(await menu.evaluate((element) => (element as HTMLDetailsElement).open)))
+    await menu.locator('> summary').click();
+  await page.getByRole('button', { name: 'Open saved population…', exact: true }).click();
+}
+
+/**
+ * The montage shows every subject at once and has no transport (calm A6);
+ * the movie and its order are the Summary's. The Summary's footer status
+ * names the order the transport plays, grouped or not.
+ */
+async function summaryOrderStatus(page: Page) {
+  await page.getByRole('tab', { name: 'Summary', exact: true }).click();
+  return page.getByTestId('montage-footer');
 }
 
 /** Compose in Plot lives in the Values tab's ⋯ menu. */
@@ -36,7 +60,12 @@ test('exports the selected participant estimand and common mask with a frozen ca
   await page.getByLabel('Participant identity', { exact: true }).selectOption('column:participant');
   await page.getByLabel('Population analysis unit', { exact: true }).selectOption('mean');
   await page.getByRole('button', { name: 'Choose mask…', exact: true }).click();
-  await expect(page.getByText('Mask: left-half-mask.nii', { exact: true })).toBeVisible();
+  // The Compare-within select names the mask too (an <option>); this is the mask control.
+  await expect(
+    page.getByText('Mask: left-half-mask.nii', { exact: true }).and(page.locator('span')),
+  ).toBeVisible();
+  // Popovers close on a press outside them (calm A12): reopen Save calculation.
+  await page.getByText('Save calculation', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Export summary…', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Export summary…', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Saved summary' })).toBeVisible();
@@ -116,7 +145,7 @@ test('opens a saved population into linked controls and an Inspector, then explo
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/population-harness.html?mask&export');
-  await page.getByRole('button', { name: 'Open saved population…', exact: true }).click();
+  await openSavedPopulation(page);
   await expect(page.getByTestId('fixture-focus')).toHaveText('S042');
   await expect(page.getByLabel('Upper limit', { exact: true })).toHaveValue('6');
   await expect(page.getByLabel('Slice', { exact: true })).toHaveValue('coronal');
@@ -131,13 +160,19 @@ test('opens a saved population into linked controls and an Inspector, then explo
   await expect(page.getByLabel('Participant identity', { exact: true })).toHaveValue('saved');
   await expect(page.getByLabel('Population analysis unit', { exact: true })).toHaveValue('mean');
   const inspectorBounds = await inspector.boundingBox();
-  for (const select of await inspector.locator('select').all()) {
+  // Every select on screen fits (selects inside collapsed sections are not laid out).
+  const shownSelects = await inspector.locator('select:visible').all();
+  expect(shownSelects.length).toBeGreaterThan(0);
+  for (const select of shownSelects) {
     const bounds = await select.boundingBox();
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(
       inspectorBounds!.x + inspectorBounds!.width,
     );
   }
-  await expect(page.getByText('Mask: left-half-mask.nii', { exact: true })).toBeVisible();
+  // The Compare-within select names the mask too (an <option>); this is the mask control.
+  await expect(
+    page.getByText('Mask: left-half-mask.nii', { exact: true }).and(page.locator('span')),
+  ).toBeVisible();
   await page.getByLabel('Slice', { exact: true }).selectOption('sagittal');
   await expect(inspector).toContainText('40 of 80 available');
   await expect(page.getByTestId('fixture-focus')).toHaveText('S042');
@@ -151,9 +186,8 @@ test('opens a saved population into linked controls and an Inspector, then explo
   expect(receipt.population.workingMemberIds).toHaveLength(40);
   expect(receipt.population.aggregation.groups).toHaveLength(1);
   await page.getByText('Save calculation', { exact: true }).click();
-  await page
-    .locator('header[title="NeuroTabs · Explore individuals and populations"]')
-    .scrollIntoViewIfNeeded();
+  // The set header (the old "NeuroTabs" page header is gone).
+  await page.locator('header.studio-set-header').scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('population-workspace-desktop.png') });
   await page.setViewportSize({ width: 480, height: 1000 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -166,7 +200,7 @@ test('opens a saved population into linked controls and an Inspector, then explo
 
 test('failed saved-source verification leaves the current population intact', async ({ page }) => {
   await page.goto('/population-harness.html?mask&export&open-error');
-  await page.getByRole('button', { name: 'Open saved population…', exact: true }).click();
+  await openSavedPopulation(page);
   await expect(
     page.getByRole('alert').filter({ hasText: 'Saved source hash changed' }),
   ).toBeVisible();
@@ -206,8 +240,8 @@ test('scrubs and plays original observations, unfolds a montage and returns to t
   expect(limit).toBe('1');
   await expect(page.getByLabel('Upper limit', { exact: true })).toHaveValue('1');
   await expect(page.getByLabel('Lower limit', { exact: true })).toHaveValue('-1');
-  // C′: the transport is in the footer line under the montage.
-  await page.getByLabel('Population navigation').scrollIntoViewIfNeeded();
+  // The montage has no transport (calm A6): its footer line is under the tiles.
+  await page.getByTestId('montage-footer').scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('population-montage-desktop.png') });
   await page.getByRole('tab', { name: 'Summary', exact: true }).click();
   await expect(page.getByTestId('population-focused-subject')).toHaveText('S042');
@@ -215,11 +249,12 @@ test('scrubs and plays original observations, unfolds a montage and returns to t
   // C′: the order by the pinned value is the montage's Sort.
   await page.getByRole('tab', { name: 'Montage', exact: true }).click();
   await choose(page, 'Sort', 'crosshair');
+  // The movie (Summary's transport) plays that order.
+  await page.getByRole('tab', { name: 'Summary', exact: true }).click();
   await expect(page.getByLabel('Population navigation')).toHaveAttribute(
     'title',
     /Response order at/,
   );
-  await page.getByRole('tab', { name: 'Summary', exact: true }).click();
   await page.getByText('Save calculation', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Export summary…', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Export summary…', exact: true }).click();
@@ -257,6 +292,8 @@ test('groups, compares, unfolds contributors and restores exact A/B operands', a
   await a.getByRole('button', { name: 'Actions for group: A', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: 'Use as A', exact: true })).toBeEnabled();
   await page.getByRole('menuitem', { name: 'Use as A', exact: true }).click();
+  // A's menu closes before B's opens (two menus would offer two "Use as B").
+  await expect(page.getByRole('menu')).toHaveCount(0);
   await b.getByRole('button', { name: 'Actions for group: B', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: 'Use as B', exact: true })).toBeEnabled();
   await page.getByRole('menuitem', { name: 'Use as B', exact: true }).click();
@@ -278,7 +315,7 @@ test('groups, compares, unfolds contributors and restores exact A/B operands', a
   expect(receipt.population.reference.memberIds).toHaveLength(40);
   expect(receipt.population.reference.memberIds[0]).toBe('S041');
   expect(receipt.context.exploration.partition.groups).toHaveLength(2);
-  await page.getByRole('button', { name: 'Open saved population…', exact: true }).click();
+  await openSavedPopulation(page);
   await expect(page.getByText(/^A − B mean difference/)).toBeVisible();
   await choose(page, 'Show', 'compare:ab');
   // C′: the groups' means are the Summary with Group set (no Groups view).
@@ -294,15 +331,15 @@ test('groups, compares, unfolds contributors and restores exact A/B operands', a
     '40 of 80 available',
   );
 
-  // C′: hold-to-preview and its unit are in the Inspector.
-  const exclusion = page.getByLabel('Preview exclusion unit', { exact: true });
-  const subset = await exclusion
-    .locator('option')
-    .filter({ hasText: 'Set: One observer' })
-    .getAttribute('value');
-  await exclusion.selectOption(subset!);
+  // C′: hold-to-preview and its unit are in the Inspector; calm C6 makes them
+  // one split button ("Group mean without …" and its Leave out menu).
+  await page.getByTestId('hold-to-preview-unit').click();
+  await page.getByRole('menuitemradio', { name: 'Set: One observer', exact: true }).click();
+  await expect(page.getByTestId('hold-to-preview-unit')).toHaveAccessibleName(
+    'Leave out: Set: One observer',
+  );
   const preview = page.getByRole('button', {
-    name: 'Hold to preview without One observer (1 observation)',
+    name: 'Group mean without One observer (hold)',
     exact: true,
   });
   await preview.focus();
@@ -336,6 +373,8 @@ test('a selection made on a data-derived order is exploratory, named, and export
   await page.getByRole('button', { name: 'Focus subject S001', exact: true }).click({ modifiers: ['Shift'] });
   await page.getByRole('button', { name: 'Focus subject S002', exact: true }).click({ modifiers: ['Shift'] });
   const inspector = page.getByRole('region', { name: 'Population inspector' });
+  // The label is where A is named: Compare and test (calm round 3, layout C′ §3).
+  await openSection(page, 'Compare and test');
   await expect(inspector.getByText('Exploratory selection').first()).toBeVisible();
   await page.getByRole('button', { name: 'Save as group…', exact: true }).click();
   await expect(page.getByLabel('Group name', { exact: true })).toHaveValue('2 subjects from the montage');
@@ -360,7 +399,9 @@ test('drags across montage tiles to select original IDs on release while keeping
   await expect(first).toBeVisible();
   // Selection needs no mode: there is no brush to switch on.
   await expect(page.getByRole('button', { name: 'Brush montage', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('toolbar', { name: 'Selection' })).toHaveCount(0);
+  // The selection line under the montage toolbar (calm A7).
+  const selectionLine = page.getByTestId('montage-selection');
+  await expect(selectionLine).toHaveCount(0);
   const one = (await first.boundingBox())!,
     two = (await second.boundingBox())!;
   await page.mouse.move(one.x + 2, one.y + 2);
@@ -374,10 +415,10 @@ test('drags across montage tiles to select original IDs on release while keeping
     '2 of 80 available',
   );
   await expect(page.getByTestId('fixture-focus')).toHaveText('S001');
-  await expect(page.getByRole('toolbar', { name: 'Selection' })).toContainText('2 selected');
+  await expect(selectionLine).toContainText('2 selected');
   // Escape, with no drag in progress, clears the selection and leaves focus alone.
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('toolbar', { name: 'Selection' })).toHaveCount(0);
+  await expect(selectionLine).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Population inspector' })).toContainText(
     '80 of 80 available',
   );
@@ -423,26 +464,33 @@ test('fits stable spatial relationships, orders the movie, groups and reopens th
         ]),
       ),
   ).toEqual(initial);
+  // The movie plays the fit's order: the Summary's transport (the montage has none, calm A6).
+  await page.getByRole('tab', { name: 'Summary', exact: true }).click();
   await expect(page.getByLabel('Population navigation')).toHaveAttribute(
     'title',
     /^MDS axis 1 · effect · fit dddddddd/,
   );
+  await page.getByRole('tab', { name: 'Montage', exact: true }).click();
+  await expect(points).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('population-similarity-desktop.png') });
-  // A point probe at radius 0 keeps its radius field one click away, in ⋯.
+  // A point probe at radius 0 keeps its radius field one click away, in ⋯. With
+  // nothing pinned, Values is one line (calm A8): pin first, then set the radius.
+  await page.getByRole('button', { name: 'Pin crosshair', exact: true }).click();
   await page.getByRole('button', { name: 'More values actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Set radius', exact: true }).click();
   await page.getByLabel('Probe radius in millimetres', { exact: true }).fill('5');
-  await page.getByRole('button', { name: 'Pin crosshair', exact: true }).click();
   // C′: where similarity is compared is set once, in Analysis setup.
   await openSection(page, 'Analysis setup');
   await page.getByLabel('Compare within', { exact: true }).selectOption('probe');
   await choose(page, 'Group', 'similarity:effect');
   await expect(page.getByText(/Fit eeeeeeee · 90/)).toBeVisible();
-  await expect(page.getByLabel('Population navigation')).toHaveAttribute(
-    'title',
-    /fit dddddddd · earlier fit/,
-  );
   await expect(page.getByRole('region', { name: 'Group 1', exact: true })).toBeVisible();
+  // Grouped, no view has a transport (calm A6); the Summary's status names the
+  // order the movie plays.
+  await expect(await summaryOrderStatus(page)).toHaveAttribute(
+    'title',
+    /(^| · )MDS axis 1 · effect · fit dddddddd · earlier fit( · |$)/,
+  );
   await page.getByText('Save calculation', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Export summary…', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Export summary…', exact: true }).click();
@@ -452,11 +500,12 @@ test('fits stable spatial relationships, orders the movie, groups and reopens th
   expect(receipt.context.orderRelationship.fitId).toBe('d'.repeat(64));
   expect(receipt.context.presentation.order.orderedIds[0]).toBe('S041');
   expect(receipt.context.exploration.partition.origin).toBe('map-derived');
-  await page.getByRole('button', { name: 'Open saved population…', exact: true }).click();
-  await expect(page.getByLabel('Population navigation')).toHaveAttribute(
+  await openSavedPopulation(page);
+  await expect(await summaryOrderStatus(page)).toHaveAttribute(
     'title',
-    /^MDS axis 1 · effect · fit dddddddd · earlier fit/,
+    /(^| · )MDS axis 1 · effect · fit dddddddd · earlier fit( · |$)/,
   );
+  await page.getByRole('tab', { name: 'Montage', exact: true }).click();
   await expect(points).toBeVisible();
   expect(
     await points
@@ -469,7 +518,9 @@ test('fits stable spatial relationships, orders the movie, groups and reopens th
         ]),
       ),
   ).toEqual(initial);
-  await page.getByRole('button', { name: 'Lasso observations', exact: true }).click();
+  // Direct lasso: a drag that starts on empty space draws it; there is no
+  // Lasso button and no brushing mode to finish (calm R1-C).
+  await expect(page.getByRole('button', { name: 'Lasso observations', exact: true })).toHaveCount(0);
   await points.scrollIntoViewIfNeeded();
   const target = await focus.boundingBox();
   expect(target).not.toBeNull();
@@ -484,7 +535,7 @@ test('fits stable spatial relationships, orders the movie, groups and reopens th
   await page.mouse.up();
   await expect(points.locator('circle[aria-pressed="true"]')).toHaveCount(40);
   await expect(page.getByTestId('fixture-focus')).toHaveText('S042');
-  await page.getByRole('button', { name: 'Finish brushing', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Finish brushing', exact: true })).toHaveCount(0);
   // C′: the measure is Sort's and Group's; a refusal is said in the strip.
   await choose(page, 'Sort', 'similarity:pattern-shape');
   await expect(strip.getByRole('alert').filter({ hasText: /constant/ })).toBeVisible();
@@ -549,16 +600,16 @@ test('declares participant effects, switches test channels and reopens a frozen 
     channel: 'standardError',
   });
   expect(receipt.population.aggregation.groups).toHaveLength(80);
-  await page.getByRole('button', { name: 'Open saved population…', exact: true }).click();
+  await openSavedPopulation(page);
   await expect(channel).toHaveValue('standardError');
   await expect(page.getByText('Standard error · 80 participants', { exact: true })).toBeVisible();
   await page
-    .getByLabel('Compare and test', { exact: true })
+    .getByRole('group', { name: 'Compare and test', exact: true })
     .screenshot({ path: testInfo.outputPath('population-inference-desktop.png') });
   await page.setViewportSize({ width: 480, height: 1000 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page
-    .getByLabel('Compare and test', { exact: true })
+    .getByRole('group', { name: 'Compare and test', exact: true })
     .screenshot({ path: testInfo.outputPath('population-inference-narrow.png') });
   // C′: the descriptive difference is a Test choice, applied by Run.
   await page.getByLabel('Statistical method', { exact: true }).selectOption('descriptive');
@@ -585,8 +636,11 @@ test('selects a method, compares independent groups, and reopens every Welch cha
   await page
     .getByLabel('I declare comparable effects from independent participants.', { exact: true })
     .check();
-  await page.getByRole('button', { name: 'Run', exact: true }).click();
-  await expect(page.getByRole('alert').filter({ hasText: /population B/ })).toBeVisible();
+  // A two-group test without B is not run: Run is off and says B is missing (calm A10).
+  await expect(page.getByRole('button', { name: 'Run', exact: true })).toBeDisabled();
+  await expect(page.getByTestId('compare-operands-issue')).toHaveText(
+    'Select subjects for A, or choose B.',
+  );
   // C′: Group is on toolbar row 2; choosing a factor applies it.
   await choose(page, 'Group', 'factor:group');
   await page
@@ -594,6 +648,8 @@ test('selects a method, compares independent groups, and reopens every Welch cha
     .getByRole('button', { name: 'Actions for group: A', exact: true })
     .click();
   await page.getByRole('menuitem', { name: 'Use as A', exact: true }).click();
+  // A's menu closes before B's opens (two menus would offer two "Use as B").
+  await expect(page.getByRole('menu')).toHaveCount(0);
   await page
     .getByRole('region', { name: 'group: B', exact: true })
     .getByRole('button', { name: 'Actions for group: B', exact: true })
@@ -619,19 +675,19 @@ test('selects a method, compares independent groups, and reopens every Welch cha
   expect(receipt.population.inference).toMatchObject({ method: 'welch', channel: 'countB' });
   expect(receipt.population.aggregation.groups).toHaveLength(40);
   expect(receipt.population.reference.aggregation.groups).toHaveLength(40);
-  await page.getByRole('button', { name: 'Open saved population…', exact: true }).click();
+  await openSavedPopulation(page);
   await expect(page.getByLabel('Statistical method', { exact: true })).toHaveValue('welch');
   await expect(channel).toHaveValue('countB');
   await expect(
     page.getByText('Valid participants in B · A 40 / B 40 participants', { exact: true }),
   ).toBeVisible();
   await page
-    .getByLabel('Compare and test', { exact: true })
+    .getByRole('group', { name: 'Compare and test', exact: true })
     .screenshot({ path: testInfo.outputPath('population-welch-desktop.png') });
   await page.setViewportSize({ width: 480, height: 1000 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page
-    .getByLabel('Compare and test', { exact: true })
+    .getByRole('group', { name: 'Compare and test', exact: true })
     .screenshot({ path: testInfo.outputPath('population-welch-narrow.png') });
   // C′: the descriptive difference is a Test choice, applied by Run.
   await page.getByLabel('Statistical method', { exact: true }).selectOption('descriptive');
@@ -671,7 +727,7 @@ test('matches paired participants, freezes pair counts and restores the question
   const receipt = JSON.parse((await page.getByTestId('synthetic-export-receipt').textContent())!);
   expect(receipt.population.inference.method).toBe('paired');
   expect(receipt.population.aggregation.groups).toHaveLength(40);
-  await page.getByRole('button', { name: 'Open saved population…', exact: true }).click();
+  await openSavedPopulation(page);
   await expect(page.getByLabel('Show', { exact: true })).toHaveValue('count');
 });
 
@@ -791,6 +847,8 @@ test('samples declared 4D frames and focuses a real time point without replacing
   await expect(page.getByText('frame 3', { exact: true })).toBeVisible();
   await expect(page.getByTestId('population-mean')).toContainText('1.000');
   await plot.getByLabel('Plot membership binding', { exact: true }).selectOption('working');
+  // "Focused only" is offered once a selection exists (calm R1-C); Select all stays.
+  await page.getByRole('button', { name: 'Select all', exact: true }).click();
   await page.getByRole('button', { name: 'Focused only', exact: true }).click();
   await expect(plot.locator('[data-datum-id]')).toHaveCount(3);
   await expect(plot.getByText(/Pinned samples · 3 \/ 240 sample rows/)).toBeVisible();
@@ -808,7 +866,9 @@ test('selects exact crossed-factor cells without moving focus', async ({ page },
   await page.goto('/population-harness.html?export');
   await page.getByRole('button', { name: 'Pin crosshair', exact: true }).click();
   // C′: "Two factors…" in the Group menu; the matrix is in the Values tab's Table.
-  await choose(page, 'Group', 'two:["group","site"]');
+  // The menu lists only crossings that make groups (calm C5): in this fixture
+  // every observation shares one site, so group is crossed with participant.
+  await choose(page, 'Group', 'two:["group","participant"]');
   await page.getByRole('radio', { name: 'Table', exact: true }).click();
   const matrix = page.getByLabel('Population group matrix', { exact: true });
   await matrix.locator('summary').click();
@@ -816,8 +876,11 @@ test('selects exact crossed-factor cells without moving focus', async ({ page },
   await expect(cells.first()).toBeEnabled();
   await cells.first().click();
   await expect(page.getByTestId('fixture-focus')).toHaveText('S001');
-  await expect(page.getByTestId('population-mean')).toContainText('3.000');
   await matrix.screenshot({ path: testInfo.outputPath('population-group-matrix.png') });
+  // The selection's statistics are drawn with the Strip view.
+  await page.getByRole('radio', { name: 'Strip', exact: true }).click();
+  await expect(page.getByTestId('population-mean')).toContainText('3.000');
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S001');
 });
 
 test('renders a labeled reconstruction in the shared anatomical viewport', async ({

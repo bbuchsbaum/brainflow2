@@ -10,6 +10,7 @@ import {
 import {
   compareOperandsIssue,
   draftMissing,
+  methodNeedsB,
   sameMembers,
   type InferenceDraft,
   type Method,
@@ -120,7 +121,7 @@ export function CompareAndTest({ draft }: { draft: InferenceDraft }) {
     a: population.workingMemberIds,
     b: population.referenceIssue ? [] : population.referenceMemberIds,
     aIsSelection,
-    needsB: !descriptor || descriptor.inputs !== 'onePopulation',
+    needsB: methodNeedsB(draft.method),
   });
   // A Run with the descriptive comparison only removes a test in force: always allowed.
   const runDisabled =

@@ -4,6 +4,7 @@ import { PopulationInspector } from '../PopulationInspector';
 import {
   compareOperandsIssue,
   compareSelectionWithTheRest,
+  methodNeedsB,
   sameMembers,
 } from '../inferenceDraft';
 import { pathListNames, valueStanding } from '../relationshipPresentation';
@@ -167,6 +168,32 @@ describe('Compare and test never compares the set with itself (A10)', () => {
       target: { value: 'welch' },
     });
     expect(screen.getByRole('button', { name: 'Run' })).toBeDisabled();
+  });
+
+  it('a linear model or one-sample test takes A alone: no B is asked for and Run is not held', () => {
+    expect(methodNeedsB('linearModel')).toBe(false);
+    expect(methodNeedsB('oneSample')).toBe(false);
+    expect(methodNeedsB('welch')).toBe(true);
+    expect(methodNeedsB('paired')).toBe(true);
+    expect(methodNeedsB('descriptive')).toBe(true);
+    // No usable B: the only cohort is every subject, i.e. A itself.
+    const ids = state().sets[state().selection.activeSetId!].memberIds;
+    const all = state().createSavedCohort({
+      memberIds: [...ids],
+      label: 'All members',
+      originLabel: 'context',
+      description: 'every subject',
+    })!;
+    act(() => state().setCompareCohort(all));
+    render(<PopulationInspector />);
+    open('Compare and test');
+    const method = screen.getByRole('combobox', { name: 'Statistical method' });
+    fireEvent.change(method, { target: { value: 'welch' } });
+    expect(screen.getByTestId('compare-operands-issue')).toHaveTextContent(/choose a different B/);
+    fireEvent.change(method, { target: { value: 'linearModel' } });
+    expect(screen.queryByTestId('compare-operands-issue')).toBeNull();
+    fireEvent.change(method, { target: { value: 'oneSample' } });
+    expect(screen.queryByTestId('compare-operands-issue')).toBeNull();
   });
 
   it('a new selection makes B the rest; a B chosen afterwards is kept', () => {
