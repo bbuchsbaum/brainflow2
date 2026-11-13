@@ -12,6 +12,7 @@ import { useLayoutDragStore } from '@/stores/layoutDragStore';
 import { debounce, throttle } from 'lodash';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { pulseRenderInteraction } from '@/utils/renderPixelRatio';
+import { flushSync } from 'react-dom';
 
 interface FlexibleSlicePanelProps {
   viewId?: ViewType;
@@ -94,7 +95,6 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
   }, [viewId, dimensions, throttledUpdateDimensions]);
   
   // Use ResizeObserver to track container size internally
-  // Use effect + requestAnimationFrame to avoid nested update loops
   useEffect(() => {
     if (!containerRef.current) return;
     
@@ -110,23 +110,29 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
           pulseRenderInteraction('layout-resize');
         }
         observed = { width, height };
-        const schedule = () => {
-          const [clampedWidth, clampedHeight] = clampDimensions(width, height);
+        const [clampedWidth, clampedHeight] = clampDimensions(width, height);
+        // Sync dimensions to backend when not layout-dragging, first, so the
+        // refit plane is committed with the canvas size below.
+        // During drag the coalescing middleware defers flushes anyway,
+        // and the drag-end handler forces a final sync.
+        if (!useLayoutDragStore.getState().isDragging) {
+          throttledUpdateDimensions(clampedWidth, clampedHeight);
+        }
+        // Committed before this frame is painted. The canvas is centred in
+        // its pane, so a canvas resized a frame after the pane sat shifted by
+        // half the difference: through a splitter drag the image and the
+        // crosshair wobbled with the drag's speed and settled when it stopped.
+        // A ResizeObserver callback runs after layout and outside React's
+        // render, so a synchronous commit here is safe; the pane's own size
+        // does not depend on its canvas, so it cannot loop.
+        flushSync(() => {
           setDimensions(prev => {
             if (prev.width === clampedWidth && prev.height === clampedHeight) {
               return prev;
             }
             return { width: clampedWidth, height: clampedHeight };
           });
-          // Sync dimensions to backend when not layout-dragging.
-          // During drag the coalescing middleware defers flushes anyway,
-          // and the drag-end handler forces a final sync.
-          if (!useLayoutDragStore.getState().isDragging) {
-            throttledUpdateDimensions(clampedWidth, clampedHeight);
-          }
-        };
-        // Defer updates to next frame to avoid nested layout commits
-        requestAnimationFrame(schedule);
+        });
       }
     });
     

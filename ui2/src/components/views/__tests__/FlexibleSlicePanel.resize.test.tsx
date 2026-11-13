@@ -6,7 +6,13 @@
 import { act, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../SliceView', () => ({ SliceView: () => null }));
+const sliceViewSizes = vi.hoisted(() => [] as Array<[number, number]>);
+vi.mock('../SliceView', () => ({
+  SliceView: ({ width, height }: { width: number; height: number }) => {
+    sliceViewSizes.push([width, height]);
+    return null;
+  },
+}));
 vi.mock('@/stores/viewStateStore', () => ({
   useViewStateStore: {
     getState: () => ({
@@ -60,5 +66,22 @@ describe('FlexibleSlicePanel resize → render ratio', () => {
       vi.advanceTimersByTime(RATIO_RESTORE_MS);
     });
     expect(effectiveRenderRatio()).toBe(2);
+  });
+
+  // The canvas is centred in its pane: sized a frame late, it sat shifted by
+  // half the difference, and the crosshair wobbled through a splitter drag.
+  it('a resize reaches the view inside the observer callback, before the frame is painted', () => {
+    render(<FlexibleSlicePanel viewId="axial" />);
+    act(() => {
+      vi.advanceTimersByTime(16);
+    });
+    // Asserted inside the callback's own turn: no timer or animation frame
+    // runs between the observer callback and the view getting its size.
+    act(() => {
+      observe!([{ contentRect: { width: 400, height: 300 } }]);
+      expect(sliceViewSizes.at(-1)).toEqual([400, 300]);
+      observe!([{ contentRect: { width: 380, height: 300 } }]);
+      expect(sliceViewSizes.at(-1)).toEqual([380, 300]);
+    });
   });
 });
