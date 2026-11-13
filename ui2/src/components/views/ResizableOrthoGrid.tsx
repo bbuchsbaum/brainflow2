@@ -24,12 +24,16 @@ import {
   type ReactNode,
 } from 'react';
 import type { OrthoArrangement } from '@/stores/layoutSettingsStore';
+import { beginRenderInteraction, endRenderInteraction } from '@/utils/renderPixelRatio';
 
 /** Gutter track width (px). Wider than the visible line so it is easy to grab;
  *  the line itself is drawn ~2px in the middle via a gradient (see `gutter`). */
 const GUTTER_PX = 10;
 /** A pane can't be dragged below this fraction of its row/column. */
 const MIN_FR = 0.12;
+
+/** Names the splitter drag as a render interaction (utils/renderPixelRatio). */
+const SPLITTER_INTERACTION = 'ortho-splitter';
 
 type SizeKey = 'row' | 'column' | 'gridCols' | 'gridRows';
 
@@ -106,9 +110,15 @@ export function ResizableOrthoGrid({
         next[index + 1] = b;
         setSizes((prev) => ({ ...prev, [key]: next }));
       };
+      // One interaction from press to release: the views render at 1× and
+      // hold their colour bars for the whole drag. Without it only the
+      // resizes themselves counted, so a pause mid-drag ended the hold and
+      // the colour bar chose a new place, then moved again on the next step.
+      beginRenderInteraction(SPLITTER_INTERACTION);
       const onUp = () => {
         window.removeEventListener('mousemove', onMove, true);
         window.removeEventListener('mouseup', onUp, true);
+        endRenderInteraction(SPLITTER_INTERACTION);
       };
       // Capture phase: the slice views call stopPropagation on their mouse
       // handlers, so a bubble-phase window listener would be starved once the

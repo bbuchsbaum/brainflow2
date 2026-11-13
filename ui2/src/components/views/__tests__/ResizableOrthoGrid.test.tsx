@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render } from '@testing-library/react';
 
 import { ResizableOrthoGrid } from '../ResizableOrthoGrid';
+import { renderInteractionActive, resetRenderInteraction, RATIO_RESTORE_MS } from '@/utils/renderPixelRatio';
 
 function firstMinmaxFr(template: string): number {
   const m = template.match(/minmax\(0,\s*([\d.]+)fr\)/);
@@ -101,5 +102,30 @@ describe('ResizableOrthoGrid drag-resize', () => {
 
     const after = firstMinmaxFr(gridEl.style.gridTemplateColumns);
     expect(after).toBeGreaterThan(0);
+  });
+
+  // The colour bar holds its place while an interaction runs. Counting only
+  // the resize steps let a pause mid-drag end the hold, so the bar chose a
+  // new place and moved again on the next step.
+  it('the whole drag is one render interaction, through a pause, until release', () => {
+    vi.useFakeTimers();
+    resetRenderInteraction();
+    try {
+      const { getByTestId } = render(
+        <ResizableOrthoGrid arrangement="grid" axial={<div />} sagittal={<div />} coronal={<div />} />,
+      );
+      expect(renderInteractionActive()).toBe(false);
+      fireEvent.mouseDown(getByTestId('ortho-gutter-grid-row'), { clientX: 300, clientY: 200 });
+      fireEvent.mouseMove(window, { clientX: 300, clientY: 150 });
+      vi.advanceTimersByTime(RATIO_RESTORE_MS * 5);
+      expect(renderInteractionActive()).toBe(true);
+      fireEvent.mouseUp(window);
+      expect(renderInteractionActive()).toBe(true);
+      vi.advanceTimersByTime(RATIO_RESTORE_MS);
+      expect(renderInteractionActive()).toBe(false);
+    } finally {
+      resetRenderInteraction();
+      vi.useRealTimers();
+    }
   });
 });
