@@ -229,6 +229,19 @@ export function ClusterPanel() {
     target ? s.layerMetadata.get(target.id)?.dataRange : undefined,
   );
   const symbol = statisticUnits(layer?.statistic, dataRange);
+  // A signed map with no statistic in its header or name (a contrast or
+  // group t map named "…_t_g", a beta map) is clustered in its own values:
+  // data on both sides of zero is what a T1, PET or mask never has, so the
+  // guard against one whole-brain "cluster" still holds. No statistic, so
+  // no default threshold and no cluster p.
+  const signedMap =
+    !symbol &&
+    !!dataRange &&
+    Number.isFinite(dataRange.min) &&
+    Number.isFinite(dataRange.max) &&
+    dataRange.min < 0 &&
+    dataRange.max > 0;
+  const clusterable = !!target && (!!symbol || signedMap);
   // A loaded statistical map to offer when the active layer is not one.
   const layerMetadata = useLayerStore((s) => s.layerMetadata);
   const allLayers = useLayerStore((s) => s.layers);
@@ -259,6 +272,8 @@ export function ClusterPanel() {
   );
 
   const params = useClusterStore((s) => s.params);
+  // The stored opt-in applies only where a statistic makes it meaningful.
+  const extentP = params.extentP && !!symbol;
   const status = useClusterStore((s) => s.status);
   const result = useClusterStore((s) => s.result);
   const error = useClusterStore((s) => s.error);
@@ -330,15 +345,15 @@ export function ClusterPanel() {
   const thresholdInvalid = typedInvalid || threshold === null || !Number.isFinite(threshold) || threshold < 0;
   const minInvalid =
     params.minVoxels === null || !Number.isInteger(params.minVoxels) || params.minVoxels < 1;
-  const fwhm = params.extentP ? parseFwhm(params.fwhmText) : null;
-  const fwhmInvalid = params.extentP && fwhm === null;
+  const fwhm = extentP ? parseFwhm(params.fwhmText) : null;
+  const fwhmInvalid = extentP && fwhm === null;
   const computing = status === 'computing';
   // Clusters need a statistical layer: a T1 at |value| > 0 is one 100k-voxel
   // "cluster" (v4 user critic). Disabled controls say why.
   const notStatReason = !active
     ? 'Select a layer to find clusters'
-    : !target || !symbol
-      ? 'Clusters need a statistical layer (a z, t or F map)'
+    : !clusterable
+      ? 'Clusters need a statistical layer (a z, t or F map) or a signed map'
       : null;
   const thresholdReason = notStatReason
     ? null
@@ -350,23 +365,23 @@ export function ClusterPanel() {
       ? 'Enter a threshold (the layer has no display threshold)'
       : fwhmInvalid
         ? 'Enter the FWHM in mm (one value, or three for i j k) for cluster p'
-        : asymmetric && params.extentP
+        : asymmetric && extentP
           ? 'Cluster p needs one threshold for both tails: make the threshold symmetric, or search one sign'
         : null;
   const canCompute =
-    !notStatReason && !thresholdInvalid && !minInvalid && !fwhmInvalid && !(asymmetric && params.extentP) && !computing;
+    !notStatReason && !thresholdInvalid && !minInvalid && !fwhmInvalid && !(asymmetric && extentP) && !computing;
   // A label/atlas or other non-statistic layer has no parameters to edit: the
   // controls are off, not red (QA §9.5).
   const paramsDisabled = notStatReason !== null;
   // Shown in the toolbar row when the EmptyPane does not already say it (it
   // does not when an error or another layer's table fills the body).
-  const emptyPaneShown = !(error && status === 'error') && (!target || !symbol) && !result;
+  const emptyPaneShown = !(error && status === 'error') && !clusterable && !result;
   const computeReason = notStatReason && !emptyPaneShown ? notStatReason : thresholdReason;
   const activeName = useLayerStore((s) => (active ? s.layers.find((l) => l.id === active.id)?.name : undefined));
 
   const compute = useCallback(() => {
     if (!target || threshold === null || params.minVoxels === null) return;
-    if (params.extentP && fwhm === null) return;
+    if (extentP && fwhm === null) return;
     // A statistic known only from the file name is declared to the backend
     // (it reads the header); a z needs nothing more, a t its df (not known).
     const statistic = layer?.statistic;
@@ -379,10 +394,10 @@ export function ClusterPanel() {
       sign: searchSign,
       connectivity: params.connectivity,
       minVoxels: params.minVoxels,
-      extent: params.extentP && fwhm !== null ? { fwhmMm: fwhm, statistic: declared } : null,
+      extent: extentP && fwhm !== null ? { fwhmMm: fwhm, statistic: declared } : null,
       ...(maskVolumeId ? { searchMask: maskVolumeId } : {}),
     });
-  }, [target, threshold, negativeThreshold, searchSign, params.connectivity, params.minVoxels, params.extentP, fwhm, layer?.statistic, maskVolumeId]);
+  }, [target, threshold, negativeThreshold, searchSign, params.connectivity, params.minVoxels, extentP, fwhm, layer?.statistic, maskVolumeId]);
 
   // The table's own statistic (its layer may no longer be the active one):
   // headers, the empty line and the methods sentence use it, never the
@@ -426,11 +441,11 @@ export function ClusterPanel() {
       t.sign !== searchSign ||
       t.connectivity !== params.connectivity ||
       t.minVoxels !== params.minVoxels ||
-      (!!t.extentInference || !!t.extentWithheld) !== params.extentP ||
+      (!!t.extentInference || !!t.extentWithheld) !== extentP ||
       tableMask !== maskVolumeId ||
       (t.extentInference !== null && t.extentInference !== undefined && !sameFwhm(t.extentInference.fwhmMm, fwhm));
     return changed ? 'Parameters changed since this table.' : null;
-  }, [result, target, threshold, negativeThreshold, searchSign, params.connectivity, params.minVoxels, params.extentP, fwhm, maskVolumeId, allLayers]);
+  }, [result, target, threshold, negativeThreshold, searchSign, params.connectivity, params.minVoxels, extentP, fwhm, maskVolumeId, allLayers]);
 
   // Sortable by rank (#, = |peak| descending, the backend order), voxels or
   // |peak|. Regions travel with their cluster (indexed by rank).
@@ -791,14 +806,18 @@ export function ClusterPanel() {
         <span className="inline-flex items-center gap-x-2 whitespace-nowrap" data-testid="cluster-rft-group">
         <Checkbox
           className="text-bf-xs text-bf-text-secondary"
-          checked={params.extentP}
-          disabled={paramsDisabled}
+          checked={extentP}
+          disabled={paramsDisabled || !symbol}
           onCheckedChange={(checked) => setParams({ extentP: checked })}
-          title="Cluster-extent p values by Gaussian random field theory, from the smoothness you state"
+          title={
+            symbol || paramsDisabled
+              ? "Cluster-extent p values by Gaussian random field theory, from the smoothness you state"
+              : "Cluster p needs a z or t map; this map's statistic is not known"
+          }
         >
           Cluster p (RFT)
         </Checkbox>
-        {params.extentP ? (
+        {extentP ? (
           <>
             <label className="text-bf-text-secondary" htmlFor="cluster-fwhm">
               FWHM
@@ -873,7 +892,7 @@ export function ClusterPanel() {
               {error}
             </Notice>
           </div>
-        ) : (!target || !symbol) && !result ? (
+        ) : !clusterable && !result ? (
           // P3.11: say what clusters need, and offer the loaded statistical
           // map when there is one.
           <EmptyPane

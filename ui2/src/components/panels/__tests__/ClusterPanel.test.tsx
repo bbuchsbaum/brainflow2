@@ -319,8 +319,69 @@ describe('ClusterPanel', () => {
     for (const name of ['Compute', 'Go to max', 'Go to min']) {
       const button = screen.getByRole('button', { name });
       expect(button).toBeDisabled();
-      expect(button).toHaveAttribute('title', 'Clusters need a statistical layer (a z, t or F map)');
+      expect(button).toHaveAttribute('title', 'Clusters need a statistical layer (a z, t or F map) or a signed map');
     }
+  });
+
+  // User report 2026-11-13: a group t map from an image set
+  // ("contrast-mod_cue_old_t_g.nii.gz": no intent code, not an FSL name) was
+  // shown thresholded in fMRI red-blue, yet clustering was refused.
+  function seedSignedMap(threshold: [number, number], dataRange = { min: -4.03, max: 4.16 }) {
+    useLayerStore.setState({
+      layers: [
+        { id: 't1', name: 'T1.nii.gz', volumeId: 't1', type: 'volume', visible: true, order: 0 },
+        { id: 'obs', name: 'contrast-mod_cue_old_t_g.nii.gz', volumeId: 'obs', type: 'volume', visible: true, order: 1 },
+      ] as never,
+      selectedLayerId: 'obs',
+      layerMetadata: new Map([
+        ['t1', { dataRange: { min: 0, max: 8230 } }],
+        ['obs', { dataRange }],
+      ]),
+    });
+    useViewStateStore.getState().setViewState((state) => {
+      state.layers = [
+        { id: 't1', name: 't1', volumeId: 't1', visible: true, opacity: 1, colormap: 'gray', intensity: [0, 8230], threshold: [0, 0] },
+        { id: 'obs', name: 'obs', volumeId: 'obs', visible: true, opacity: 1, colormap: 'fmri', intensity: [-4.03, 4.16], threshold },
+      ] as never;
+    });
+  }
+
+  it('a signed map with no known statistic clusters in its own values at the display threshold', () => {
+    seedSignedMap([-4.23, 2.15]);
+    render(<ClusterPanel />);
+    expect(screen.queryByText('Load a statistical map to find clusters')).toBeNull();
+    expect(screen.getByTestId('cluster-layer')).toHaveTextContent('contrast-mod_cue_old_t_g');
+    const button = screen.getByRole('button', { name: 'Compute' });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    expect(compute).toHaveBeenCalledWith(
+      expect.objectContaining({ layerId: 'obs', threshold: 2.15, negativeThreshold: 4.23, sign: 'both', extent: null }),
+    );
+  });
+
+  it('a signed map with no known statistic offers no cluster p and seeds no default threshold', () => {
+    useClusterStore.getState().setParams({ extentP: true, fwhmText: '6' });
+    seedSignedMap([0, 0]);
+    render(<ClusterPanel />);
+    // The stored RFT opt-in does not apply: there is no statistic to test.
+    const rft = screen.getByRole('checkbox', { name: 'Cluster p (RFT)' });
+    expect(rft).toBeDisabled();
+    expect(rft).not.toBeChecked();
+    expect(screen.queryByLabelText('FWHM')).toBeNull();
+    // No 3.1 guess for unknown units: Compute waits for a typed value.
+    expect(screen.getByRole('button', { name: 'Compute' })).toBeDisabled();
+    expect(screen.getByTestId('cluster-reason')).toHaveTextContent('Enter a threshold');
+  });
+
+  it('a non-negative map with no statistic (a T1) is still refused', () => {
+    seedSignedMap([-4.23, 2.15]);
+    useLayerStore.setState({ selectedLayerId: 't1' });
+    render(<ClusterPanel />);
+    expect(screen.getByRole('button', { name: 'Compute' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Compute' })).toHaveAttribute(
+      'title',
+      'Clusters need a statistical layer (a z, t or F map) or a signed map',
+    );
   });
 
   it('a z map with no display threshold seeds |z| > 3.1 and says so, never 0 (review R7, v5)', () => {
@@ -359,7 +420,7 @@ describe('ClusterPanel', () => {
     });
     render(<ClusterPanel />);
     expect(screen.getByTestId('cluster-layer')).toHaveTextContent('atlas-synth3_dseg');
-    expect(screen.getByRole('button', { name: 'Compute' })).toHaveAttribute('title', 'Clusters need a statistical layer (a z, t or F map)');
+    expect(screen.getByRole('button', { name: 'Compute' })).toHaveAttribute('title', 'Clusters need a statistical layer (a z, t or F map) or a signed map');
     // Deliberate change: the table is still right for its own layer, so it is
     // shown and copyable, named, never "Compute to update" (Compute would
     // target the atlas).
@@ -391,7 +452,7 @@ describe('ClusterPanel', () => {
     for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
     const compute = screen.getByRole('button', { name: 'Compute' });
     expect(compute).toBeDisabled();
-    expect(screen.getByTestId('cluster-reason')).toHaveTextContent('Clusters need a statistical layer (a z, t or F map)');
+    expect(screen.getByTestId('cluster-reason')).toHaveTextContent('Clusters need a statistical layer (a z, t or F map) or a signed map');
     expect(compute).toHaveAttribute('aria-describedby', 'cluster-reason');
   });
 
