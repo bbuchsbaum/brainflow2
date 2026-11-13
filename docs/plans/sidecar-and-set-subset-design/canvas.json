@@ -1,0 +1,33 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-11-13T18:30:00Z" },
+  "title": "Brainflow sidecar info and set subsets",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 376, "h": 860, "title": "1 Inspector: about this image" },
+    "MemberPicker.dc.html": { "x": 456, "y": 0, "w": 376, "h": 620, "title": "2 Inspector: member picker open" },
+    "FilesPanel.dc.html": { "x": 912, "y": 0, "w": 320, "h": 860, "title": "3 Files: marker and selected file" },
+    "OpenSetDialog.dc.html": { "x": 1312, "y": 0, "w": 640, "h": 720, "title": "4 Open image set: choose a subset" },
+    "InspectorStates.dc.html": { "x": 0, "y": 980, "w": 1600, "h": 400, "title": "5 About this image: other states" }
+  },
+  "order": [
+    "Main.dc.html",
+    "MemberPicker.dc.html",
+    "FilesPanel.dc.html",
+    "OpenSetDialog.dc.html",
+    "InspectorStates.dc.html"
+  ],
+  "notes": {
+    "t1": { "x": 0, "y": -300, "text": "Sidecar information and set subsets", "kind": "title1", "maxW": 1952 }
+  },
+  "designSystems": [
+    {
+      "title": "Brainflow",
+      "namespace": "brainflow",
+      "artifact": "https://claude.ai/artifact/J4cm3oJbcvw4D54z7fxE4H",
+      "version": "1794592521-ae98",
+      "copiedAt": "2026-11-13T18:30:00Z"
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>About this image: no sidecar, reading, and failed states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1600px; height: 400px; box-sizing: border-box; background: #1b1c1f; color: #e9eaec; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 12px; line-height: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 32px">
+
+<div style="background: #222326; border: 1px solid rgba(255,255,255,0.16); display: flex; flex-direction: column">
+<div style="padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 11px; line-height: 16px; color: #a4a7ad">Collapsed: one line, stays collapsed while paging</div>
+<section style="padding: 0 12px; border-bottom: 1px solid rgba(255,255,255,0.08)">
+<div style="height: 32px; display: flex; align-items: center; gap: 8px">
+<button type="button" aria-expanded="false" style="height: 24px; margin-left: -4px; padding: 0 4px; flex-shrink: 0; display: flex; align-items: center; gap: 6px; background: transparent; border: 0; border-radius: 2px; font: inherit">
+<svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#bdbfc4" stroke-width="1.4"><path d="M3.5 1.5L7 5 3.5 8.5"/></svg>
+<span style="font-size: 11px; line-height: 16px; font-weight: 500; color: #bdbfc4">About this image</span>
+</button>
+<span style="flex-grow: 1; min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Cue activity scaled by memory strength · TFCE of <i>t</i>(23)</span>
+</div>
+</section>
+<div style="padding: 10px 12px; font-size: 11px; line-height: 16px; color: #a4a7ad">Click the header or press Enter on it to expand. The choice is remembered for the app, not per image, so paging through a set keeps the section as you left it. A failed read or a disagreement with the header still shows a warning mark on the collapsed line.</div>
+</div>
+
+<div style="background: #222326; border: 1px solid rgba(255,255,255,0.16); display: flex; flex-direction: column">
+<div style="padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 11px; line-height: 16px; color: #a4a7ad">No sidecar: header and file name only</div>
+<section style="padding: 0 12px 12px 12px; display: flex; flex-direction: column; gap: 8px">
+<div style="height: 32px; display: flex; align-items: center; justify-content: space-between">
+<h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; color: #bdbfc4">About this image</h2>
+<span style="font-size: 11px; line-height: 16px; color: #a4a7ad">No sidecar</span>
+</div>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; overflow-wrap: anywhere">contrast-xnew_cue_new_tfce.nii.gz</span>
+<dl style="margin: 0; border: 1px solid rgba(255,255,255,0.16); border-radius: 2px; display: flex; flex-direction: column">
+<div style="display: grid; grid-template-columns: 92px minmax(0, 1fr); column-gap: 10px; padding: 5px 10px; border-bottom: 1px solid rgba(255,255,255,0.08)">
+<dt style="color: #bdbfc4; font-size: 11px; line-height: 18px">Kind</dt>
+<dd style="margin: 0"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px">tfce</span> <span style="color: #a4a7ad">from the file name</span></dd>
+</div>
+<div style="display: grid; grid-template-columns: 92px minmax(0, 1fr); column-gap: 10px; padding: 5px 10px; border-bottom: 1px solid rgba(255,255,255,0.08)">
+<dt style="color: #bdbfc4; font-size: 11px; line-height: 18px">Contrast</dt>
+<dd style="margin: 0"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px">xnew_cue_new</span> <span style="color: #a4a7ad">from the file name</span></dd>
+</div>
+<div style="display: grid; grid-template-columns: 92px minmax(0, 1fr); column-gap: 10px; padding: 5px 10px">
+<dt style="color: #bdbfc4; font-size: 11px; line-height: 18px">Header note</dt>
+<dd style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 11px; overflow-wrap: anywhere">neuroim2 1.4 write_vol</dd>
+</div>
+</dl>
+<span style="font-size: 11px; line-height: 16px; color: #a4a7ad">To describe this image, save <span style="font-family: 'IBM Plex Mono', monospace">contrast-xnew_cue_new_tfce.json</span> next to it.</span>
+</section>
+</div>
+
+<div style="background: #222326; border: 1px solid rgba(255,255,255,0.16); display: flex; flex-direction: column">
+<div style="padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 11px; line-height: 16px; color: #a4a7ad">Reading from a remote mount</div>
+<section style="padding: 0 12px 12px 12px; display: flex; flex-direction: column; gap: 8px">
+<div style="height: 32px; display: flex; align-items: center; justify-content: space-between">
+<h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; color: #bdbfc4">About this image</h2>
+<span role="status" style="font-size: 11px; line-height: 16px; color: #bdbfc4">Reading sidecar from trillium…</span>
+</div>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; overflow-wrap: anywhere">contrast-mod_probe_old_tfce.nii.gz</span>
+<dl style="margin: 0; border: 1px solid rgba(255,255,255,0.16); border-radius: 2px; display: flex; flex-direction: column">
+<div style="display: grid; grid-template-columns: 92px minmax(0, 1fr); column-gap: 10px; padding: 5px 10px; border-bottom: 1px solid rgba(255,255,255,0.08)">
+<dt style="color: #bdbfc4; font-size: 11px; line-height: 18px">Kind</dt>
+<dd style="margin: 0"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px">tfce</span> <span style="color: #a4a7ad">from the file name</span></dd>
+</div>
+<div style="display: grid; grid-template-columns: 92px minmax(0, 1fr); column-gap: 10px; padding: 5px 10px">
+<dt style="color: #bdbfc4; font-size: 11px; line-height: 18px">Contrast</dt>
+<dd style="margin: 0"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px">mod_probe_old</span> <span style="color: #a4a7ad">from the file name</span></dd>
+</div>
+</dl>
+<span style="font-size: 11px; line-height: 16px; color: #a4a7ad">File-name facts show at once. The sidecar replaces them when it arrives; the image does not wait for it.</span>
+</section>
+</div>
+
+<div style="background: #222326; border: 1px solid rgba(255,255,255,0.16); display: flex; flex-direction: column">
+<div style="padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 11px; line-height: 16px; color: #a4a7ad">Two separate cases: sidecar unreadable (top), sidecar disagrees with header (bottom)</div>
+<section style="padding: 0 12px 12px 12px; display: flex; flex-direction: column; gap: 8px">
+<div style="height: 32px; display: flex; align-items: center; justify-content: space-between">
+<h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; color: #bdbfc4">About this image</h2>
+<span style="font-size: 11px; line-height: 16px; color: #a4a7ad">Needs attention</span>
+</div>
+<div style="padding: 8px 10px; background: rgba(245,134,143,0.14); border: 1px solid rgba(255,255,255,0.16); border-radius: 2px; display: flex; gap: 8px; align-items: flex-start">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#f5868f" stroke-width="1.3" style="flex-shrink: 0; margin-top: 2px"><circle cx="7" cy="7" r="5.5"/><path d="M7 4v3.5M7 9.8v.2"/></svg>
+<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+<span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; overflow-wrap: anywhere">contrast-old_gt_new_cue_fwer.json</span> is not valid JSON (line 12: unexpected end of input). Fix the file, then read it again.</span>
+<button type="button" style="align-self: flex-start; height: 24px; padding: 0 8px; background: #1b1c1f; color: #e9eaec; border: 1px solid rgba(255,255,255,0.28); border-radius: 2px; font: inherit">Read again</button>
+</div>
+</div>
+<div style="padding: 8px 10px; background: rgba(242,138,90,0.14); border: 1px solid rgba(255,255,255,0.16); border-radius: 2px; display: flex; gap: 8px; align-items: flex-start">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#f28a5a" stroke-width="1.3" style="flex-shrink: 0; margin-top: 2px"><path d="M7 1.8l5.6 10H1.4z"/><path d="M7 5.8v3M7 10.4v.2"/></svg>
+<span>The sidecar says <i>z</i>; the image header says <i>t</i>(23). Value labels follow the header. Correct whichever is wrong.</span>
+</div>
+<span style="font-size: 11px; line-height: 16px; color: #a4a7ad">Other failures use the same notice: mount not connected (with Reconnect), sidecar larger than 1 MiB, permission denied.</span>
+</section>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1600,"height":400}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
