@@ -89,6 +89,8 @@ const EDGE = 8; // px from the canvas-area edges
  */
 export const COLORBAR_MIN_WIDTH = 160;
 const COLORBAR_TEXT_HALO = '0 0 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.5)';
+/** Over the image: a dark edge around the gradient, the bar's halo. */
+const COLORBAR_BAR_EDGE = '0 0 0 2px rgba(0,0,0,0.6)';
 /**
  * A faint ground behind the caption and footer text only (not a box): over
  * white cortex the halo alone left "|z| ≤ 4.5 hidden" unreadable (v4).
@@ -157,7 +159,14 @@ export function ViewportColorbar({
   const previousSlot = useRef<ColorbarSlot | null>(null);
   const previousCompact = useRef(false);
   // The last placement made with the full rule (not while holding).
-  const settled = useRef<{ slot: ColorbarSlot; barH: number; compact: boolean } | null>(null);
+  const settled = useRef<{
+    slot: ColorbarSlot;
+    barH: number;
+    compact: boolean;
+    offset: { dx: number; dy: number };
+  } | null>(null);
+  // The settled block's offset from its slot's plain anchor (holdColorbarSlot).
+  let settledOffset = { dx: 0, dy: 0 };
 
   // ── placement (colorbarPlacement.ts) ──
   let layout: {
@@ -203,6 +212,13 @@ export function ViewportColorbar({
           compact: held.compact,
         }
       : placeColorbarBlock(pane, forms);
+    if (chosen && !held && chosen.slot !== 'below') {
+      const anchor = holdColorbarSlot(
+        { ...pane, ...(chosen.compact ? forms.compact : forms.full) },
+        { slot: chosen.slot, barH: chosen.barH },
+      );
+      settledOffset = { dx: chosen.left - anchor.left, dy: chosen.top - anchor.top };
+    }
     if (chosen) {
       layout = {
         style: { left: chosen.left, top: chosen.top },
@@ -216,11 +232,15 @@ export function ViewportColorbar({
   const placedSlot = layout && layout.slot !== 'column' ? (layout.slot as ColorbarSlot) : null;
   const placedCompact = !!layout?.compact;
   const placedBarH = layout?.barH ?? 0;
+  const { dx: offsetX, dy: offsetY } = settledOffset;
   useEffect(() => {
     previousSlot.current = placedSlot;
     previousCompact.current = placedCompact;
-    if (!hold) settled.current = placedSlot ? { slot: placedSlot, barH: placedBarH, compact: placedCompact } : null;
-  }, [placedSlot, placedCompact, placedBarH, hold]);
+    if (!hold)
+      settled.current = placedSlot
+        ? { slot: placedSlot, barH: placedBarH, compact: placedCompact, offset: { dx: offsetX, dy: offsetY } }
+        : null;
+  }, [placedSlot, placedCompact, placedBarH, hold, offsetX, offsetY]);
 
   // `below`: the pane draws the strip under its canvas (ViewportColorbarStrip).
   if (!cmap || !layout || layout.slot === 'below') return null;
@@ -323,18 +343,14 @@ export function ViewportColorbar({
       data-testid="viewport-colorbar"
       data-placement={layout.slot}
       data-compact={compact || undefined}
+      data-on-image={layout.scrim || undefined}
       role="img"
       aria-label={ariaLabel}
-      // No box: over the image (Compare's corner placement) a scrim read as a
-      // grey block behind the value; a text halo, like the orientation
-      // letters, keeps the labels legible on any ground.
-      // On the image (a corner) the block sits on a scrim so the labels read
-      // over white matter; off the image (a margin) the halo is enough.
-      className={`pointer-events-none absolute z-10 select-none px-1 pb-0.5 pt-1.5 text-bf-2xs text-bf-text-secondary${
-        layout.scrim
-          ? ' rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_72%,transparent)]'
-          : ''
-      }`}
+      // No box, on the image or off it: a box over the brain read as a grey
+      // block. The text halo (like the orientation letters) keeps the labels
+      // legible on any ground; over the image the gradient also gets a dark
+      // edge so its ends stay visible on bright tissue.
+      className="pointer-events-none absolute z-10 select-none px-1 pb-0.5 pt-1.5 text-bf-2xs text-bf-text-secondary"
       style={{ ...layout.style, width: boxW, textShadow: COLORBAR_TEXT_HALO }}
       onCopy={asciiCopyHandler}
     >
@@ -404,6 +420,7 @@ export function ViewportColorbar({
             width: BAR_W,
             height: barH,
             background: cmap.gradient,
+            ...(layout.scrim ? { boxShadow: COLORBAR_BAR_EDGE } : {}),
           }}
         >
           {band && (

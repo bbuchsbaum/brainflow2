@@ -4,6 +4,7 @@
  * component files so they stay fast-refresh friendly and unit-testable.
  */
 import {
+  populationSliceStepMm,
   populationSliceStepPoint,
   type PopulationOrientation,
 } from '@/services/studio/PopulationSliceService';
@@ -83,14 +84,15 @@ export const NORMAL_AXIS: Record<PopulationOrientation, { index: number; name: s
 };
 
 /**
- * The plane to step along: the shown raster's, but only when it was read in
- * the view's orientation (after a plane switch the old plane's normal is wrong).
+ * The raster a wheel step steps from: the shown one, but only when it was
+ * read in the view's orientation (after a plane switch the old plane's
+ * normal is wrong).
  */
 export function peekStepPlane(
-  raster: { orientation: PopulationOrientation; plane: ViewPlane } | null | undefined,
+  raster: PeekStepSource | null | undefined,
   view: PopulationPeekView,
-): ViewPlane | null {
-  return raster && raster.orientation === view.orientation ? raster.plane : null;
+): PeekStepSource | null {
+  return raster && raster.orientation === view.orientation ? raster : null;
 }
 
 /** `point` moved along the plane's normal onto the plane. */
@@ -111,18 +113,31 @@ export function onPlane(
   return [point[0] - off * n[0], point[1] - off * n[1], point[2] - off * n[2]];
 }
 
-/** The view after one wheel step (`direction` +1 towards +R/+A/+S). */
+/** A shown peek raster, as far as stepping needs it. */
+export interface PeekStepSource {
+  orientation: PopulationOrientation;
+  plane: ViewPlane;
+  /** One voxel layer along the normal (mm); absent: 1 mm. */
+  normalStepMm?: number;
+}
+
+/**
+ * The view after one wheel step (`direction` +1 towards +R/+A/+S): one voxel
+ * layer of the shown raster's grid, so every step shows a new slice; 1 mm
+ * before a raster in this plane has arrived.
+ */
 export function steppedPeekView(
   view: PopulationPeekView,
   direction: number,
-  plane: ViewPlane | null,
+  shown: PeekStepSource | null,
 ): PopulationPeekView {
-  const moved = plane
-    ? populationSliceStepPoint(plane, view.crosshairMm, direction * WHEEL_STEP_MM)
+  const stepMm = shown ? populationSliceStepMm(shown) : WHEEL_STEP_MM;
+  const moved = shown
+    ? populationSliceStepPoint(shown.plane, view.crosshairMm, direction * stepMm)
     : null;
   if (moved) return { ...view, crosshairMm: moved };
   const crosshairMm = [...view.crosshairMm] as [number, number, number];
-  crosshairMm[NORMAL_AXIS[view.orientation].index] += direction * WHEEL_STEP_MM;
+  crosshairMm[NORMAL_AXIS[view.orientation].index] += direction * stepMm;
   return { ...view, crosshairMm };
 }
 

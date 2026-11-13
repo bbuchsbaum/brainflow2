@@ -131,6 +131,7 @@ import { resolveStudioPopulationPreview } from '@/services/studio/observationSta
 import {
   buildPopulationSliceQuery,
   populationSliceActions,
+  populationSliceStepMm,
   populationAxisLabel,
   PopulationSliceService,
   type PopulationOrientation,
@@ -720,7 +721,12 @@ export function PopulationLens({
     host,
     (direction) => {
       if (result && result.query.request.orientation === orientation)
-        populationSliceActions.step(workspaceId, result.data.plane, crosshair.world_mm, direction);
+        populationSliceActions.step(
+        workspaceId,
+        result.data.plane,
+        crosshair.world_mm,
+        direction * populationSliceStepMm(result.data),
+      );
     },
     inFront,
   );
@@ -965,7 +971,12 @@ export function PopulationLens({
   };
   const stepSlice = (direction: -1 | 1) => {
     if (result && result.query.request.orientation === orientation)
-      populationSliceActions.step(workspaceId, result.data.plane, crosshair.world_mm, direction);
+      populationSliceActions.step(
+        workspaceId,
+        result.data.plane,
+        crosshair.world_mm,
+        direction * populationSliceStepMm(result.data),
+      );
   };
   const montageStale = montage && !!result && !current;
   const orderNote = montageArrangement.sort === 'similarity' && savedOrder?.rule === 'similarity'

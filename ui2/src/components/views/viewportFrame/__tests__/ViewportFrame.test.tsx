@@ -271,15 +271,21 @@ describe('chooseColorbarLayerId', () => {
       expect(screen.getByTestId('viewport-colorbar')).toHaveAttribute('data-compact', 'true');
     });
 
-    it('a block on the image has a scrim; one in a margin does not', () => {
+    it('never sits on a box; over the image its gradient gets a dark edge instead', () => {
       const { rerender } = render(
         <ViewportColorbar layer={overlay} width={948} height={311} imageRect={{ left: 333, top: 0, right: 615, bottom: 311 }} />,
       );
-      expect(screen.getByTestId('viewport-colorbar').className).not.toMatch(/bf-bg-canvas/);
+      const block = () => screen.getByTestId('viewport-colorbar');
+      const bar = () => screen.getByTestId('viewport-colorbar-bar');
+      expect(block()).not.toHaveAttribute('data-on-image');
+      expect(block().className).not.toMatch(/bf-bg-canvas|rounded/);
+      expect(bar().style.boxShadow).toBe('');
       rerender(
         <ViewportColorbar layer={overlay} width={469} height={311} imageRect={{ left: 0, top: 0, right: 469, bottom: 311 }} />,
       );
-      expect(screen.getByTestId('viewport-colorbar').className).toMatch(/bf-bg-canvas/);
+      expect(block()).toHaveAttribute('data-on-image', 'true');
+      expect(block().className).not.toMatch(/bf-bg-canvas|rounded/);
+      expect(bar().style.boxShadow).not.toBe('');
     });
   });
 });

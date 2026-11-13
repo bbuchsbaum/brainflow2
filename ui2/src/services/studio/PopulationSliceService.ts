@@ -110,6 +110,11 @@ export interface PopulationSliceData {
   reference?: PopulationGroupData | null;
   focusWindow?: { memberId: string; values: (number | null)[]; validPixels: number }[];
   plane: ViewPlane;
+  /**
+   * One voxel layer along the plane's normal, in mm (`population_slice.rs`):
+   * what a slice step moves. Absent from an older native side (then 1 mm).
+   */
+  normalStepMm?: number;
   centerWorld: [number, number, number];
   contextRange: [number, number] | null;
   /**
@@ -1402,6 +1407,7 @@ export class PopulationSliceService {
       orientation: target.orientation,
       plane: data.plane,
       values: data.focused,
+      normalStepMm: data.normalStepMm,
       // The background on the peek's own plane, in the grey window the lens
       // shows it with, so the preview reads like a montage tile.
       underlay:
@@ -1692,6 +1698,8 @@ export interface PopulationPeekRaster {
   orientation: PopulationOrientation;
   plane: ViewPlane;
   values: (number | null)[];
+  /** One voxel layer along the plane's normal, in mm (see `PopulationSliceData`). */
+  normalStepMm?: number;
   /** Background grey (0–1, NaN off the anatomy) on the same plane; null without one. */
   underlay?: Float32Array | null;
   /** Source and mask revisions the raster was read from (`populationRevisionKey`). */
@@ -1704,6 +1712,12 @@ export function populationAxisLabel(vector: readonly number[]) {
     0,
   );
   return (vector[axis] >= 0 ? ['R', 'A', 'S'] : ['L', 'P', 'I'])[axis];
+}
+
+/** One slice step for `data`: its voxel layer along the normal, else 1 mm. */
+export function populationSliceStepMm(data: Pick<PopulationSliceData, 'normalStepMm'> | null | undefined) {
+  const step = data?.normalStepMm;
+  return typeof step === 'number' && Number.isFinite(step) && step > 0 ? step : 1;
 }
 
 /** `worldMm` moved `distanceMm` along the plane normal, oriented towards the

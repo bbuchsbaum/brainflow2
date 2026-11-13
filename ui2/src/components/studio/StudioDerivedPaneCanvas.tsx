@@ -36,6 +36,7 @@ import {
   type StudioMapWindow,
 } from '@/services/studio/studioMapDisplay';
 import { fetchStudioRobustLimit, forgetStudioHistogram } from '@/services/studio/studioMapLimit';
+import { studioPaneSliceStepMm } from '@/services/studio/studioPaneSliceStep';
 
 /** How long a pane keeps its cached bitmap waiting for its anatomy on return (N29). */
 const ANATOMY_WAIT_MS = 1500;
@@ -339,11 +340,29 @@ export function StudioDerivedPaneCanvas({
     holdForAnatomy,
     sourcePath,
   ]);
+  // One slice step: the map's voxel spacing along the pane's normal, so each
+  // ↑/↓ shows a new slice (1 mm until it is known).
+  const [sliceStep, setSliceStep] = useState<{ key: string; mm: number } | null>(null);
+  const stepKey = map && viewPlane ? `${map.volumeId}|${viewPlane.u_mm}|${viewPlane.v_mm}` : null;
+  useEffect(() => {
+    if (!map || !viewPlane || !stepKey) return;
+    let alive = true;
+    void studioPaneSliceStepMm(map.volumeId, viewPlane).then((mm) => {
+      if (alive && mm) setSliceStep((previous) => (previous?.key === stepKey && previous.mm === mm ? previous : { key: stepKey, mm }));
+    });
+    return () => {
+      alive = false;
+    };
+    // stepKey stands for the volume and the plane's orientation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepKey]);
+  const stepMm = sliceStep && sliceStep.key === stepKey ? sliceStep.mm : 1;
   // ↑/↓ over (or with focus in) the pane step its slice (N9).
   useStudioMapSliceKeys(
     host,
     (slices) => {
-      if (viewPlane) populationSliceActions.step(workspaceId, viewPlane, crosshairWorld, slices);
+      if (viewPlane)
+        populationSliceActions.step(workspaceId, viewPlane, crosshairWorld, slices * stepMm);
     },
     studioActive,
   );
