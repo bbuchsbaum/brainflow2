@@ -27,7 +27,6 @@ const report = (
   usedBytes = 0,
 ): ResidencyReport => ({
   seq: ++seq,
-  owner: 'backend',
   budget_bytes: 1024,
   used_bytes: usedBytes,
   binding_capacity: 13,

@@ -53,9 +53,9 @@ pub(crate) async fn request_layer_gpu_resources_with_upload_hook(
             residency.changed();
         }
     }
-    // The UI made room for this upload without letting frames retry starved
-    // layers (`release_layer_gpu_resources_with(.., for_upload)`, reclaims):
-    // now that the upload has its slot (or failed and left it free), they may.
+    // Admission may have evicted or reclaimed to make room for this upload;
+    // now that the upload has its slot (or failed and left it free), layers
+    // starved by a failed allocation may retry.
     if uploads {
         clear_allocation_failed_skips(bridge_state, None).await;
     }

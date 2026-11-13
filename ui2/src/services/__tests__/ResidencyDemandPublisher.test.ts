@@ -310,7 +310,6 @@ describe('ResidencyDemandPublisher', () => {
     // The backend still holds frames from before a webview reload.
     publisher.clearUnknownFrames({
       seq: 1,
-      owner: 'ui',
       budget_bytes: null,
       used_bytes: 0,
       binding_capacity: 13,
@@ -339,7 +338,6 @@ describe('ResidencyDemandPublisher', () => {
 describe('residencyStore', () => {
   const report = (seq: number): ResidencyReport => ({
     seq,
-    owner: 'ui',
     budget_bytes: 100,
     used_bytes: 0,
     binding_capacity: 13,

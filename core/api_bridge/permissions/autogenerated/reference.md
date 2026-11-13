@@ -71,7 +71,6 @@ Default permissions for api-bridge plugin
 - `allow-get-atlas-palette`
 - `allow-register-categorical-colormap`
 - `allow-get-atlas-stats`
-- `allow-reclaim-cached-image-slots`
 - `allow-set-residency-demand`
 - `allow-clear-residency-demand`
 - `allow-get-residency-state`
@@ -2674,32 +2673,6 @@ Enables the recalculate_view_for_dimensions command without any pre-configured s
 <td>
 
 Denies the recalculate_view_for_dimensions command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-reclaim-cached-image-slots`
-
-</td>
-<td>
-
-Enables the reclaim_cached_image_slots command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-reclaim-cached-image-slots`
-
-</td>
-<td>
-
-Denies the reclaim_cached_image_slots command without any pre-configured scope.
 
 </td>
 </tr>

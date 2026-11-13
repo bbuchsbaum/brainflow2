@@ -121,7 +121,6 @@ export * from './ResidencyDemandedLayer';
 export * from './ResidencyFrameDemand';
 export * from './ResidencyLayerReport';
 export * from './ResidencyLayerState';
-export * from './ResidencyOwner';
 export * from './ResidencyPin';
 export * from './ResidencyPriority';
 export * from './ResidencyRefusal';

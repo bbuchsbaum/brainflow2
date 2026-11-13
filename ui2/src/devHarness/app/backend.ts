@@ -767,7 +767,6 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       residencySeq += 1;
       return {
         seq: residencySeq,
-        owner: 'backend',
         budget_bytes: null,
         used_bytes: 0,
         binding_capacity: 13,

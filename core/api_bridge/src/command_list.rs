@@ -43,7 +43,6 @@ bridge_commands! {
         release_layer_gpu_resources,
         wait_for_layer_ready,
         get_atlas_stats,
-        reclaim_cached_image_slots,
         set_residency_demand,
         clear_residency_demand,
         get_residency_state,

@@ -46,7 +46,7 @@ export type AtlasStats = {
     resident_texture_slots: number;
     /**
      * Resident slots held by cached (not displayed) 4D ring members, which
-     * `reclaim_cached_image_slots` can free without evicting a layer.
+     * admission can free without evicting a layer.
      */
     cached_image_slots: number;
     /**

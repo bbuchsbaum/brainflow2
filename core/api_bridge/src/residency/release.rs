@@ -2,23 +2,12 @@
 
 use crate::*;
 
+/// Release a layer's GPU resources. When the release frees a slot, the
+/// layers frames left out because their allocation failed may fit now, so
+/// their skip marks are cleared (N32).
 pub(crate) async fn release_layer_gpu_resources_internal(
     layer_id: String,
     bridge_state: &BridgeState,
-) -> BridgeResult<ReleaseResult> {
-    release_layer_gpu_resources_with(layer_id, bridge_state, false).await
-}
-
-/// Release a layer's GPU resources. When the release frees a slot, the
-/// layers frames left out because their allocation failed may fit now, so
-/// their skip marks are cleared (N32) — unless `for_upload`: the UI evicts to
-/// make room for an upload it requests next, and a frame must not hand that
-/// slot to a starved layer first. The upload's completion clears the marks
-/// then (see `request_layer_gpu_resources_with_upload_hook`).
-pub(crate) async fn release_layer_gpu_resources_with(
-    layer_id: String,
-    bridge_state: &BridgeState,
-    for_upload: bool,
 ) -> BridgeResult<ReleaseResult> {
     let result = release_layer_gpu_resources_locked(layer_id.clone(), bridge_state).await;
     // The layer's own mark goes either way: its residency changed.
@@ -28,7 +17,7 @@ pub(crate) async fn release_layer_gpu_resources_with(
         .await
         .remove(&layer_id);
     let freed = matches!(&result, Ok(ReleaseResult { freed: true, .. }));
-    if freed && !for_upload {
+    if freed {
         clear_allocation_failed_skips(bridge_state, None).await;
     }
     result
