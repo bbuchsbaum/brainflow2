@@ -130,13 +130,17 @@ export function useOverlayColorbar(): ColorbarLayer | null {
   // A Studio viewer names the layer itself: its member, even as the base,
   // whatever else the workspace stacks or selects (Compare pane A then draws
   // exactly one bar, for the member, placed by the shared rule; QA N16).
-  const { describeLayerId } = useColorbarGroup();
+  const { describeLayerId, preciseTicks } = useColorbarGroup();
   const layerId = useMemo(
     () => describeLayerId ?? chooseColorbarLayerId(layers, viewLayers, activeLayerId, isRunGroupMember),
     [describeLayerId, layers, viewLayers, activeLayerId],
   );
   const isBase = !!layerId && !isOverlayLayer(layers, layerId);
-  return useLayerColorbar(layerId, undefined, { allowBase: isBase });
+  const layer = useLayerColorbar(layerId, undefined, { allowBase: isBase });
+  return useMemo(
+    () => (layer && preciseTicks ? { ...layer, preciseTicks: true } : layer),
+    [layer, preciseTicks],
+  );
 }
 
 /**

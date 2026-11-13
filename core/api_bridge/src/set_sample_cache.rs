@@ -1,7 +1,11 @@
 //! CPU source ownership for population sampling. All disk I/O, decoding and
-//! sampling run on a blocking worker, serialized per cache. Entries have bounded
-//! decoded payload bytes, observable file stamps and a digest of the exact private
-//! snapshot decoded. No borrowed volume escapes the sampling closure.
+//! sampling run on blocking workers; at most `decoders` run at once (one for
+//! `new`). The cache lock is never held across a snapshot or decode: concurrent
+//! readers of one path wait for its single in-flight decode, and in-flight
+//! decodes reserve their conservative payload bound against the budget. Entries
+//! have bounded decoded payload bytes, observable file stamps and a digest of
+//! the exact private snapshot decoded. No borrowed volume escapes the sampling
+//! closure.
 use crate::population_sampling::SampleCancellation;
 use bridge_types::{BridgeError, BridgeResult, VolumeSendable};
 use sha2::{Digest, Sha256};
@@ -10,8 +14,8 @@ use std::{
     fs::{File, Metadata, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-    time::SystemTime,
+    sync::{Arc, Condvar, Mutex},
+    time::{Duration, SystemTime},
 };
 
 const DEFAULT_BYTES: usize = 512 * 1024 * 1024;
@@ -107,20 +111,27 @@ pub struct SampleSourceRevision {
 struct Entry {
     stamp: FileStamp,
     revision: SampleSourceRevision,
-    volume: VolumeSendable,
+    volume: Arc<VolumeSendable>,
     bytes: usize,
     used: u64,
 }
 struct CacheState {
     entries: HashMap<PathBuf, Entry>,
     resident_bytes: usize,
+    /// Conservative payload bounds of decodes in flight.
+    reserved_bytes: usize,
+    /// Paths being decoded; other readers of the same path wait for it.
+    in_flight: std::collections::HashSet<PathBuf>,
     clock: u64,
     budget: usize,
 }
 #[derive(Clone)]
 pub struct SetSampleCache {
     inner: Arc<Mutex<CacheState>>,
+    /// Signalled when an in-flight decode finishes.
+    settled: Arc<Condvar>,
     admission: Arc<tokio::sync::Semaphore>,
+    decoders: u32,
 }
 impl Default for SetSampleCache {
     fn default() -> Self {
@@ -128,20 +139,53 @@ impl Default for SetSampleCache {
             .ok()
             .and_then(|value| value.parse().ok())
             .unwrap_or(DEFAULT_BYTES);
-        Self::new(bytes)
+        // Bounded parallel decodes: each holds a snapshot, decoder scratch and
+        // a reserved payload bound, so keep the pool small.
+        let decoders = std::thread::available_parallelism()
+            .map(|n| n.get().clamp(1, 4))
+            .unwrap_or(1);
+        Self::with_decoders(bytes, decoders)
     }
 }
 impl SetSampleCache {
+    /// One decode at a time.
     pub fn new(budget: usize) -> Self {
+        Self::with_decoders(budget, 1)
+    }
+
+    pub fn with_decoders(budget: usize, decoders: usize) -> Self {
+        let decoders = decoders.clamp(1, 64);
         Self {
-            admission: Arc::new(tokio::sync::Semaphore::new(1)),
+            admission: Arc::new(tokio::sync::Semaphore::new(decoders)),
+            decoders: decoders as u32,
+            settled: Arc::new(Condvar::new()),
             inner: Arc::new(Mutex::new(CacheState {
                 entries: HashMap::new(),
                 resident_bytes: 0,
+                reserved_bytes: 0,
+                in_flight: std::collections::HashSet::new(),
                 clock: 0,
                 budget,
             })),
         }
+    }
+
+    /// Concurrent decodes this cache admits.
+    pub fn decoders(&self) -> usize {
+        self.decoders as usize
+    }
+
+    /// The resident decoded volume for `path` if its file is unchanged, without
+    /// decoding or waiting for admission. Callers must treat it as read-only.
+    pub fn resident(&self, path: &Path) -> Option<Arc<VolumeSendable>> {
+        let path = path.canonicalize().ok()?;
+        let stamp = FileStamp::read(path.metadata().ok()?).ok()?;
+        let cache = self.inner.lock().ok()?;
+        cache
+            .entries
+            .get(&path)
+            .filter(|entry| entry.stamp == stamp)
+            .map(|entry| Arc::clone(&entry.volume))
     }
 
     /// A cache hit revalidates filesystem identity/length/modification metadata
@@ -169,57 +213,108 @@ impl SetSampleCache {
             permit = Arc::clone(&self.admission).acquire_owned() =>
                 permit.map_err(|_| input("Population source admission is closed."))?,
         };
+        let settled = Arc::clone(&self.settled);
         tokio::task::spawn_blocking(move || {
             let _permit = permit; // Cancellation cannot release an in-flight decode's admission.
             cancellation.check()?;
-            let mut cache = inner.lock().map_err(|_| input("Population source cache is unavailable."))?;
             let path = path.canonicalize()?;
             let stamp = FileStamp::read(path.metadata()?)?;
-            cache.clock = cache.clock.wrapping_add(1);
-            let used = cache.clock;
-            if let Some(entry) = cache.entries.get_mut(&path) {
-                if entry.stamp == stamp {
-                    entry.used = used;
-                    cancellation.check()?;
-                    return checked_sample(&cancellation, &entry.volume, &entry.revision, sample);
+            let lock = || inner.lock().map_err(|_| input("Population source cache is unavailable."));
+            let mut cache = lock()?;
+            loop {
+                cache.clock = cache.clock.wrapping_add(1);
+                let used = cache.clock;
+                if let Some(entry) = cache.entries.get_mut(&path) {
+                    if entry.stamp == stamp {
+                        entry.used = used;
+                        let (volume, revision) = (Arc::clone(&entry.volume), entry.revision.clone());
+                        drop(cache);
+                        cancellation.check()?;
+                        return checked_sample(&cancellation, &volume, &revision, sample);
+                    }
                 }
+                if !cache.in_flight.contains(&path) {
+                    break;
+                }
+                // Another reader is decoding this path; take its result.
+                cache = settled
+                    .wait_timeout(cache, Duration::from_millis(50))
+                    .map_err(|_| input("Population source cache is unavailable."))?
+                    .0;
+                cancellation.check()?;
             }
             cache.remove(&path);
+            cache.in_flight.insert(path.clone());
+            drop(cache);
+            // Releases the in-flight claim and any reservation on every exit.
+            struct Claim<'a> {
+                inner: &'a Mutex<CacheState>,
+                settled: &'a Condvar,
+                path: &'a Path,
+                reserved: usize,
+            }
+            impl Drop for Claim<'_> {
+                fn drop(&mut self) {
+                    if let Ok(mut cache) = self.inner.lock() {
+                        cache.in_flight.remove(self.path);
+                        cache.reserved_bytes -= self.reserved;
+                    }
+                    self.settled.notify_all();
+                }
+            }
+            let mut claim = Claim { inner: &inner, settled: &settled, path: &path, reserved: 0 };
             let snapshot = Snapshot::copy(&path, &stamp, &cancellation)?;
             let header = neuroim::io::read_header(&snapshot.path)
                 .map_err(|error| input(format!("Cannot read population source header: {error}")))?;
-            // Conservative f64 payload admission before decode. Decoder scratch
-            // and process overhead are separate from resident payload accounting.
-            let bound = header.dim.iter().try_fold(8usize, |bytes, &dim| bytes.checked_mul(dim))
+            // Payload admission before decode at the widest type the loader can
+            // produce for this file: f64 for 64-bit data, otherwise f32 (scaled
+            // and float data load as f32; unscaled integers keep a narrower
+            // native type). Decoder scratch and process overhead are separate
+            // from resident payload accounting.
+            let width = reservation_width(header.bitpix);
+            let bound = header.dim.iter().try_fold(width, |bytes, &dim| bytes.checked_mul(dim))
                 .ok_or_else(|| input("Population volume dimensions overflow the decode budget."))?;
-            let max_decode = cache.budget.max(DEFAULT_BYTES);
-            if bound > max_decode {
-                return Err(input(format!("Population volume requires up to {bound} decoded bytes; limit is {max_decode}.")));
+            {
+                let mut cache = lock()?;
+                let max_decode = cache.budget.max(DEFAULT_BYTES);
+                if bound > max_decode {
+                    return Err(input(format!("Population volume requires up to {bound} decoded bytes; limit is {max_decode}.")));
+                }
+                let admission = bound.min(cache.budget);
+                cache.make_room(admission);
+                cache.reserved_bytes += admission;
+                claim.reserved = admission;
             }
-            let admission = bound.min(cache.budget);
-            cache.make_room(admission);
             cancellation.check()?;
             let volume = nifti_loader::load_nifti_auto_dimension(&snapshot.path)
                 .map_err(|error| input(format!("Cannot decode population source: {error}")))?;
             cancellation.check()?;
             let revision = snapshot.revision.clone();
             let bytes = payload_bytes(&volume)?;
-            if bytes <= cache.budget {
-                cache.make_room(bytes);
-                cache.resident_bytes += bytes;
-                cache.entries.insert(path.clone(), Entry { stamp, revision, volume, bytes, used });
-                let entry = &cache.entries[&path];
-                checked_sample(&cancellation, &entry.volume, &entry.revision, sample)
-            } else {
-                checked_sample(&cancellation, &volume, &revision, sample)
+            let volume = Arc::new(volume);
+            {
+                let mut cache = lock()?;
+                if bytes <= cache.budget {
+                    cache.reserved_bytes -= claim.reserved;
+                    claim.reserved = 0;
+                    cache.remove(&path);
+                    cache.make_room(bytes);
+                    cache.resident_bytes += bytes;
+                    cache.clock = cache.clock.wrapping_add(1);
+                    let used = cache.clock;
+                    cache.entries.insert(path.clone(), Entry { stamp, revision: revision.clone(), volume: Arc::clone(&volume), bytes, used });
+                }
             }
+            drop(claim);
+            checked_sample(&cancellation, &volume, &revision, sample)
         }).await.map_err(|error| input(format!("Population sampling worker failed: {error}")))?
     }
 
     pub async fn clear(&self) -> BridgeResult<()> {
         let inner = Arc::clone(&self.inner);
+        // Every decode slot: clearing waits for in-flight decodes to finish.
         let permit = Arc::clone(&self.admission)
-            .acquire_owned()
+            .acquire_many_owned(self.decoders)
             .await
             .map_err(|_| input("Population source admission is closed."))?;
         tokio::task::spawn_blocking(move || {
@@ -253,8 +348,10 @@ impl CacheState {
             self.resident_bytes -= entry.bytes;
         }
     }
+    /// Evict least recently used entries until `bytes` more fit beside the
+    /// resident payload and in-flight reservations (or nothing is left).
     fn make_room(&mut self, bytes: usize) {
-        while self.resident_bytes > self.budget.saturating_sub(bytes) {
+        while self.resident_bytes + self.reserved_bytes > self.budget.saturating_sub(bytes) {
             let Some(path) = self
                 .entries
                 .iter()
@@ -265,6 +362,14 @@ impl CacheState {
             };
             self.remove(&path);
         }
+    }
+}
+/// Bytes per voxel reserved for an in-flight decode of a file with `bitpix`.
+fn reservation_width(bitpix: i16) -> usize {
+    if bitpix > 32 {
+        8
+    } else {
+        4
     }
 }
 fn input(details: impl Into<String>) -> BridgeError {
@@ -606,5 +711,88 @@ mod tests {
         cache.clear().await.unwrap();
         assert_eq!(cache.admission.available_permits(), 1);
         assert_eq!(cache.inner.lock().unwrap().resident_bytes, 0);
+    }
+}
+
+#[cfg(test)]
+mod parallel_decode_tests {
+    use super::*;
+    /// Several decoders: distinct sources decode concurrently, readers of one
+    /// path share its decode, and every reservation and claim is released.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn parallel_decodes_account_and_coalesce() {
+        let sources: Vec<TestSource> = (0..4)
+            .map(|i| TestSource::new(&[2, 2, 2], &[i as f32; 8]))
+            .collect();
+        let cache = SetSampleCache::with_decoders(1024, 4);
+        assert_eq!(cache.decoders(), 4);
+        let reads = sources.iter().chain(sources.iter()).map(|s| {
+            let cache = cache.clone();
+            let path = s.path.clone();
+            async move {
+                cache
+                    .with_volume(path, |volume, revision| {
+                        Ok((
+                            crate::read_stack_at_voxel(volume, 1, 1, 1).unwrap()[0],
+                            revision.sha256.clone(),
+                        ))
+                    })
+                    .await
+                    .unwrap()
+            }
+        });
+        let values = futures::future::join_all(reads).await;
+        for (i, (value, _)) in values.iter().enumerate() {
+            assert_eq!(*value, (i % 4) as f32);
+        }
+        for i in 0..4 {
+            assert_eq!(values[i].1, values[i + 4].1);
+        }
+        {
+            let state = cache.inner.lock().unwrap();
+            assert_eq!(state.entries.len(), 4);
+            assert_eq!(state.resident_bytes, 4 * 32);
+            assert_eq!(state.reserved_bytes, 0);
+            assert!(state.in_flight.is_empty());
+        }
+        assert!(cache.resident(&sources[0].path).is_some());
+        sources[0].write(&[2, 2, 2], &[9.0; 8]);
+        assert!(
+            cache.resident(&sources[0].path).is_none(),
+            "changed file is not lent"
+        );
+        cache.clear().await.unwrap();
+        assert_eq!(cache.admission.available_permits(), 4);
+        assert_eq!(cache.inner.lock().unwrap().resident_bytes, 0);
+    }
+}
+
+#[cfg(test)]
+mod reservation_tests {
+    use super::*;
+    async fn read(cache: &SetSampleCache, source: &TestSource) {
+        cache
+            .with_volume(source.path.clone(), |_, _| Ok(()))
+            .await
+            .unwrap();
+    }
+
+    /// A float32 member reserves its f32 payload, not an f64 bound: decoding the
+    /// last member of a set that exactly fills the budget keeps the others.
+    #[tokio::test]
+    async fn decoding_into_a_full_budget_does_not_evict_the_fits_own_members() {
+        let sources: Vec<TestSource> = (0..4)
+            .map(|i| TestSource::new(&[2, 2, 2], &[i as f32; 8]))
+            .collect();
+        let cache = SetSampleCache::with_decoders(4 * 32, 4);
+        for source in &sources {
+            read(&cache, source).await;
+        }
+        let state = cache.inner.lock().unwrap();
+        assert_eq!(state.entries.len(), 4);
+        assert_eq!(state.resident_bytes, 128);
+        assert_eq!(state.reserved_bytes, 0);
+        assert_eq!(reservation_width(32), 4);
+        assert_eq!(reservation_width(64), 8);
     }
 }

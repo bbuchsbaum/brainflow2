@@ -9,6 +9,8 @@ import { useStudioMemberRenderScope } from '@/hooks/useStudioMemberRenderScope';
 import { ColorbarGroupContext } from '@/components/views/viewportFrame/viewportFrameStore';
 import { findLayerIdForSourcePath } from '@/services/studio/StudioDisplayService';
 import { useLayerStore } from '@/stores/layerStore';
+import { useSetStudioStore } from '@/stores/setStudioStore';
+import { selectStudioBackgroundPath } from '@/services/studio/studioBackground';
 
 interface StudioRenderAdapterProps {
   supportKind: StudioSupportKind | null | undefined;
@@ -34,7 +36,22 @@ interface StudioRenderAdapterProps {
    * placed by the shared rule; QA N16).
    */
   describeBase?: boolean;
+  /**
+   * A small pane whose header already names the image (Compare pane A): the
+   * colour legend never covers the image in its full form. With no free
+   * margin beside the image it is the compact bar and its two window ends.
+   */
+  compactColorbar?: boolean;
+  /** No colorbar in the view: the caller draws the scale outside it (the Subject lens footer). */
+  hideColorbar?: boolean;
 }
+
+/**
+ * Below this pane size a `compactColorbar` view keeps the full legend (name,
+ * value marker, every tick) off the image: about the size at which that
+ * block covers a tenth of the pane.
+ */
+export const STUDIO_COMPACT_COLORBAR_BELOW = 360;
 
 export function StudioRenderAdapter({
   supportKind,
@@ -46,17 +63,41 @@ export function StudioRenderAdapter({
   memberSourcePath,
   plane,
   describeBase = false,
+  compactColorbar = false,
+  hideColorbar = false,
 }: StudioRenderAdapterProps) {
-  useStudioMemberRenderScope(memberSourcePath, supportKind === 'volume');
+  // The set's background template is drawn beneath the member (never alone
+  // in place of a member view that has no member).
+  const backgroundPath = useSetStudioStore((state) =>
+    supportKind === 'volume' && memberSourcePath ? selectStudioBackgroundPath(state) : null,
+  );
+  useStudioMemberRenderScope(memberSourcePath, supportKind === 'volume', backgroundPath);
+  const hasBackground = useLayerStore(
+    (state) => findLayerIdForSourcePath(state, backgroundPath) !== null,
+  );
   // Studio views host their own colorbar, apart from the main views' (one
-  // group per adapter instance).
+  // group per adapter instance). Over a background it names the member too,
+  // never the template.
   const group = useId();
   const memberLayerId = useLayerStore((state) =>
-    describeBase && memberSourcePath ? findLayerIdForSourcePath(state, memberSourcePath) : null,
+    (describeBase || hasBackground) && memberSourcePath
+      ? findLayerIdForSourcePath(state, memberSourcePath)
+      : null,
   );
   const colorbarGroup = useMemo(
-    () => ({ group: `studio${group}`, describeLayerId: memberLayerId ?? null }),
-    [group, memberLayerId],
+    () => ({
+      group: `studio${group}`,
+      describeLayerId: memberLayerId ?? null,
+      // A member's window is often small (±0.0145): its ends are written out.
+      preciseTicks: true,
+      ...(compactColorbar ? { compactOnImageBelow: STUDIO_COMPACT_COLORBAR_BELOW } : {}),
+      // One large plane (the Deck, Compare pane A): the image is the subject,
+      // so the legend never covers it. It takes a free margin beside the
+      // image, else the row under the canvas that holds the slice slider.
+      ...(hideChrome && plane ? { offImage: true } : {}),
+      ...(hideColorbar ? { hidden: true } : {}),
+    }),
+    [group, memberLayerId, compactColorbar, hideChrome, plane, hideColorbar],
   );
 
   if (hideChrome) {

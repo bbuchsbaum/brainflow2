@@ -1,4 +1,5 @@
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
+import { markRemoteMountActive, useRemoteConnectionStore } from '@/stores/remoteConnectionStore';
 import type {
   RemoteMountConnectResult as ApiRemoteMountConnectResult,
   RemoteMountInfo as ApiRemoteMountInfo,
@@ -64,6 +65,10 @@ export async function mountConnectedRemoteDirectory(mount: ConnectedRemoteMount)
   await useFileBrowserStore
     .getState()
     .mountDirectory(mount.local_path, buildRemoteMountMountOptions(mount));
+  // A mount that was down is usable again: whatever failed on it may retry.
+  if (useRemoteConnectionStore.getState().down[mount.local_path]) {
+    markRemoteMountActive(mount.local_path);
+  }
 }
 
 export async function listRemoteMountProfiles(): Promise<RemoteMountProfile[]> {

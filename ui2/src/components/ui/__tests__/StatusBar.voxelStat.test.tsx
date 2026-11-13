@@ -104,6 +104,14 @@ describe('StatusBar voxel and statistic readouts', () => {
     expect(container.querySelector('[data-slot="value"] i')).toHaveTextContent('t');
   });
 
+  it('reserves a stable width for the four-digit value readout so it does not jitter', () => {
+    seed([42.5, -59.5, -9.5], false);
+    const { container } = render(<StatusBar />);
+    const slot = container.querySelector('[data-slot="value"]') as HTMLElement;
+    expect(slot.style.minWidth).toBe('8ch');
+    expect(container.querySelector('.status-bar')).toBeTruthy();
+  });
+
   it('keeps a plain value for images without a statistic', () => {
     seed([42.5, -59.5, -9.5], false);
     const { container } = render(<StatusBar />);

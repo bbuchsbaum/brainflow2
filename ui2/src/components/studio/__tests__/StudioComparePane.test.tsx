@@ -85,12 +85,15 @@ describe('Studio Compare pane text (QA F8)', () => {
     expect(title.className).not.toContain('shrink-0');
     expect(title.parentElement!.className).toContain('overflow-hidden');
     const footer = screen.getByRole('article').querySelector('footer')!;
-    expect(footer.getAttribute('title')).toBe(
-      'n=72 · Reducer Mean · Norm z · Support MNI152NLin2009cAsym (2mm)',
-    );
-    // The last chip truncates instead of clipping at the pane edge.
-    const support = screen.getByTitle('Support MNI152NLin2009cAsym (2mm)');
-    expect(support.className).toMatch(/\bshrink\b/);
-    expect(support.className).toContain('min-w-0');
+    // Each fact once: the set-wide grid ("Support …") is the set header's.
+    expect(footer.getAttribute('title')).toBe(`${longTitle} · Mean · 72 members · Normalization z`);
+    expect(footer.textContent).not.toMatch(/Support|Reducer|MNI152/);
+    // Chips truncate instead of clipping at the pane edge, and never scroll.
+    const chip = screen.getByTitle('Normalization z');
+    expect(chip.className).toMatch(/\bshrink\b/);
+    expect(chip.className).toContain('min-w-0');
+    expect(chip.className).toContain('studio-pane-secondary');
+    expect(footer.className).toContain('overflow-hidden');
+    expect(footer.className).not.toMatch(/overflow-(x-)?(auto|scroll)/);
   });
 });

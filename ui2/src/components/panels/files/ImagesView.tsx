@@ -6,6 +6,9 @@ import { beginFileRowDrag } from '@/utils/layerDrag';
 import { inferFileType, type FileKind } from './shared/inferFileType';
 import { FlatFileRow } from './FlatFileRow';
 import { useRovingFocus } from '@/components/ui/bf';
+import { getDatasetCardService } from '@/services/DatasetCardService';
+import { useContextMenuStore } from '@/stores/contextMenuStore';
+import { isSidecarCandidate } from './datasetMarkerModel';
 
 interface ImagesViewProps {
   rootNode: FileTreeNode | null;
@@ -123,6 +126,26 @@ export const ImagesView: React.FC<ImagesViewProps> = ({ rootNode, selectedPath }
           meta={row.relativeDir || undefined}
           title={row.path}
           onDragPointerDown={(event) => handleDragPointerDown(event, row)}
+          onContextMenu={
+            isSidecarCandidate(row.path)
+              ? (event) => {
+                  event.preventDefault();
+                  const returnFocus = event.currentTarget;
+                  useContextMenuStore.getState().open(event.clientX, event.clientY, [
+                    {
+                      id: 'show-metadata',
+                      label: 'Show metadata',
+                      onClick: () =>
+                        getDatasetCardService().openSidecarCard({
+                          rootPath: rootNode.path,
+                          path: row.path,
+                          returnFocus,
+                        }),
+                    },
+                  ]);
+                }
+              : undefined
+          }
         />
       ))}
     </div>

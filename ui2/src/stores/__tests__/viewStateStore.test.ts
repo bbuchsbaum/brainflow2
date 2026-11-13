@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { useViewStateStore } from "../viewStateStore";
 import { useViewLayoutStore } from "../viewLayoutStore";
 import { useWorkspaceStore } from "../workspaceStore";
+import { useCrosshairSettingsStore } from "../crosshairSettingsStore";
 import { coalesceUtils } from "../middleware/coalesceUpdatesMiddleware";
 import type { ViewType, WorldCoordinates } from "@/types/coordinates";
 import type { Layer } from "@/types/layer";
@@ -33,7 +34,9 @@ describe("ViewStateStore", () => {
     // Get the store state (which contains both state and methods)
     store = useViewStateStore.getState();
 
-    // Reset store to initial state
+    // Reset store to initial state, with the app-wide crosshair setting at
+    // its default (it is kept across resets, as a user setting).
+    store.setCrosshairVisible(true);
     store.resetToDefaults();
     useWorkspaceStore.setState({
       workspaces: new Map(),
@@ -719,5 +722,71 @@ describe("ViewStateStore", () => {
       visible: true,
       source: { type: "file", path: `/test/${id}.nii` },
     });
+  });
+});
+
+describe('crosshair visibility is one app-wide setting', () => {
+  const workspace = (id: string) => ({
+    id,
+    type: 'orthogonal-flexible',
+    title: id,
+    presetId: null,
+    timestamp: 1,
+    isActive: true,
+    layoutConfig: {
+      root: { type: 'component', componentType: 'Workspace', title: id, componentState: {} },
+    },
+    panelStates: new Map(),
+  });
+  const activate = (ids: string[], active: string) =>
+    useWorkspaceStore.setState({
+      workspaces: new Map(ids.map((id) => [id, workspace(id)])) as never,
+      activeWorkspaceId: active,
+    });
+  afterEach(() => {
+    useViewStateStore.getState().setCrosshairVisible(true);
+    useWorkspaceStore.setState({ workspaces: new Map(), activeWorkspaceId: null });
+  });
+
+  it('hides it in every open workspace and in one opened later, and shows it again', () => {
+    useViewStateStore.getState().resetToDefaults();
+    activate(['a', 'b'], 'a');
+    activate(['a', 'b'], 'b');
+    useViewStateStore.getState().setCrosshairVisible(false);
+    const state = useViewStateStore.getState();
+    expect(state.viewState.crosshair.visible).toBe(false);
+    expect(state.workspaceViewStates.get('a')?.crosshair.visible).toBe(false);
+    // A workspace opened afterwards (the Set studio's, say) starts hidden too.
+    activate(['a', 'b', 'studio'], 'studio');
+    expect(useViewStateStore.getState().viewState.crosshair.visible).toBe(false);
+    activate(['a', 'b', 'studio'], 'a');
+    expect(useViewStateStore.getState().viewState.crosshair.visible).toBe(false);
+    useViewStateStore.getState().setCrosshairVisible(true);
+    for (const key of ['a', 'b', 'studio'])
+      expect(useViewStateStore.getState().workspaceViewStates.get(key)?.crosshair.visible).toBe(true);
+  });
+
+  it('a toggle from the View menu or a service is saved as the one crosshair setting', () => {
+    useViewStateStore.getState().setCrosshairVisible(false);
+    expect(useCrosshairSettingsStore.getState().settings.visible).toBe(false);
+    useViewStateStore.getState().setCrosshairVisible(true);
+    expect(useCrosshairSettingsStore.getState().settings.visible).toBe(true);
+  });
+
+  it('quick toggles settle on the last choice instead of bouncing between the stores', async () => {
+    const view = useViewStateStore.getState();
+    view.setCrosshairVisible(false);
+    view.setCrosshairVisible(true);
+    view.setCrosshairVisible(false);
+    // Let the queued settings → view-state syncs run.
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(useViewStateStore.getState().viewState.crosshair.visible).toBe(false);
+    expect(useCrosshairSettingsStore.getState().settings.visible).toBe(false);
+  });
+
+  it('a reset keeps a hidden crosshair hidden: it is a setting, not view state', () => {
+    useViewStateStore.getState().setCrosshairVisible(false);
+    useViewStateStore.getState().resetToDefaults();
+    expect(useViewStateStore.getState().viewState.crosshair.visible).toBe(false);
   });
 });

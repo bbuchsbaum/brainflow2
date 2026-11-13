@@ -17,6 +17,13 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import type { ViewPlane, WorldCoordinates } from '@/types/coordinates';
 import type { ViewLayer, ViewState } from '@/types/viewState';
 import type { StudioDerivedMap } from './StudioDerivedMapService';
+import {
+  STUDIO_HIDDEN_FRACTION,
+  STUDIO_SIGNED_ALPHA_MOD,
+  studioMapDisplay,
+  studioMapOpacity,
+  type StudioMapWindow,
+} from './studioMapDisplay';
 
 export type StudioPanePlane = 'axial' | 'coronal' | 'sagittal';
 
@@ -27,41 +34,44 @@ export function studioPaneTag(paneId: string, plane: StudioPanePlane): string {
 const SLICE_AXIS: Record<StudioPanePlane, 0 | 1 | 2> = { sagittal: 0, coronal: 1, axial: 2 };
 
 /** Share of a derived map's window hidden around zero (as in Population). */
-export const STUDIO_DERIVED_HIDDEN_FRACTION = 0.1;
+export const STUDIO_DERIVED_HIDDEN_FRACTION = STUDIO_HIDDEN_FRACTION;
 
 /**
- * How a derived map is drawn. Signed maps (residual and z-score always, any
- * map with negative values) use the diverging blue–white–red map with a
- * symmetric window, values within a tenth of the window of zero hidden. A
- * nonnegative map (a cohort mean of GM density, FA or CBF) uses the
- * sequential Hot map over its own range, its lowest tenth hidden, so the
- * anatomy shows through and no half of a diverging map is wasted (review L2).
+ * How a derived map is drawn: the Studio's one map rule (studioMapDisplay.ts),
+ * which the member layer of the Deck and pane A follows too. Signed maps
+ * (residual and z-score always, any map with negative values) use the
+ * diverging blue–white–red map with a symmetric window, values within a tenth
+ * of the window of zero hidden. A nonnegative map (a cohort mean of GM
+ * density, FA or CBF) uses the sequential Hot map over its own range, its
+ * lowest tenth hidden, so the anatomy shows through and no half of a
+ * diverging map is wasted (review L2).
+ *
+ * `shared` replaces the map's own display with one it shares with another
+ * image (the group mean with the current member, so one colour is one value
+ * in both).
  */
 export function studioDerivedDisplay(
   map: StudioDerivedMap,
   name: string,
   signed = false,
+  shared: StudioMapWindow | null = null,
 ): ViewLayer {
-  const min = map.dataRange?.min ?? -1;
-  const max = map.dataRange?.max ?? 1;
-  const base = {
+  const display = shared ?? studioMapDisplay(map.dataRange, { signed });
+  return {
     id: map.layerId,
     name,
     volumeId: map.volumeId,
     visible: true,
-    opacity: 1,
-    blendMode: 'alpha' as const,
-    interpolation: 'linear' as const,
-    layerMode: 'scalar' as const,
+    // A signed map carries the Population opacity ramp (studioMapDisplay.ts).
+    opacity: studioMapOpacity(display),
+    ...(display.intensity[0] < 0 ? { alphaMod: { ...STUDIO_SIGNED_ALPHA_MOD } } : {}),
+    colormap: display.colormap,
+    intensity: [display.intensity[0], display.intensity[1]],
+    threshold: [display.threshold[0], display.threshold[1]],
+    blendMode: 'alpha',
+    interpolation: 'linear',
+    layerMode: 'scalar',
   };
-  if (signed || min < 0) {
-    const limit = Math.max(Math.abs(min), Math.abs(max)) || 1;
-    const band = STUDIO_DERIVED_HIDDEN_FRACTION * limit;
-    return { ...base, colormap: 'fmri', intensity: [-limit, limit], threshold: [-band, band] };
-  }
-  const top = max > min ? max : min + 1;
-  const band = STUDIO_DERIVED_HIDDEN_FRACTION * (top - min);
-  return { ...base, colormap: 'hot', intensity: [min, top], threshold: [min, min + band] };
 }
 
 /** Compare panes whose maps are signed by construction. */
@@ -69,17 +79,16 @@ export const STUDIO_SIGNED_PANES: ReadonlySet<string> = new Set(['residual', 'zs
 
 /** The template anatomy under a derived map: grey over its own range. */
 export function studioAnatomyDisplay(map: StudioDerivedMap): ViewLayer {
-  const min = map.dataRange?.min ?? 0;
-  const max = map.dataRange?.max ?? 1;
+  const display = studioMapDisplay(map.dataRange, { anatomy: true });
   return {
     id: map.layerId,
     name: 'Anatomy',
     volumeId: map.volumeId,
     visible: true,
     opacity: 1,
-    colormap: 'gray',
-    intensity: [min, max > min ? max : min + 1],
-    threshold: [min, min],
+    colormap: display.colormap,
+    intensity: display.intensity,
+    threshold: display.threshold,
     blendMode: 'alpha',
     interpolation: 'linear',
     layerMode: 'scalar',

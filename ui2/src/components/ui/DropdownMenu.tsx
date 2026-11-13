@@ -20,6 +20,11 @@ export type DropdownMenuItem =
       danger?: boolean;
       /** Render as a non-interactive section header instead of a menu item. */
       header?: boolean;
+      /**
+       * One of a set of mutually exclusive choices: rendered as a
+       * `menuitemradio` with `aria-checked`. Leave undefined for a plain item.
+       */
+      checked?: boolean;
       separator?: false;
       onClick?: () => void;
     };
@@ -108,7 +113,8 @@ export const DropdownMenu: React.FC<DropdownMenuProps> = ({
           <button
             key={item.id}
             type="button"
-            role="menuitem"
+            role={item.checked === undefined ? "menuitem" : "menuitemradio"}
+            aria-checked={item.checked}
             className={cn(
               "flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-left text-bf-sm transition-colors outline-none focus-visible:bg-accent",
               SELECTED_EDGE_FOCUS,

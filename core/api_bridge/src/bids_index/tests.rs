@@ -219,6 +219,7 @@ impl RemoteDataset for FakeServer {
                     sform_code: 1,
                     tr_seconds: Some(1.5),
                     n_volumes: Some(100),
+                    ..Default::default()
                 })
             })
             .collect()

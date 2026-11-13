@@ -7,8 +7,13 @@ import { formatTauriError } from '@/utils/formatTauriError';
 /**
  * `inline`: one line in the Studio header (QA N13). The relocation form and
  * any error open in a panel under it instead of wrapping the header.
+ * `part`: both commands (default), or only "Open saved population…" (the ⋯
+ * menu's Data part) or only "Sources moved?" (its Provenance…).
  */
-export function PopulationOpenControls({ inline = false }: { inline?: boolean } = {}) {
+export function PopulationOpenControls({
+  inline = false,
+  part = 'all',
+}: { inline?: boolean; part?: 'all' | 'open' | 'relocate' } = {}) {
   const active = useRef<AbortController | null>(null);
   const [fromDirectory, setFromDirectory] = useState('');
   const [busy, setBusy] = useState(false);
@@ -45,14 +50,17 @@ export function PopulationOpenControls({ inline = false }: { inline?: boolean } 
     <div
       className={`flex items-center gap-2 text-bf-sm ${inline ? 'relative shrink-0 flex-nowrap' : 'flex-wrap'}`}
     >
-      <Button variant="secondary" size="sm"
-        disabled={busy}
-        onClick={() => void open()}
-      >
-        {busy ? 'Verifying saved inputs…' : 'Open saved population…'}
-      </Button>
+      {part === 'relocate' ? null : (
+        <Button variant="secondary" size="sm"
+          disabled={busy}
+          onClick={() => void open()}
+        >
+          {busy ? 'Verifying saved inputs…' : 'Open saved population…'}
+        </Button>
+      )}
       {/* App disclosure grammar: chevron right = closed, down = open (no
           native triangle marker). */}
+      {part === 'open' ? null : (
       <details className={`group/disclosure ${inline ? 'relative' : 'w-full'}`}>
         <summary className="inline-flex min-h-6 cursor-pointer list-none items-center gap-1 text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
           <ChevronDown
@@ -87,6 +95,7 @@ export function PopulationOpenControls({ inline = false }: { inline?: boolean } 
           </p>
         </div>
       </details>
+      )}
       {busy && (
         <Button variant="secondary" size="sm"
           onClick={() => active.current?.abort()}

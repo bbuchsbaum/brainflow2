@@ -189,6 +189,17 @@ interface AxisOptions {
   readonly xIntegerTicks?: boolean;
   /** A hairline at y = 0 when the domain spans zero (difference plots). */
   readonly zeroLine?: boolean;
+  /** The zero rule drawn darker than the frame (a ranked strip's reference). */
+  readonly zeroLineStrong?: boolean;
+  /**
+   * Labelled horizontal reference rules in y units (a mean): a dashed hairline
+   * across the plot with its label at the right end, inside the frame.
+   */
+  readonly yRules?: readonly { readonly y: number; readonly label: string }[];
+  /** About this many labelled y ticks (default 5). */
+  readonly yTickCount?: number;
+  /** False: no bottom axis (the points are labelled directly instead). */
+  readonly xAxis?: boolean;
   /**
    * Labelled vertical rules on a numeric x axis (segment boundaries of a
    * concatenated series, E5b): a dashed hairline at `x`, its label at the top.
@@ -265,10 +276,43 @@ function CartesianMark({
             x2={innerWidth}
             y1={yScale(0)}
             y2={yScale(0)}
-            stroke="var(--bf-border-strong)"
-            strokeWidth={1}
+            stroke={axes.zeroLineStrong ? 'var(--bf-text-muted)' : 'var(--bf-border-strong)'}
+            strokeWidth={axes.zeroLineStrong ? 1.25 : 1}
           />
         ) : null}
+        {showAxes
+          ? (axes?.yRules ?? []).map((rule) => {
+              const y = yScale(rule.y);
+              if (!(Number.isFinite(y) && y >= 0 && y <= innerHeight)) return null;
+              // The label sits above the rule unless that leaves the frame.
+              const labelY = y - 3 < 9 ? y + 10 : y - 3;
+              return (
+                <Group key={`${rule.y}-${rule.label}`} data-testid="plot-y-rule" pointerEvents="none">
+                  <line
+                    x1={0}
+                    x2={innerWidth}
+                    y1={y}
+                    y2={y}
+                    stroke="var(--bf-text-muted)"
+                    strokeWidth={1}
+                    strokeDasharray="4 3"
+                  />
+                  {/* An empty label: the rule is named in a legend outside the plot. */}
+                  {rule.label ? (
+                    <text
+                      x={innerWidth - 2}
+                      y={labelY}
+                      textAnchor="end"
+                      fill={axisLabelColor}
+                      style={{ fontSize: axisLabelSize, fontFamily: proseFontFamily }}
+                    >
+                      {rule.label}
+                    </text>
+                  ) : null}
+                </Group>
+              );
+            })
+          : null}
         {xScale && 'ticks' in xScale
           ? (axes?.xBands ?? []).map((band, index) => {
               const left = Math.max(0, (xScale as LinearScale)(band.x0) ?? 0);
@@ -340,8 +384,9 @@ function CartesianMark({
           <Group pointerEvents="none">
             <AxisLeft
               scale={yScale as never}
-              // At least four labelled values on short axes (round 3 C9).
-              numTicks={5}
+              // At least four labelled values on short axes (round 3 C9),
+              // unless the plot asks for fewer.
+              numTicks={axes?.yTickCount ?? 5}
               stroke={gridColor}
               tickStroke={gridColor}
               tickLabelProps={() => ({
@@ -351,7 +396,7 @@ function CartesianMark({
                 dy: '0.25em',
               })}
             />
-            {xScale && (
+            {xScale && axes?.xAxis !== false && (
               <AxisBottom
                 top={innerHeight}
                 scale={xScale as never}
@@ -367,6 +412,25 @@ function CartesianMark({
       </Group>
     </svg>
   );
+}
+
+/** Tick length plus the `-0.25em` label offset of the left axis. */
+const Y_TICK_GAP = 8 + 3;
+/** Advance of one tick numeral: mono at the 2xs step (10px × 0.6em). */
+const TICK_CHAR_WIDTH = 6;
+
+/**
+ * Pixels the left axis needs for its widest tick label, formatted as the axis
+ * formats them (the scale's own `tickFormat()`, so "−0.005" with its sign).
+ */
+export function yTickLabelRoom(domain: readonly [number, number], tickCount = 5): number {
+  if (!domain.every(Number.isFinite)) return 0;
+  const scale = scaleLinear<number>({ domain: [domain[0], domain[1]] });
+  const format = scale.tickFormat(tickCount);
+  const longest = scale
+    .ticks(tickCount)
+    .reduce((widest, tick) => Math.max(widest, format(tick).length), 0);
+  return Math.ceil(longest * TICK_CHAR_WIDTH + Y_TICK_GAP + 2);
 }
 
 function zeroInDomain(yScale: LinearScale): boolean {
@@ -498,21 +562,20 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     yTitle: typeof spec.params.yTitle === 'string' ? spec.params.yTitle : undefined,
     xIntegerTicks: spec.params.xIntegerTicks === true,
     zeroLine: spec.params.zeroLine === true,
+    zeroLineStrong: spec.params.zeroLineStrong === true,
+    yRules: Array.isArray(spec.params.yRules)
+      ? (spec.params.yRules as NonNullable<AxisOptions['yRules']>).filter(
+          (rule) => Number.isFinite(rule?.y) && typeof rule?.label === 'string',
+        )
+      : undefined,
+    yTickCount: typeof spec.params.yTickCount === 'number' ? spec.params.yTickCount : undefined,
+    xAxis: spec.params.xAxis === false ? false : undefined,
     xRules: Array.isArray(spec.params.xRules) ? (spec.params.xRules as AxisOptions['xRules']) : undefined,
     xBands: Array.isArray(spec.params.xBands) ? (spec.params.xBands as AxisOptions['xBands']) : undefined,
   };
   // A strip above the plot area for in-frame legends and rule labels.
   const topInset = typeof spec.params.topInset === 'number' ? spec.params.topInset : axes.xRules?.length ? 12 : 0;
-  const margin = {
-    ...MARGIN,
-    top: MARGIN.top + topInset,
-    bottom: MARGIN.bottom + (axes.xTitle ? 14 : 0),
-    left: MARGIN.left + (axes.yTitle ? Y_TITLE_ROOM : 0),
-  };
-  const innerWidth = Math.max(0, width - margin.left - margin.right);
-  const innerHeight = Math.max(0, height - margin.top - margin.bottom);
-
-  const scales = useMemo(() => {
+  const yDomain = useMemo((): [number, number] => {
     // The y-domain spans the values AND the band bounds, so a wide CI ribbon is
     // never clipped by the line's own extent.
     const yValues: number[] = [];
@@ -533,6 +596,22 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
       yDomain[0] -= pad;
       yDomain[1] += pad;
     }
+    return yDomain;
+  }, [points, context?.datumLink, readable, spec.params.yDomain, spec.params.yIncludeZero]);
+  const margin = {
+    ...MARGIN,
+    top: MARGIN.top + topInset,
+    // No bottom axis: only room for a direct label under the lowest point.
+    bottom: axes.xAxis === false ? 4 : MARGIN.bottom + (axes.xTitle ? 14 : 0),
+    // Room for the widest y tick label ("−0.010"), never less than the default.
+    left:
+      Math.max(MARGIN.left, yTickLabelRoom(yDomain, axes.yTickCount)) +
+      (axes.yTitle ? Y_TITLE_ROOM : 0),
+  };
+  const innerWidth = Math.max(0, width - margin.left - margin.right);
+  const innerHeight = Math.max(0, height - margin.top - margin.bottom);
+
+  const scales = useMemo(() => {
     const yScale = scaleLinear<number>({
       domain: yDomain,
       range: [innerHeight, 0],
@@ -562,7 +641,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
       range: [0, innerWidth],
     });
     return { xScale, yScale, catMode: false as const };
-  }, [points, innerWidth, innerHeight, catMode, context?.datumLink, readable, frame, xName, spec.params]);
+  }, [points, yDomain, innerWidth, innerHeight, catMode, context?.datumLink, frame, xName, spec.params]);
 
   // Empty / degenerate: line & area need >=2 finite points; point needs >=1.
   const minPoints = kind === 'point' ? 1 : 2;
@@ -768,6 +847,50 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
           </Circle>
         );
       }
+      const opacity = selected
+        ? 1
+        : typeof spec.params.unselectedOpacity === 'number'
+          ? spec.params.unselectedOpacity
+          : 0.3;
+      const tooltip = [name, link.action, selectable ? 'Shift-click to select' : null]
+        .filter(Boolean)
+        .join(' · ');
+      // A group mark (opt-in): the glyph's parts in the point's colour, a
+      // transparent hit disc, and the focus ring drawn around it.
+      const parts = link.glyph?.(id, px(p), py(p.y), 3.5) ?? null;
+      if (parts)
+        return (
+          <g
+            key={id}
+            data-datum-id={id}
+            data-glyph-mark=""
+            opacity={opacity}
+            role="button"
+            tabIndex={id === tabStopId ? 0 : -1}
+            aria-label={name}
+            aria-pressed={selectable ? selected : undefined}
+            aria-current={focused ? 'true' : undefined}
+            onClick={(event) => (event.shiftKey && selectable ? link.onToggleSelection(id) : link.onFocus(id))}
+            onKeyDown={(event) => moveFrom(event, id)}
+            onPointerEnter={link.onHover ? () => link.onHover!(id) : undefined}
+            onPointerLeave={link.onHover ? () => link.onHover!(null) : undefined}
+          >
+            <title>{tooltip}</title>
+            <circle cx={px(p)} cy={py(p.y)} r={5} fill="transparent" />
+            {parts.map((part, j) => (
+              <path
+                key={j}
+                d={part.d}
+                fill={part.filled ? colorFor(p) : 'none'}
+                stroke={colorFor(p)}
+                strokeWidth={part.filled ? 0 : 1.2}
+              />
+            ))}
+            {focused ? (
+              <circle cx={px(p)} cy={py(p.y)} r={6} fill="none" stroke="var(--app-text-primary)" strokeWidth={1.5} />
+            ) : null}
+          </g>
+        );
       return (
         <Circle
           key={id}
@@ -775,7 +898,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
           cy={py(p.y)}
           r={focused ? 5 : 3.5}
           fill={colorFor(p)}
-          fillOpacity={selected ? 1 : 0.3}
+          fillOpacity={opacity}
           stroke={focused ? 'var(--app-text-primary)' : 'none'}
           strokeWidth={1.5}
           role="button"
@@ -786,13 +909,50 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
           aria-current={focused ? 'true' : undefined}
           onClick={(event) => (event.shiftKey && selectable ? link.onToggleSelection(id) : link.onFocus(id))}
           onKeyDown={(event) => moveFrom(event, id)}
+          onPointerEnter={link.onHover ? () => link.onHover!(id) : undefined}
+          onPointerLeave={link.onHover ? () => link.onHover!(null) : undefined}
         >
-          <title>
-            {[name, link.action, selectable ? 'Shift-click to select' : null].filter(Boolean).join(' · ')}
-          </title>
+          <title>{tooltip}</title>
         </Circle>
       );
     });
+
+  // Another view's hover: a light ring around its point (lighter than focus).
+  const linkedPoint =
+    link && !readable && link.linkedId != null && link.linkedId !== link.focusedId
+      ? allLinked.find((p) => linkedIds(p) === link.linkedId)
+      : undefined;
+  const linkedRing = linkedPoint ? (
+    <Circle
+      key="linked"
+      data-mark="linked"
+      data-linked-id={link!.linkedId!}
+      cx={px(linkedPoint)}
+      cy={py(linkedPoint.y)}
+      r={6}
+      fill="none"
+      stroke="var(--bf-text-muted)"
+      strokeWidth={1}
+      pointerEvents="none"
+      aria-hidden
+    />
+  ) : null;
+
+  // Direct labels (params.directLabels): the lowest, the highest and the
+  // focused point carry their ID beside the dot, in place of an x axis.
+  const directLabels =
+    spec.params.directLabels === true && link && !readable && kind === 'point'
+      ? pointDirectLabels(
+          allLinked.map((p) => ({ id: linkedIds(p) as string, x: px(p), y: py(p.y), value: p.y })),
+          link.focusedId,
+          innerWidth,
+          innerHeight,
+          [
+            ...(axes.zeroLine && zeroInDomain(yScale) ? [py(0)] : []),
+            ...(axes.yRules ?? []).map((rule) => py(rule.y)),
+          ],
+        )
+      : null;
 
   // Baseline positions are 0 by construction after subtraction: drawn hollow,
   // so a forced 0 ± 0 does not read as an estimate (v1 user 7).
@@ -903,8 +1063,122 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
       {geometry}
       {hollow}
       {kind !== 'point' && link ? markers : null}
+      {linkedRing}
+      {directLabels}
     </CartesianMark>
   );
+}
+
+/** Cap height of a 2xs label above its baseline. */
+const LABEL_ASCENT = 8;
+/** Label width estimate: mono 2xs numerals, as for the tick labels. */
+const labelWidth = (text: string) => text.length * TICK_CHAR_WIDTH;
+
+interface LabelBox {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+const overlaps = (a: LabelBox, b: LabelBox, pad = 0) =>
+  a.left < b.right + pad && a.right > b.left - pad && a.top < b.bottom + pad && a.bottom > b.top - pad;
+
+/**
+ * ID labels for the minimum, the maximum and the focused point, placed free
+ * of collisions: each label tries positions above, below and beside its dot
+ * (nearest first) and takes the one that crosses the fewest other dots,
+ * reference rules (`avoidYs`: the zero and mean lines) and earlier labels,
+ * never leaving the frame. The focused label is placed first and is primary
+ * text; every label carries a panel-coloured halo so a forced crossing stays
+ * legible.
+ */
+function pointDirectLabels(
+  points: readonly { id: string; x: number; y: number; value: number }[],
+  focusedId: string | null,
+  innerWidth: number,
+  innerHeight: number,
+  avoidYs: readonly number[] = [],
+): ReactNode {
+  if (!points.length) return null;
+  let min = points[0];
+  let max = points[0];
+  for (const p of points) {
+    if (p.value < min.value) min = p;
+    if (p.value > max.value) max = p;
+  }
+  const focus = focusedId ? points.find((p) => p.id === focusedId) : undefined;
+  const chosen: { p: (typeof points)[number]; role: 'min' | 'max' | 'focus' }[] = [];
+  if (focus) chosen.push({ p: focus, role: 'focus' });
+  if (min !== focus) chosen.push({ p: min, role: 'min' });
+  if (max !== focus && max !== min) chosen.push({ p: max, role: 'max' });
+  const DOT = 4;
+  const dots: LabelBox[] = points.map((q) => ({
+    left: q.x - DOT,
+    right: q.x + DOT,
+    top: q.y - DOT,
+    bottom: q.y + DOT,
+  }));
+  const lines = avoidYs.filter((y) => Number.isFinite(y) && y >= 0 && y <= innerHeight);
+  const placed: LabelBox[] = [];
+  const out = chosen.map(({ p, role }) => {
+    const w = labelWidth(p.id);
+    const h = LABEL_ASCENT;
+    // Candidate baselines and anchors, nearest the dot first.
+    const centred = Math.min(Math.max(p.x - w / 2, 0), Math.max(0, innerWidth - w));
+    const candidates: { left: number; baseline: number }[] = [];
+    for (const step of [0, 1, 2]) {
+      const gap = 6 + step * 9;
+      candidates.push({ left: centred, baseline: p.y - gap });
+      candidates.push({ left: centred, baseline: p.y + gap + h });
+    }
+    candidates.push({ left: p.x + 7, baseline: p.y + h / 2 });
+    candidates.push({ left: p.x - 7 - w, baseline: p.y + h / 2 });
+    for (const step of [1, 2]) {
+      candidates.push({ left: p.x + 7, baseline: p.y - step * 9 });
+      candidates.push({ left: p.x - 7 - w, baseline: p.y - step * 9 });
+      candidates.push({ left: p.x + 7, baseline: p.y + h + step * 9 });
+      candidates.push({ left: p.x - 7 - w, baseline: p.y + h + step * 9 });
+    }
+    let best: LabelBox | null = null;
+    let bestCost = Infinity;
+    for (const [order, { left, baseline }] of candidates.entries()) {
+      const box = { left, right: left + w, top: baseline - h, bottom: baseline + 1 };
+      if (box.left < 0 || box.right > innerWidth || box.top < 0 || box.bottom > innerHeight + 2) continue;
+      let cost = order * 0.5;
+      for (const dot of dots) if (overlaps(box, dot)) cost += 10;
+      for (const y of lines) if (box.top - 1 < y && box.bottom + 1 > y) cost += 8;
+      for (const other of placed) if (overlaps(box, other, 2)) cost += 100;
+      if (cost < bestCost) {
+        bestCost = cost;
+        best = box;
+      }
+    }
+    // A frame too small for any candidate: the label sits above its dot.
+    const box: LabelBox = best ?? { left: centred, right: centred + w, top: p.y - 6 - h, bottom: p.y - 5 };
+    placed.push(box);
+    return (
+      <text
+        key={`${role}-${p.id}`}
+        data-testid="plot-direct-label"
+        data-label-role={role}
+        x={box.left}
+        y={box.bottom - 1}
+        textAnchor="start"
+        fill={role === 'focus' ? 'var(--bf-text-primary)' : axisLabelColor}
+        stroke="var(--bf-bg-panel)"
+        strokeWidth={3}
+        strokeLinejoin="round"
+        paintOrder="stroke"
+        fontSize={10}
+        fontFamily={axisFontFamily}
+        style={{ fontSize: axisLabelSize }}
+        pointerEvents="none"
+      >
+        {p.id}
+      </text>
+    );
+  });
+  return <Group data-testid="plot-direct-labels">{out}</Group>;
 }
 
 // ---------------------------------------------------------------------------

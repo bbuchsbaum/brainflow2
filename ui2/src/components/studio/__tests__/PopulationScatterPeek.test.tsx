@@ -14,10 +14,16 @@ import {
 } from '@/services/studio/PopulationSliceService';
 import type { PopulationPeekTarget } from '@/services/studio/PopulationPeekService';
 import { syntheticFit } from '@/services/studio/__tests__/relationshipFixtures';
-import { PEEK_HOVER_DELAY_MS } from '../relationshipPresentation';
+import { PEEK_DISMISS_DELAY_MS, PEEK_HOVER_DELAY_MS } from '../relationshipPresentation';
+import { OPEN_IN_VIEWER_NO_SOURCE } from '@/services/studio/studioOpenInViewer';
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock('@/services/transport', () => ({ getTransport: () => ({ invoke }) }));
+const openInViewer = vi.hoisted(() => vi.fn(() => true));
+vi.mock('@/services/studio/studioOpenInViewer', async (original) => ({
+  ...(await original<typeof import('@/services/studio/studioOpenInViewer')>()),
+  openStudioFileInViewer: openInViewer,
+}));
 class NoResizeObserver {
   observe() {}
   disconnect() {}
@@ -57,7 +63,18 @@ function fakeSlice(
     pending: false,
     error: null,
     displayed: {
-      query: { datasetKey: 'demo', request: { crosshairMm: [0, 0, 10], orientation: 'axial' } },
+      query: {
+        datasetKey: 'demo',
+        request: {
+          crosshairMm: [0, 0, 10],
+          orientation: 'axial',
+          // sub004 has no file: Open in viewer is unavailable for it.
+          members: [
+            { memberId: 'sub002', sourcePath: '/maps/sub-002_same_item.nii.gz' },
+            { memberId: 'sub004', sourcePath: '' },
+          ],
+        },
+      },
       data: { sources: SOURCES },
       effectLimit: 2,
     },
@@ -84,6 +101,17 @@ async function setup(evaluate?: Parameters<typeof fakeSlice>[0]) {
 const point = (id: string) => screen.getByRole('button', { name: `Focus relationship ${id}` });
 const peek = () => screen.queryByRole('dialog', { name: /^Preview of / });
 const flush = () => act(async () => {});
+/** How many times the peek read a slice matching `target` (prefetches read
+ * slices ahead too, so the last call is not always the slice asked for). */
+const evaluated = (
+  evaluatePeek: ReturnType<typeof fakeSlice>['evaluatePeek'],
+  target: Partial<PopulationPeekTarget>,
+) =>
+  evaluatePeek.mock.calls.filter(([t]) =>
+    Object.entries(target).every(([k, v]) =>
+      JSON.stringify(t[k as keyof PopulationPeekTarget]) === JSON.stringify(v),
+    ),
+  ).length;
 const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms));
 
 beforeEach(() => {
@@ -188,23 +216,19 @@ describe('scatter hover peek', () => {
     await flush();
     fireEvent.wheel(image, { deltaY: -100 });
     await flush();
-    expect(evaluatePeek.mock.calls.at(-1)![0].crosshairMm).toEqual([0, 0, 12]);
+    expect(evaluated(evaluatePeek, { crosshairMm: [0, 0, 12] })).toBe(1);
     expect(within(peek()!).getByTestId('peek-slice').textContent).toMatch(/^Axial · z 12/);
-    const calls = evaluatePeek.mock.calls.length;
     fireEvent.wheel(image, { deltaY: 100 });
     await flush();
     // Back to z 11: a raster already peeked is served from the cache.
     expect(within(peek()!).getByTestId('peek-slice').textContent).toMatch(/^Axial · z 11/);
-    expect(evaluatePeek).toHaveBeenCalledTimes(calls);
+    expect(evaluated(evaluatePeek, { crosshairMm: [0, 0, 11] })).toBe(1);
     // Shared state is untouched.
     expect(useViewStateStore.getState().viewState.crosshair.world_mm).toEqual(crosshair);
     expect(state().selection.activeMemberId).toBe('sub003');
     fireEvent.click(within(peek()!).getByRole('radio', { name: 'Coronal' }));
     await flush();
-    expect(evaluatePeek.mock.calls.at(-1)![0]).toMatchObject({
-      memberId: 'sub002',
-      orientation: 'coronal',
-    });
+    expect(evaluated(evaluatePeek, { memberId: 'sub002', orientation: 'coronal' })).toBeGreaterThan(0);
   });
 
   it('pins open; pinned peeks ignore hover but follow keyboard steps; Escape and close unpin', async () => {
@@ -237,16 +261,25 @@ describe('scatter hover peek', () => {
     expect(peek()).toBeNull();
   });
 
-  it('shows Open in viewer disabled with an explanation', async () => {
+  it('Open in viewer opens the previewed map in a viewer tab; a member without a file cannot', async () => {
+    openInViewer.mockClear();
     await setup();
     fireEvent.pointerEnter(point('sub002'));
     advance(PEEK_HOVER_DELAY_MS);
     await flush();
     const open = within(peek()!).getByRole('button', { name: 'Open in viewer' });
-    expect(open).toHaveAttribute('aria-disabled', 'true');
-    expect(open).toHaveAccessibleDescription(/Not available yet/);
+    expect(open).toBeEnabled();
+    expect(open).toHaveAttribute('title', 'Open /maps/sub-002_same_item.nii.gz in a new viewer tab');
     fireEvent.click(open);
-    expect(peek()).not.toBeNull();
+    expect(openInViewer).toHaveBeenCalledWith('/maps/sub-002_same_item.nii.gz');
+    fireEvent.pointerLeave(point('sub002'));
+    fireEvent.pointerEnter(point('sub004'));
+    advance(PEEK_HOVER_DELAY_MS + PEEK_DISMISS_DELAY_MS);
+    await flush();
+    expect(peek()).toHaveAccessibleName('Preview of sub004');
+    const none = within(peek()!).getByRole('button', { name: 'Open in viewer' });
+    expect(none).toBeDisabled();
+    expect(none).toHaveAttribute('title', OPEN_IN_VIEWER_NO_SOURCE);
   });
 
   it('drops a response once the pointer has moved on and reuses cached rasters', async () => {
@@ -312,8 +345,14 @@ describe('scatter hover peek', () => {
     expect(evaluatePeek.mock.calls.at(-1)![0].crosshairMm).toEqual([0, 0, 30]);
     pending.shift()!();
     await flush();
-    expect(evaluatePeek.mock.calls.length - before).toBe(2);
     expect(within(peek()!).getByTestId('peek-slice').textContent).toMatch(/^Axial · z 30(\.0)? mm$/);
+    // Once it is shown, the only further reads are the slices ahead in the
+    // direction of travel, one at a time while idle.
+    while (pending.length) {
+      pending.shift()!();
+      await flush();
+    }
+    expect(evaluatePeek.mock.calls.slice(before + 2).map(([t]) => t.crosshairMm[2])).toEqual([31, 32, 33]);
   });
 
   it('steps along the new plane after a plane switch, before its raster arrives', async () => {
@@ -325,10 +364,7 @@ describe('scatter hover peek', () => {
     fireEvent.wheel(within(peek()!).getByTestId('peek-image'), { deltaY: -100 });
     await flush();
     await flush();
-    expect(evaluatePeek.mock.calls.at(-1)![0]).toMatchObject({
-      orientation: 'coronal',
-      crosshairMm: [0, 1, 10],
-    });
+    expect(evaluated(evaluatePeek, { orientation: 'coronal', crosshairMm: [0, 1, 10] })).toBe(1);
   });
 
   it('keeps an unpinned peek open when a click inside it blurs the point without a related target', async () => {
@@ -359,14 +395,14 @@ describe('scatter hover peek', () => {
     expect(point('sub004')).not.toHaveAttribute('aria-describedby');
     fireEvent.keyDown(point('sub003'), { key: 'c' });
     await flush();
-    expect(evaluatePeek.mock.calls.at(-1)![0].orientation).toBe('coronal');
+    expect(evaluated(evaluatePeek, { orientation: 'coronal', crosshairMm: [0, 0, 10] })).toBe(1);
     fireEvent.keyDown(point('sub003'), { key: 'PageUp' });
     await flush();
-    expect(evaluatePeek.mock.calls.at(-1)![0].crosshairMm).toEqual([0, 1, 10]);
+    expect(evaluated(evaluatePeek, { orientation: 'coronal', crosshairMm: [0, 1, 10] })).toBe(1);
     fireEvent.keyDown(point('sub003'), { key: 'PageDown' });
     fireEvent.keyDown(point('sub003'), { key: 'PageDown' });
     await flush();
-    expect(evaluatePeek.mock.calls.at(-1)![0].crosshairMm).toEqual([0, -1, 10]);
+    expect(evaluated(evaluatePeek, { orientation: 'coronal', crosshairMm: [0, -1, 10] })).toBe(1);
     fireEvent.keyDown(point('sub003'), { key: 'P' });
     expect(peek()).not.toHaveAttribute('data-pinned');
     // Only the slice position is a live region; the pointer readout is not.

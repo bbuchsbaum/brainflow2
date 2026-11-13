@@ -55,7 +55,7 @@ pub struct ColormapInfo {
 }
 
 /// Static metadata table - compile time constant
-pub const COLORMAP_INFO: [ColormapInfo; 14] = [
+pub const COLORMAP_INFO: [ColormapInfo; 15] = [
     ColormapInfo {
         id: BuiltinColormap::Grayscale,
         category: ColormapCategory::Sequential,
@@ -123,6 +123,12 @@ pub const COLORMAP_INFO: [ColormapInfo; 14] = [
         category: ColormapCategory::Diverging,
         flags: ColormapFlags::new(ColormapFlags::CLINICAL_APPROVED),
         name: "fMRI Red-Blue",
+    },
+    ColormapInfo {
+        id: BuiltinColormap::ColdHot,
+        category: ColormapCategory::Diverging,
+        flags: ColormapFlags::new(0),
+        name: "Cold-hot",
     },
     ColormapInfo {
         id: BuiltinColormap::Jet,

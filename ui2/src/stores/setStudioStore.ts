@@ -1,6 +1,14 @@
 import type { PopulationState } from '@/types/population';
 import { create } from 'zustand';
 import { DISTANCE_TO_MEAN_SORT } from '@/services/studio/meanDistanceSort';
+import { studioSetMaps } from '@/services/studio/studioMaps';
+import { clearStudioPopulationScales } from '@/services/studio/studioMapDisplay';
+import {
+  sameGridEvidence,
+  templateSourcePath,
+  type StudioBackgroundChoice,
+  type StudioGridEvidence,
+} from '@/services/studio/studioBackground';
 import type {
   StudioArtifactSummary,
   SpatialFieldSetSummary,
@@ -10,6 +18,9 @@ import type {
   StudioFeatureSummary,
   StudioFieldExpressionSummary,
   StudioImportCandidate,
+  StudioGridCheckState,
+  StudioOpenNotice,
+  StudioFolderReviewReason,
   StudioImportDialogState,
   StudioJoinIssueDetail,
   StudioLensType,
@@ -39,6 +50,11 @@ import {
 interface StudioBootstrapPayload {
   population?: Partial<Omit<PopulationState, 'sessionRevision'>>;
   set: SpatialFieldSetSummary;
+  /**
+   * The set's background as a choice already made (a saved population's
+   * template, or null for none). Omitted: the set's declared space decides.
+   */
+  background?: string | null;
   features: StudioFeatureSummary[];
   cohorts: StudioCohortSummary[];
   expressions: StudioFieldExpressionSummary[];
@@ -47,9 +63,7 @@ interface StudioBootstrapPayload {
 }
 
 interface SetStudioStoreState
-  extends SetStudioImportSlice,
-    SetStudioMaterializationSlice,
-    PopulationSlice {
+  extends SetStudioImportSlice, SetStudioMaterializationSlice, PopulationSlice {
   sets: Record<string, SpatialFieldSetSummary>;
   features: Record<string, StudioFeatureSummary>;
   cohorts: Record<string, StudioCohortSummary>;
@@ -78,13 +92,67 @@ interface SetStudioStoreState
    */
   studioPlane: 'axial' | 'coronal' | 'sagittal';
   setStudioPlane: (plane: 'axial' | 'coronal' | 'sagittal') => void;
+  /**
+   * The user's background (anatomy template) choice for one set, for the
+   * session: `sourcePath` null is an explicit "None". Null: not chosen, so
+   * the set's declared space decides (studioBackground.ts resolves both).
+   */
+  studioBackground: StudioBackgroundChoice | null;
+  /** Why the background `sourcePath` could not be shown under the images. */
+  studioBackgroundIssue: { sourcePath: string; message: string } | null;
+  /** Choose the active set's background: a `template:<id>` source, or null for none. */
+  setStudioBackground: (sourcePath: string | null) => void;
+  setStudioBackgroundIssue: (issue: { sourcePath: string; message: string } | null) => void;
+  /**
+   * What the header of the member on display says about the set's space
+   * (studioBackground.ts reads it for the unchosen default). Written by the
+   * coordination service once that member has loaded; null until then, and
+   * for another set's evidence the resolver ignores.
+   */
+  studioGridEvidence: StudioGridEvidence | null;
+  setStudioGridEvidence: (evidence: StudioGridEvidence | null) => void;
   activeDesignFilters: StudioDesignFilter[];
   activeArtifact: StudioArtifactSummary | null;
   artifactHistory: StudioArtifactSummary[];
   savedRecipes: StudioSavedRecipeSummary[];
+  gridCheck: StudioGridCheckState;
+  setGridCheck: (state: StudioGridCheckState) => void;
+  /**
+   * How the active set was opened without its review, with the way back to
+   * the review. Null once dismissed, and for a set opened any other way.
+   */
+  studioOpenNotice: StudioOpenNotice | null;
+  setStudioOpenNotice: (notice: StudioOpenNotice | null) => void;
+  /**
+   * The folder being scanned to be opened in one step, while it is not yet
+   * known whether it needs its review: the Studio shows "Opening …" for it
+   * rather than a review form that may close by itself.
+   */
+  studioFolderOpening: string | null;
+  setStudioFolderOpening: (root: string | null) => void;
+  /**
+   * Why the folder asked to be opened in one step stopped at its review.
+   * Null for a review the user asked for.
+   */
+  studioFolderReviewReason: StudioFolderReviewReason | null;
+  setStudioFolderReviewReason: (reason: StudioFolderReviewReason | null) => void;
+  /** Replace what an import audit decides about a set; selection and lens stay. */
+  applySetAudit: (
+    setId: string,
+    audit: Pick<
+      SpatialFieldSetSummary,
+      'supportLabel' | 'alignmentClass' | 'ingestAudit' | 'memberSummaries' | 'importContract'
+    >,
+  ) => void;
   bootstrapStudio: (payload: StudioBootstrapPayload) => void;
   loadDemoSession: () => void;
   setActiveLens: (lens: StudioLensType) => void;
+  /**
+   * Show another of the active set's maps (`selection.activeFeatureId`, one
+   * of `studioSetMaps`): Population, its probe and its plots follow it. A
+   * feature the set does not have is ignored.
+   */
+  setActiveFeature: (featureId: string) => void;
   setActiveMember: (memberId: string | null) => void;
   setCompareCohort: (cohortId: string | null) => void;
   setActiveScopeCohort: (cohortId: string | null) => void;
@@ -266,6 +334,8 @@ const DEFAULT_SELECTION: StudioSelection = {
   activeExpressionId: null,
 };
 
+const IDLE_GRID_CHECK: StudioGridCheckState = { status: 'idle', message: null };
+
 const DEFAULT_MATERIALIZATION: StudioMaterializationStatus = {
   warm: 0,
   preview: 0,
@@ -362,6 +432,64 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
     if (get().studioPlane !== plane) set({ studioPlane: plane });
   },
 
+  studioBackground: null,
+  studioBackgroundIssue: null,
+  setStudioBackground: (sourcePath) => {
+    const setId = get().selection.activeSetId;
+    if (!setId) return;
+    const next = templateSourcePath(sourcePath);
+    const current = get().studioBackground;
+    if (current?.setId === setId && current.sourcePath === next) return;
+    set({ studioBackground: { setId, sourcePath: next }, studioBackgroundIssue: null });
+  },
+  setStudioBackgroundIssue: (issue) => {
+    const current = get().studioBackgroundIssue;
+    if (current?.sourcePath === issue?.sourcePath && current?.message === issue?.message) return;
+    set({ studioBackgroundIssue: issue });
+  },
+
+  studioGridEvidence: null,
+  setStudioGridEvidence: (evidence) => {
+    if (sameGridEvidence(get().studioGridEvidence, evidence)) return;
+    set({ studioGridEvidence: evidence });
+  },
+
+  gridCheck: IDLE_GRID_CHECK,
+  setGridCheck: (next) => {
+    const current = get().gridCheck;
+    if (
+      current.status !== next.status ||
+      current.message !== next.message ||
+      !!current.resumable !== !!next.resumable ||
+      current.progress?.read !== next.progress?.read ||
+      current.progress?.total !== next.progress?.total
+    )
+      set({ gridCheck: next });
+  },
+  studioOpenNotice: null,
+  setStudioOpenNotice: (notice) => {
+    const current = get().studioOpenNotice;
+    if (!current && !notice) return;
+    // Opening the same folder again is an event of its own: the notice is
+    // announced anew (a new object) even when it says the same thing.
+    set({ studioOpenNotice: notice ? { ...notice } : null });
+  },
+  studioFolderOpening: null,
+  setStudioFolderOpening: (root) => {
+    if (get().studioFolderOpening !== root) set({ studioFolderOpening: root });
+  },
+  studioFolderReviewReason: null,
+  setStudioFolderReviewReason: (reason) => {
+    const current = get().studioFolderReviewReason;
+    if (current?.root !== reason?.root || current?.reason !== reason?.reason)
+      set({ studioFolderReviewReason: reason });
+  },
+  applySetAudit: (setId, audit) => {
+    const current = get().sets[setId];
+    if (!current) return;
+    set({ sets: { ...get().sets, [setId]: { ...current, ...audit } } });
+  },
+
   bootstrapStudio: (payload) => {
     const features = toRecord(payload.features);
     const cohorts = toRecord(payload.cohorts);
@@ -379,6 +507,9 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
         sessionRevision: get().population.sessionRevision + 1,
       },
       populationPreview: INITIAL_POPULATION_PREVIEW,
+      gridCheck: IDLE_GRID_CHECK,
+      // Said about the set that was open; the opener says it again for this one.
+      studioOpenNotice: null,
       sets: {
         ...get().sets,
         [payload.set.id]: payload.set,
@@ -406,7 +537,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
         activeMemberId:
           payload.selection?.activeMemberId !== undefined
             ? payload.selection.activeMemberId
-            : (payload.set.memberIds[2] ?? payload.set.memberIds[0] ?? null),
+            : (payload.set.memberIds[0] ?? null),
         compareCohortId:
           payload.selection?.compareCohortId === undefined
             ? (payload.set.savedCohortIds[0] ?? null)
@@ -432,6 +563,15 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
       sortColumn: null,
       sortDirection: 'asc',
       studioPlane: 'axial',
+      // Not chosen: the new set's declared space decides, and a set that
+      // declares none starts with no background.
+      studioBackground:
+        payload.background === undefined
+          ? null
+          : { setId: payload.set.id, sourcePath: templateSourcePath(payload.background) },
+      studioBackgroundIssue: null,
+      // The header evidence was another set's (or this set's before a re-import).
+      studioGridEvidence: null,
       activeDesignFilters: [],
       activeArtifact: null,
       artifactHistory: [],
@@ -479,13 +619,29 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
           )
         : getPreferredExpressionId(expressionIds, expressions, 'member');
 
+    const { population } = get();
     set({
       selection: {
         ...selection,
         activeLens: lens,
         activeExpressionId: nextExpressionId,
       },
+      // The pointer is followed over the Population lens only: leaving it
+      // retires the hover probe, so Values never samples a stale hover point.
+      ...(lens !== 'population' && population.hoverProbe
+        ? { population: { ...population, hoverProbe: null } }
+        : {}),
     });
+  },
+
+  setActiveFeature: (featureId) => {
+    const { selection, sets, features } = get();
+    if (selection.activeFeatureId === featureId) return;
+    const activeSet = selection.activeSetId ? sets[selection.activeSetId] : null;
+    if (!studioSetMaps(activeSet, features).some((map) => map.id === featureId)) return;
+    // Population's sources, scales, orders, groups and inference are keyed by
+    // the feature id, so the previous map's results are not reused for this one.
+    set({ selection: { ...selection, activeFeatureId: featureId } });
   },
 
   setActiveMember: (memberId) => {
@@ -630,7 +786,11 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
     }
     // Distance to the group mean opens on the observation least like the
     // mean (QA features 2026-10-31 §5).
-    set(value === DISTANCE_TO_MEAN_SORT ? { sortColumn: value, sortDirection: 'desc' } : { sortColumn: value });
+    set(
+      value === DISTANCE_TO_MEAN_SORT
+        ? { sortColumn: value, sortDirection: 'desc' }
+        : { sortColumn: value },
+    );
   },
 
   toggleSortDirection: () => {
@@ -958,4 +1118,16 @@ useSetStudioStore.subscribe((state, previous) => {
     state.population.participants !== previous.population.participants
   )
     state.reconcilePopulationPreview(contextChanged);
+});
+
+// Population limits published for the Subject lens (studioMapDisplay) belong
+// to a session and a set: a session reset forgets them all, a removed set its own.
+useSetStudioStore.subscribe((state, previous) => {
+  if (state.population.sessionRevision !== previous.population.sessionRevision) {
+    clearStudioPopulationScales();
+    return;
+  }
+  if (state.sets === previous.sets) return;
+  for (const id of Object.keys(previous.sets))
+    if (!(id in state.sets)) clearStudioPopulationScales(id);
 });

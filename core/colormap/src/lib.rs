@@ -28,6 +28,7 @@ static COLORMAP_NAMES: phf::Map<&'static str, BuiltinColormap> = phf_map! {
     "pet_hot_metal" => BuiltinColormap::PetHotMetal,
     "fmri" => BuiltinColormap::FmriRedBlue,
     "activation" => BuiltinColormap::FmriRedBlue,
+    "cold_hot" => BuiltinColormap::ColdHot,
     "jet" => BuiltinColormap::Jet,
     "parula" => BuiltinColormap::Parula,
     "hsv" => BuiltinColormap::Hsv,

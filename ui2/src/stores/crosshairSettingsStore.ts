@@ -159,7 +159,12 @@ function persistSettings(settings: CrosshairSettings) {
 function syncViewStateVisibility(visible: boolean) {
   void import('@/stores/viewStateStore')
     .then(({ useViewStateStore }) => {
-      useViewStateStore.getState().setCrosshairVisible(visible);
+      // The setting as it is when this runs, not when it was queued: the view
+      // state saves its changes here too, so a stale value would bounce
+      // between the two stores. (`visible` is the fallback before the store
+      // exists.)
+      const current = useCrosshairSettingsStore?.getState?.().settings.visible ?? visible;
+      useViewStateStore.getState().setCrosshairVisible(current);
     })
     .catch(() => {
       /* view state not available (e.g. isolated tests) */

@@ -36,22 +36,9 @@ fn directory_bytes(path: &Path) -> BridgeResult<u64> {
     Ok(bytes)
 }
 
-/// Called under ADMISSION; reserve enough space for the full staging download
-/// as well as the existing cached copy. Eviction never follows symlinks.
-pub(crate) fn make_room(
-    root: &Path,
-    active: &HashSet<PathBuf>,
-    incoming: u64,
-    budget: u64,
-) -> BridgeResult<()> {
-    if incoming > budget {
-        return Err(error("Remote file exceeds the configured cache budget"));
-    }
-    // No cache yet (first download on this machine): nothing to evict.
-    if !root.exists() {
-        return Ok(());
-    }
-    let mut used = directory_bytes(root)?;
+/// The cache directories no connected mount uses, with when each was last
+/// used: what [`make_room`] may remove.
+fn evictable(root: &Path, active: &HashSet<PathBuf>) -> BridgeResult<Vec<(SystemTime, PathBuf)>> {
     let mut candidates = Vec::new();
     for entry in std::fs::read_dir(root).map_err(|e| error(&e.to_string()))? {
         let entry = entry.map_err(|e| error(&e.to_string()))?;
@@ -72,22 +59,64 @@ pub(crate) fn make_room(
             candidates.push((modified, path));
         }
     }
+    Ok(candidates)
+}
+
+/// The sidecar directory of an evictable cache directory, when it has one.
+fn sidecars(root: &Path, cache: &Path) -> Option<PathBuf> {
+    let metadata = root
+        .join(crate::REMOTE_CACHE_METADATA_DIR_NAME)
+        .join(cache.file_name()?);
+    metadata.is_dir().then_some(metadata)
+}
+
+/// Bytes in the cache that [`make_room`] cannot reclaim: the files of the
+/// connected mounts in `active`, and anything it does not own.
+pub(crate) fn pinned_bytes(root: &Path, active: &HashSet<PathBuf>) -> BridgeResult<u64> {
+    if !root.exists() {
+        return Ok(0);
+    }
+    let mut pinned = directory_bytes(root)?;
+    for (_, path) in evictable(root, active)? {
+        pinned = pinned.saturating_sub(directory_bytes(&path)?);
+        if let Some(metadata) = sidecars(root, &path) {
+            pinned = pinned.saturating_sub(directory_bytes(&metadata)?);
+        }
+    }
+    Ok(pinned)
+}
+
+/// Called under ADMISSION; reserve enough space for the full staging download
+/// as well as the existing cached copy. Eviction never follows symlinks.
+pub(crate) fn make_room(
+    root: &Path,
+    active: &HashSet<PathBuf>,
+    incoming: u64,
+    budget: u64,
+) -> BridgeResult<()> {
+    if incoming > budget {
+        return Err(error("Remote file exceeds the configured cache budget"));
+    }
+    // No cache yet (first download on this machine): nothing to evict.
+    if !root.exists() {
+        return Ok(());
+    }
+    let mut used = directory_bytes(root)?;
+    let mut candidates = evictable(root, active)?;
     candidates.sort_by_key(|(modified, _)| *modified);
     for (_, path) in candidates {
         if used.saturating_add(incoming) <= budget {
             break;
         }
         let bytes = directory_bytes(&path)?;
+        let metadata = sidecars(root, &path);
         std::fs::remove_dir_all(&path)
             .map_err(|e| error(&format!("Unable to evict inactive remote cache: {e}")))?;
         used = used.saturating_sub(bytes);
-        if let Some(name) = path.file_name() {
-            let metadata = root.join(crate::REMOTE_CACHE_METADATA_DIR_NAME).join(name);
-            if metadata.is_dir() {
-                let bytes = directory_bytes(&metadata)?;
-                std::fs::remove_dir_all(metadata).map_err(|e| error(&e.to_string()))?;
-                used = used.saturating_sub(bytes);
-            }
+        if let Some(metadata) = metadata {
+            let bytes = directory_bytes(&metadata)?;
+            std::fs::remove_dir_all(metadata).map_err(|e| error(&e.to_string()))?;
+            used = used.saturating_sub(bytes);
         }
     }
     if used.saturating_add(incoming) > budget {
@@ -109,6 +138,42 @@ mod tests {
             make_room(&root, &HashSet::new(), 101, 100).is_err(),
             "budget still applies"
         );
+    }
+
+    #[test]
+    fn remote_cache_pinned_bytes_are_what_eviction_cannot_reclaim() {
+        let root =
+            std::env::temp_dir().join(format!("brainflow-cache-pinned-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let cleanup = crate::remote_transfer::Staging(root.clone());
+        let active = root.join("cache-active");
+        let inactive = root.join("cache-old");
+        let foreign = root.join("other");
+        let sidecars = root.join(crate::REMOTE_CACHE_METADATA_DIR_NAME);
+        for (path, bytes) in [
+            (&active, 20),
+            (&inactive, 30),
+            (&foreign, 5),
+            (&sidecars.join("cache-active"), 2),
+            (&sidecars.join("cache-old"), 3),
+        ] {
+            std::fs::create_dir_all(path).unwrap();
+            std::fs::write(path.join("data"), vec![1; bytes]).unwrap();
+        }
+        let pinned = HashSet::from([active.clone()]);
+        // The connected mount, its sidecars and the directory nothing owns.
+        assert_eq!(pinned_bytes(&root, &pinned).unwrap(), 27);
+        assert_eq!(pinned_bytes(&root, &HashSet::new()).unwrap(), 5);
+        // What make_room can reach agrees: 27 pinned + 38 fits 65, 39 does not.
+        assert!(make_room(&root, &pinned, 39, 65).is_err());
+        assert!(!inactive.exists() && active.exists());
+        make_room(&root, &pinned, 38, 65).unwrap();
+        assert_eq!(
+            pinned_bytes(&root.join("absent"), &pinned).unwrap(),
+            0,
+            "a cache that does not exist holds nothing"
+        );
+        drop(cleanup);
     }
 
     #[test]

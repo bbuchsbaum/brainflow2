@@ -1,4 +1,5 @@
 import { OpenImageSetDialog } from '@/components/dialogs/OpenImageSetDialog';
+import { RemoteReconnectHost } from '@/components/panels/RemoteReconnectHost';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getLayerService } from '@/services/LayerService';
 import { removeLayerFromScene, selectedVolumeLayerId } from '@/services/layerRemoval';
@@ -921,6 +922,7 @@ function AppContent() {
       <TooltipOverlay />
       <ConfirmationDialogHost />
       <OpenImageSetDialog />
+      <RemoteReconnectHost />
       {/* Export View as Image (opened from the view context menu via exportDialogStore) */}
       <ExportImageDialog />
 

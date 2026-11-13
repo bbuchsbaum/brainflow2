@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Montage grouped by similarity</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+body{margin:0}
+:root{--bf-bg-app:#1b1c1f;--bf-bg-panel:#222326;--bf-bg-panel-raised:#2a2b2f;--bf-bg-panel-sunken:#151619;--bf-bg-canvas:#000000;--bf-bg-input:#1b1c1f;--bf-bg-hover:#2e2f33;--bf-bg-active:#36383d;--bf-border-subtle:rgba(255,255,255,0.08);--bf-border:rgba(255,255,255,0.16);--bf-border-strong:rgba(255,255,255,0.28);--bf-border-field:rgba(255,255,255,0.38);--bf-text-primary:#e9eaec;--bf-text-secondary:#bdbfc4;--bf-text-muted:#a4a7ad;--bf-accent:#d4a556;--bf-success:#6cc596;--primary:hsl(220,9%,86%);--primary-foreground:hsl(225,8%,9%);--bf-shadow-panel:0 10px 32px rgba(0,0,0,0.32);--sans:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;--mono:'IBM Plex Mono',Menlo,Consolas,monospace}
+button{font:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="position: relative; width: 940px; height: 800px; box-sizing: border-box; display: flex; flex-direction: column; background: var(--bf-bg-panel); color: var(--bf-text-primary); font-family: var(--sans); font-size: 12px; line-height: 18px">
+
+  <!-- Lens row -->
+  <div style="height: 40px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px">
+    <div role="group" aria-label="Lens" style="display: inline-flex; border: 1px solid var(--bf-border); border-radius: 2px; overflow: hidden">
+      <button type="button" aria-pressed="true" style="height: 24px; padding: 0 12px; border: 0; background: var(--primary); color: var(--primary-foreground); font-weight: 500">Population</button>
+      <button type="button" aria-pressed="false" style="height: 24px; padding: 0 12px; border: 0; border-left: 1px solid var(--bf-border); background: transparent; color: var(--bf-text-secondary)">Deck</button>
+      <button type="button" aria-pressed="false" style="height: 24px; padding: 0 12px; border: 0; border-left: 1px solid var(--bf-border); background: transparent; color: var(--bf-text-secondary)">Compare</button>
+    </div>
+    <span style="flex: 1 1 0"></span>
+    <div role="group" aria-label="Population view" style="display: inline-flex; border: 1px solid var(--bf-border); border-radius: 2px; overflow: hidden">
+      <button type="button" aria-pressed="false" style="height: 24px; padding: 0 12px; border: 0; background: transparent; color: var(--bf-text-secondary)">Summary</button>
+      <button type="button" aria-pressed="true" style="height: 24px; padding: 0 12px; border: 0; border-left: 1px solid var(--bf-border); background: var(--bf-bg-active); color: var(--bf-text-primary); font-weight: 500">Montage</button>
+    </div>
+  </div>
+
+  <!-- The one montage toolbar -->
+  <div role="toolbar" aria-label="Montage" style="height: 40px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 12px; border-top: 1px solid var(--bf-border-subtle); border-bottom: 1px solid var(--bf-border-subtle)">
+    <div style="display: inline-flex; align-items: center; gap: 6px">
+      <span style="font-size: 11px; line-height: 16px; font-weight: 500; color: var(--bf-text-secondary)">Sort</span>
+      <button type="button" aria-haspopup="listbox" style="height: 24px; min-width: 132px; padding: 0 6px 0 8px; display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; border: 1px solid var(--bf-border-field); border-radius: 2px; background: var(--bf-bg-input); color: var(--bf-text-primary)">
+        Distance from mean
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+    </div>
+    <div style="display: inline-flex; align-items: center; gap: 6px">
+      <span style="font-size: 11px; line-height: 16px; font-weight: 500; color: var(--bf-text-secondary)">Group</span>
+      <button type="button" aria-haspopup="listbox" style="height: 24px; min-width: 104px; padding: 0 6px 0 8px; display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; border: 1px solid var(--bf-border-field); border-radius: 2px; background: var(--bf-bg-input); color: var(--bf-text-primary)">
+        Similarity
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+    </div>
+    <span aria-hidden="true" style="width: 1px; height: 16px; background: var(--bf-border)"></span>
+    <div style="display: inline-flex; align-items: center; gap: 6px">
+      <span style="font-size: 11px; line-height: 16px; font-weight: 500; color: var(--bf-text-secondary)">Slice</span>
+      <button type="button" aria-haspopup="listbox" style="height: 24px; padding: 0 6px 0 8px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--bf-border-field); border-radius: 2px; background: var(--bf-bg-input); color: var(--bf-text-primary)">
+        Axial
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div style="display: inline-flex; align-items: center; height: 24px; border: 1px solid var(--bf-border-field); border-radius: 2px; background: var(--bf-bg-input)">
+        <button type="button" aria-label="Previous slice" style="width: 22px; height: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--bf-text-secondary)">
+          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <span style="min-width: 76px; text-align: center; font-family: var(--mono); font-variant-numeric: tabular-nums">z −8.5 mm</span>
+        <button type="button" aria-label="Next slice" style="width: 22px; height: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--bf-text-secondary)">
+          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+      </div>
+    </div>
+    <span style="flex: 1 1 0"></span>
+    <div style="display: inline-flex; align-items: center; gap: 8px; color: var(--bf-text-secondary)">
+      <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      <label style="display: inline-flex; align-items: center">
+        <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%)">Tile size</span>
+        <span aria-hidden="true" style="position: relative; display: block; width: 96px; height: 4px; border-radius: 2px; background: var(--bf-bg-panel-sunken); border: 1px solid var(--bf-border)">
+          <span style="position: absolute; left: 38%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--primary)"></span>
+        </span>
+      </label>
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18"/></svg>
+    </div>
+  </div>
+
+  <!-- Groups: one row each, most typical first -->
+  <div style="flex: 1 1 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; padding: 8px 12px 0 12px">
+    <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+      <section style="display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; align-items: center; gap: 8px; height: 24px">
+          <span style="font-size: 11px; line-height: 16px; font-weight: 500">{{ g.name }}</span>
+          <span style="color: var(--bf-text-muted)">{{ g.count }} subjects</span>
+          <span aria-hidden="true" style="flex: 1 1 0; height: 1px; background: var(--bf-border-subtle)"></span>
+          <button type="button" style="height: 22px; padding: 0 6px; border: 0; background: transparent; color: var(--bf-text-secondary); text-decoration: underline; text-decoration-color: var(--bf-border-strong); text-underline-offset: 3px">Show group mean</button>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px">
+          <sc-for list="{{ g.tiles }}" as="t" hint-placeholder-count="5">
+            <button type="button" aria-pressed="{{ t.pressed }}" style="position: relative; display: flex; flex-direction: column; padding: 0; border: 1px solid {{ t.edge }}; outline: {{ t.ring }}; outline-offset: -1px; border-radius: 2px; background: var(--bf-bg-canvas); color: inherit; text-align: left; overflow: hidden">
+              <img src="{{ t.src }}" alt="" style="display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover">
+              <span style="display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; background: {{ t.labelBg }}; font-family: var(--mono); font-size: 11px; line-height: 16px; color: var(--bf-text-secondary)">
+                <span style="flex: 1 1 0">{{ t.id }}</span>
+                <sc-if value="{{ t.selected }}" hint-placeholder-val="{{ false }}">
+                  <svg role="img" aria-label="Selected" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="color: var(--bf-text-primary)"><path d="M20 6 9 17l-5-5"/></svg>
+                </sc-if>
+              </span>
+            </button>
+          </sc-for>
+          <button type="button" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 0; border: 1px dashed var(--bf-border); border-radius: 2px; background: transparent; color: var(--bf-text-secondary)">
+            <span style="font-size: 13px; line-height: 20px; font-weight: 500; color: var(--bf-text-primary)">{{ g.more }} more</span>
+            <span>Show all {{ g.count }}</span>
+          </button>
+        </div>
+      </section>
+    </sc-for>
+  </div>
+
+  <!-- Appears only while something is selected -->
+  <div role="toolbar" aria-label="Selection" style="position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; height: 36px; padding: 0 6px 0 12px; border: 1px solid var(--bf-border); border-radius: 4px; background: var(--bf-bg-panel-raised); box-shadow: var(--bf-shadow-panel)">
+    <span style="font-weight: 500; padding-right: 8px">3 selected</span>
+    <span aria-hidden="true" style="width: 1px; height: 16px; background: var(--bf-border)"></span>
+    <button type="button" style="height: 24px; padding: 0 10px; border: 0; border-radius: 2px; background: var(--primary); color: var(--primary-foreground); font-weight: 500; margin-left: 8px">Save as group</button>
+    <button type="button" style="height: 24px; padding: 0 10px; border: 0; border-radius: 2px; background: transparent; color: var(--bf-text-primary)">Compare with the rest</button>
+    <button type="button" style="height: 24px; padding: 0 10px; border: 0; border-radius: 2px; background: transparent; color: var(--bf-text-primary)">Open in Deck</button>
+    <button type="button" aria-label="Clear selection" style="width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 2px; background: transparent; color: var(--bf-text-secondary)">
+      <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+
+  <!-- Footer -->
+  <div style="height: 32px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-top: 1px solid var(--bf-border)">
+    <span style="color: var(--bf-text-muted)">3 groups · 35 subjects · most typical of each group first · drag across tiles to select</span>
+    <span style="flex: 1 1 0"></span>
+    <button type="button" aria-label="Lower limit, −0.022" style="height: 22px; padding: 0 6px; border: 1px solid var(--bf-border-field); border-radius: 2px; background: var(--bf-bg-input); color: var(--bf-text-primary); font-family: var(--mono); font-variant-numeric: tabular-nums">−0.022</button>
+    <span role="img" aria-label="Colour scale, blue below zero to red above" style="display: block; width: 140px; height: 10px; border: 1px solid var(--bf-border); background: linear-gradient(90deg, #2233cc 0%, #6f8df0 30%, #b9bcc4 50%, #f0907a 70%, #d23b2e 100%)"></span>
+    <button type="button" aria-label="Upper limit, 0.022" style="height: 22px; padding: 0 6px; border: 1px solid var(--bf-border-field); border-radius: 2px; background: var(--bf-bg-input); color: var(--bf-text-primary); font-family: var(--mono); font-variant-numeric: tabular-nums">0.022</button>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":940,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const selected = new Set(['sub-1012', 'sub-1006', 'sub-1021']);
+    const tile = (id, n) => {
+      const on = selected.has(id);
+      return {
+        id,
+        src: 'tiles/t' + String(n).padStart(2, '0') + '.jpg',
+        selected: on,
+        pressed: on ? 'true' : 'false',
+        edge: on ? 'var(--primary)' : 'var(--bf-border-subtle)',
+        ring: on ? '1px solid var(--primary)' : 'none',
+        labelBg: on ? 'var(--bf-bg-active)' : 'var(--bf-bg-panel)',
+      };
+    };
+    const groups = [
+      { name: 'Group 1', count: 14, more: 9, tiles: [tile('sub-1015', 7), tile('sub-1014', 6), tile('sub-1019', 11), tile('sub-1018', 10), tile('sub-1016', 8)] },
+      { name: 'Group 2', count: 12, more: 7, tiles: [tile('sub-1012', 4), tile('sub-1006', 2), tile('sub-1021', 12), tile('sub-1026', 15), tile('sub-1025', 14)] },
+      { name: 'Group 3', count: 9, more: 4, tiles: [tile('sub-1007', 3), tile('sub-1013', 5), tile('sub-1022', 13), tile('sub-1002', 0), tile('sub-1017', 9)] },
+    ];
+    return { groups };
+  }
+}
+</script>
+</body>
+</html>

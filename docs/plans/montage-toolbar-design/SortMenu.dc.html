@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Montage sort menu</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+body{margin:0}
+:root{--bf-bg-panel:#222326;--bf-bg-panel-raised:#2a2b2f;--bf-bg-input:#1b1c1f;--bf-bg-active:#36383d;--bf-border-subtle:rgba(255,255,255,0.08);--bf-border:rgba(255,255,255,0.16);--bf-border-field:rgba(255,255,255,0.38);--bf-text-primary:#e9eaec;--bf-text-secondary:#bdbfc4;--bf-text-muted:#a4a7ad;--bf-accent:#d4a556;--bf-shadow-panel:0 10px 32px rgba(0,0,0,0.32);--sans:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;--mono:'IBM Plex Mono',Menlo,Consolas,monospace}
+button{font:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 300px; height: 400px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 12px; background: var(--bf-bg-panel); color: var(--bf-text-primary); font-family: var(--sans); font-size: 12px; line-height: 18px">
+
+  <div style="display: inline-flex; align-items: center; gap: 6px">
+    <span style="font-size: 11px; line-height: 16px; font-weight: 500; color: var(--bf-text-secondary)">Sort</span>
+    <button type="button" aria-haspopup="listbox" aria-expanded="true" style="height: 24px; min-width: 132px; padding: 0 6px 0 8px; display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; border: 1px solid var(--bf-border-field); border-radius: 2px; background: var(--bf-bg-input); color: var(--bf-text-primary); outline: 2px solid var(--bf-accent); outline-offset: 1px">
+      Similarity
+      <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
+  </div>
+
+  <div role="listbox" aria-label="Sort subjects by" style="display: flex; flex-direction: column; margin-left: 30px; padding: 4px; border: 1px solid var(--bf-border); border-radius: 4px; background: var(--bf-bg-panel-raised); box-shadow: var(--bf-shadow-panel)">
+    <button type="button" role="option" aria-selected="false" style="display: flex; flex-direction: column; padding: 4px 8px; border: 0; border-radius: 2px; background: transparent; color: var(--bf-text-primary); text-align: left">
+      <span>Source order</span>
+      <span style="font-size: 11px; line-height: 16px; color: var(--bf-text-muted)">As listed in the folder or table</span>
+    </button>
+    <button type="button" role="option" aria-selected="true" style="display: flex; flex-direction: column; padding: 4px 8px; border: 0; border-radius: 2px; background: var(--bf-bg-active); box-shadow: inset 2px 0 0 var(--bf-accent); color: var(--bf-text-primary); text-align: left">
+      <span style="font-weight: 500">Similarity</span>
+      <span style="font-size: 11px; line-height: 16px; color: var(--bf-text-secondary)">Neighbours are the most alike</span>
+    </button>
+    <button type="button" role="option" aria-selected="false" style="display: flex; flex-direction: column; padding: 4px 8px; border: 0; border-radius: 2px; background: transparent; color: var(--bf-text-primary); text-align: left">
+      <span>Distance from mean</span>
+      <span style="font-size: 11px; line-height: 16px; color: var(--bf-text-muted)">Most typical first, outliers last</span>
+    </button>
+    <button type="button" role="option" aria-selected="false" style="display: flex; flex-direction: column; padding: 4px 8px; border: 0; border-radius: 2px; background: transparent; color: var(--bf-text-primary); text-align: left">
+      <span>Value at crosshair</span>
+      <span style="font-size: 11px; line-height: 16px; color: var(--bf-text-muted)">Each map's value at the pinned point</span>
+    </button>
+    <span aria-hidden="true" style="height: 1px; margin: 4px 0; background: var(--bf-border-subtle)"></span>
+    <span style="padding: 2px 8px; font-size: 11px; line-height: 16px; font-weight: 500; color: var(--bf-text-secondary)">Design columns</span>
+    <button type="button" role="option" aria-selected="false" style="height: 24px; padding: 0 8px; border: 0; border-radius: 2px; background: transparent; color: var(--bf-text-primary); text-align: left; font-family: var(--mono)">[column from the set's table]</button>
+    <button type="button" role="option" aria-selected="false" style="height: 24px; padding: 0 8px; border: 0; border-radius: 2px; background: transparent; color: var(--bf-text-primary); text-align: left; font-family: var(--mono)">[column from the set's table]</button>
+    <span aria-hidden="true" style="height: 1px; margin: 4px 0; background: var(--bf-border-subtle)"></span>
+    <button type="button" style="display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 8px; border: 0; border-radius: 2px; background: transparent; color: var(--bf-text-primary); text-align: left">
+      <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--bf-text-secondary)"><path d="m3 16 4 4 4-4M7 20V4M21 8l-4-4-4 4M17 4v16"/></svg>
+      Reverse order
+    </button>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":300,"height":400}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

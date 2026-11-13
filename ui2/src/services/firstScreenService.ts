@@ -252,7 +252,9 @@ export async function defaultFirstScreenBackend(): Promise<FirstScreenBackend> {
     cacheTemplate: async (templateId) =>
       (await invokeBackend<boolean | null>('cache_template', { templateId })) !== false,
     // Not the user's request: no toast (the Log keeps its line).
-    loadTemplate: (templateId) => getTemplateService().loadTemplateById(templateId, { quiet: true }),
+    loadTemplate: async (templateId) => {
+      await getTemplateService().loadTemplateById(templateId, { quiet: true });
+    },
     crosshairToOrigin: () => getCrosshairService().setCrosshair([0, 0, 0]),
   };
 }

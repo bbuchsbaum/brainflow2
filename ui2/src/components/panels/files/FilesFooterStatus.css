@@ -23,6 +23,12 @@
   opacity: 0.5;
 }
 
+/* Keyboard hint for the selected row: its own line under the counts. */
+.fb-footer-hint {
+  flex-basis: 100%;
+  line-height: 16px;
+}
+
 @media (max-width: 320px) {
   .fb-footer-item--secondary {
     display: none;

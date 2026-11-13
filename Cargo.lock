@@ -2349,6 +2349,7 @@ version = "0.1.0"
 dependencies = [
  "bridge_types",
  "csv",
+ "log",
  "nalgebra 0.32.6",
  "ndarray 0.15.6",
  "nifti 0.16.0",

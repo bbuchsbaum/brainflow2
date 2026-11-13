@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { useProgressStore } from '@/stores/progressStore';
+import { useProgressStore, type ProgressTask } from '@/stores/progressStore';
 import { ProgressDrawer } from './ProgressDrawer';
 
 export function StatusBarProgress() {
@@ -15,7 +15,7 @@ export function StatusBarProgress() {
   
   // Compute active tasks locally
   const activeTasks = React.useMemo(() => {
-    const active: any[] = [];
+    const active: ProgressTask[] = [];
     tasks.forEach(task => {
       if (task.status === 'active') {
         active.push(task);
@@ -48,7 +48,11 @@ export function StatusBarProgress() {
         type="button"
         className="flex items-center gap-2 px-3 py-1 text-bf-xs text-bf-text-secondary hover:text-foreground hover:bg-accent rounded-sm transition-colors cursor-pointer focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-primary"
         onClick={() => setShowDrawer(true)}
-        title="Click to view all tasks"
+        title={
+          currentTask.message
+            ? `${currentTask.title} · ${currentTask.message}. Click to view all tasks`
+            : 'Click to view all tasks'
+        }
       >
         {/* Progress indicator */}
         <div className="relative w-4 h-4">
@@ -106,6 +110,15 @@ export function StatusBarProgress() {
         <span className="max-w-[200px] truncate">
           {currentTask.title}
         </span>
+        {/* Where the task is ("Downloading 12.3 / 80.0 MiB"); it gives way before the title does. */}
+        {currentTask.message ? (
+          <span
+            className="min-w-0 max-w-[220px] truncate tabular-nums text-bf-text-muted"
+            data-testid="status-progress-message"
+          >
+            {currentTask.message}
+          </span>
+        ) : null}
         
         {/* Task count badge */}
         {activeTasks.length > 1 && (

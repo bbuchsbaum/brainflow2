@@ -1,0 +1,35 @@
+import type { DatasetImageKind } from "./DatasetImageKind";
+/**
+ * What the tree holds, counted. With `truncated` every number is a floor.
+ */
+export type DatasetContents = {
+    subjectCount: number;
+    /**
+     * Distinct session labels across subjects.
+     */
+    sessionCount: number;
+    tasks: Array<string>;
+    spaces: Array<string>;
+    imageCount: number;
+    /**
+     * A `group/` folder, or images that belong to no subject.
+     */
+    hasGroupLevel: boolean;
+    /**
+     * Images that belong to no subject.
+     */
+    groupImageCount: number;
+    /**
+     * The most common kinds first; at most a bounded number of them.
+     */
+    imageKinds: Array<DatasetImageKind>;
+    /**
+     * Distinct kinds seen, which may exceed `image_kinds.len()`.
+     */
+    imageKindCount: number;
+    /**
+     * The walk stopped at a bound, so the counts are not exact.
+     */
+    truncated: boolean;
+    truncatedReason: string | null;
+};

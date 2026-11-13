@@ -55,9 +55,20 @@ export interface TemplateLoadOptions {
   quiet?: boolean;
 }
 
+/** What a template load request did. */
+export interface TemplateLoadOutcome {
+  /**
+   * The template was already being loaded (by the Templates menu, say) and
+   * this quiet request waited for that load instead of starting its own.
+   */
+  joined: boolean;
+}
+
 export class TemplateService {
   private static instance: TemplateService | null = null;
   private eventBus: EventBus;
+  /** Loads in flight, by `template:<id>`, so a quiet request can wait for one. */
+  private readonly inFlight = new Map<string, Promise<void>>();
   private volumeLoadingService: VolumeLoadingService;
   private unlistenFn: Unlisten | null = null;
   private initialized = false;
@@ -112,11 +123,17 @@ export class TemplateService {
   /**
    * Load a template by its menu ID (e.g., "MNI152NLin2009cAsym_T1w_1mm")
    */
-  async loadTemplateById(templateId: string, options: TemplateLoadOptions = {}): Promise<void> {
-    await this.loadTemplate(templateId, options);
+  async loadTemplateById(
+    templateId: string,
+    options: TemplateLoadOptions = {},
+  ): Promise<TemplateLoadOutcome> {
+    return this.loadTemplate(templateId, options);
   }
 
-  async loadTemplateBySourcePath(sourcePath: string): Promise<void> {
+  async loadTemplateBySourcePath(
+    sourcePath: string,
+    options: TemplateLoadOptions = {},
+  ): Promise<TemplateLoadOutcome> {
     const templateId = sourcePath.startsWith('template:')
       ? sourcePath.slice('template:'.length).trim()
       : sourcePath.trim();
@@ -125,25 +142,49 @@ export class TemplateService {
       throw new Error('Cannot load a template from an empty source identifier');
     }
 
-    await this.loadTemplate(templateId);
+    return this.loadTemplate(templateId, options);
   }
 
-  private async loadTemplate(templateId: string, options: TemplateLoadOptions = {}): Promise<void> {
-    const workspaceId = useViewStateStore.getState().activeWorkspaceKey;
-    const startTime = performance.now();
-    console.log(`[TemplateService ${startTime.toFixed(0)}ms] Loading template: ${templateId}`);
-
+  private async loadTemplate(
+    templateId: string,
+    options: TemplateLoadOptions = {},
+  ): Promise<TemplateLoadOutcome> {
     // Check if already loading
     const templatePath = `template:${templateId}`;
     if (useLoadingQueueStore.getState().isLoading(templatePath)) {
       console.warn(`[TemplateService] Template already loading:`, templateId);
+      if (options.quiet) {
+        // Not the user's request: no toast, and the caller gets the layer
+        // of the load already under way (it never rejects).
+        await this.inFlight.get(templatePath);
+        return { joined: true };
+      }
       this.eventBus.emit('ui.notification', {
         type: 'info',
         message: `Template is already being loaded: ${templateId}`
       });
-      return;
+      return { joined: false };
     }
-    
+
+    const load = this.runTemplateLoad(templateId, templatePath, options);
+    this.inFlight.set(templatePath, load);
+    try {
+      await load;
+    } finally {
+      if (this.inFlight.get(templatePath) === load) this.inFlight.delete(templatePath);
+    }
+    return { joined: false };
+  }
+
+  private async runTemplateLoad(
+    templateId: string,
+    templatePath: string,
+    options: TemplateLoadOptions,
+  ): Promise<void> {
+    const workspaceId = useViewStateStore.getState().activeWorkspaceKey;
+    const startTime = performance.now();
+    console.log(`[TemplateService ${startTime.toFixed(0)}ms] Loading template: ${templateId}`);
+
     // Add to loading queue
     const queueId = useLoadingQueueStore.getState().enqueue({
       type: 'template',

@@ -23,12 +23,29 @@ pub struct Geometry {
     pub explained_fraction: f64,
     pub stress: f64,
     pub orderable: bool,
+    /// v1/v2: average linkage. v3: the requested linkage.
     pub merges: Vec<Merge>,
+    /// v3 only: silhouette-scored cuts of `merges`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grouping: Option<GroupingSummary>,
 }
+/// The v1/v2 geometry (production calls `fit_with`; tests use this form).
+#[cfg(test)]
 pub fn fit(
     rows: &[Vec<f32>],
     support: &[usize],
     metric: &Distance,
+    token: &SampleCancellation,
+) -> BridgeResult<Geometry> {
+    fit_with(rows, support, metric, None, token)
+}
+/// `grouping`: None keeps the v1/v2 geometry exactly (average linkage, no
+/// grouping summary); Some(linkage) builds merges with it and scores cuts.
+pub fn fit_with(
+    rows: &[Vec<f32>],
+    support: &[usize],
+    metric: &Distance,
+    grouping: Option<Linkage>,
     token: &SampleCancellation,
 ) -> BridgeResult<Geometry> {
     let n = rows.len();
@@ -60,6 +77,7 @@ pub fn fit(
     } else {
         norms.fill((p as f64).sqrt());
     }
+    let gram_started = std::time::Instant::now();
     let mut gram = DMatrix::<f64>::zeros(n, n);
     for chunk in support.chunks(4096) {
         token.check()?;
@@ -68,13 +86,25 @@ pub fn fit(
             // Center across observations before Gram multiplication to avoid a
             // large common signal dominating small between-map differences.
             let reference = (rows[0][voxel] as f64 - means[0]) / norms[0];
-            let delta = |i: usize| match metric {
-                Distance::Effect => (rows[i][voxel] as f64 - rows[0][voxel] as f64) / norms[i],
-                Distance::PatternShape => (rows[i][voxel] as f64 - means[i]) / norms[i] - reference,
-            };
-            let average_delta = (0..n).map(delta).sum::<f64>() / n as f64;
-            for i in 0..n {
-                block[(i, j)] = delta(i) - average_delta;
+            let mut column = block.column_mut(j);
+            // Each delta is computed once and summed in observation order:
+            // the same values and the same sum as evaluating it twice.
+            match metric {
+                Distance::Effect => {
+                    let first = rows[0][voxel] as f64;
+                    for i in 0..n {
+                        column[i] = (rows[i][voxel] as f64 - first) / norms[i];
+                    }
+                }
+                Distance::PatternShape => {
+                    for i in 0..n {
+                        column[i] = (rows[i][voxel] as f64 - means[i]) / norms[i] - reference;
+                    }
+                }
+            }
+            let average_delta = column.iter().copied().sum::<f64>() / n as f64;
+            for value in column.iter_mut() {
+                *value -= average_delta;
             }
         }
         gram += &block * block.transpose();
@@ -94,12 +124,21 @@ pub fn fit(
                 .collect()
         })
         .collect();
+    log::info!(
+        "[perf] similarity gram: {n} members x {p} voxels, {} ms",
+        gram_started.elapsed().as_millis()
+    );
     let scale = gram.amax();
     if scale > 0. {
         gram /= scale;
     }
+    let eigen_started = std::time::Instant::now();
     let eig = SymmetricEigen::try_new(gram, 1e-14, 100_000)
         .ok_or_else(|| input("Classical MDS did not converge."))?;
+    log::info!(
+        "[perf] similarity eigen: {n} x {n}, {} ms",
+        eigen_started.elapsed().as_millis()
+    );
     token.check()?;
     let mut axes: Vec<_> = (0..n).collect();
     axes.sort_by(|&a, &b| {
@@ -146,7 +185,13 @@ pub fn fit(
             squared += distances[i][j].powi(2);
         }
     }
-    let merges = average_linkage(&distances, token)?;
+    let linkage_started = std::time::Instant::now();
+    let merges = linkage_merges(&distances, grouping.unwrap_or(Linkage::Average), token)?;
+    let grouping = grouping.map(|linkage| grouping_summary(&distances, &merges, linkage));
+    log::info!(
+        "[perf] similarity linkage and grouping: {n} members, {} ms",
+        linkage_started.elapsed().as_millis()
+    );
     Ok(Geometry {
         coordinates,
         component_scores,
@@ -164,6 +209,7 @@ pub fn fit(
         orderable: total > 0. && eigenvalues[0] - eigenvalues[1] > eigenvalues[0] * 1e-8,
         eigenvalues,
         merges,
+        grouping,
     })
 }
 /// Exact spatial explanation in the same transformed common-support space as MDS.
@@ -303,6 +349,208 @@ pub(super) fn explain(
     ))
 }
 
+/// Agglomerative linkage for a v3 grouping fit.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Linkage {
+    /// Ward's minimum-variance criterion (Lance–Williams on squared distances).
+    #[default]
+    Ward,
+    /// Unweighted average linkage (UPGMA), as v1/v2 fits use.
+    Average,
+}
+/// Average silhouette below this is reported as no clear grouping. Kaufman and
+/// Rousseeuw (1990) read an average silhouette of 0.25 or less as "no
+/// substantial structure"; only above it is a grouping reported as clear.
+pub const CLEAR_GROUPING_SILHOUETTE: f64 = 0.25;
+/// Largest group count scored. Beyond eight, groups of a 35-member set are
+/// mostly pairs and singletons and the silhouette stops being informative.
+pub const MAX_SCORED_GROUPS: usize = 8;
+/// One cut of the dendrogram into `groups` clusters.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupingCut {
+    pub groups: usize,
+    /// Mean silhouette over every fitted member; a singleton scores 0.
+    pub silhouette: f64,
+    /// Group index (0-based, ordered by first fitted member) per fitted member.
+    pub assignment: Vec<usize>,
+    /// Fitted members alone in their group: outliers, not groups.
+    pub singletons: Vec<usize>,
+}
+/// Grouping summary for a v3 fit. Indices follow the fitted member order.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupingSummary {
+    pub linkage: Linkage,
+    /// Cuts for 2..=min(8, n - 1) groups, in increasing group count.
+    pub cuts: Vec<GroupingCut>,
+    /// Group count with the highest silhouette (smallest on ties); absent when
+    /// no cut can be scored (fewer than three fitted members).
+    pub best_groups: Option<usize>,
+    /// True only when the best silhouette is above `silhouetteThreshold`.
+    pub clear_grouping: bool,
+    pub silhouette_threshold: f64,
+}
+/// Merges under `linkage`. Average is the v1/v2 routine unchanged.
+pub fn linkage_merges(
+    distances: &[Vec<f64>],
+    linkage: Linkage,
+    token: &SampleCancellation,
+) -> BridgeResult<Vec<Merge>> {
+    match linkage {
+        Linkage::Average => average_linkage(distances, token),
+        Linkage::Ward => ward_linkage(distances, token),
+    }
+}
+/// Ward's criterion via the Lance–Williams recurrence on squared distances:
+/// d²(k, i∪j) = [(nᵢ+nₖ)d²(k,i) + (nⱼ+nₖ)d²(k,j) − nₖd²(i,j)] / (nᵢ+nⱼ+nₖ).
+/// Valid because the fit's distances are Euclidean between rows of the
+/// transformed matrix (sqrt(Gᵢᵢ + Gⱼⱼ − 2Gᵢⱼ) with G = BBᵀ). The merge height
+/// is the square root, so for two singletons it is their distance (as SciPy's
+/// `ward`). The closest pair is found as in average linkage: lowest value,
+/// then lowest indices, so ties resolve identically and deterministically.
+fn ward_linkage(distances: &[Vec<f64>], token: &SampleCancellation) -> BridgeResult<Vec<Merge>> {
+    let n = distances.len();
+    let size = 2 * n - 1;
+    let mut d = vec![vec![0.; size]; size];
+    for i in 0..n {
+        for j in 0..n {
+            d[i][j] = distances[i][j] * distances[i][j];
+        }
+    }
+    let mut counts = vec![0usize; size];
+    counts[..n].fill(1);
+    let mut active: Vec<usize> = (0..n).collect();
+    let mut merges = Vec::new();
+    while active.len() > 1 {
+        token.check()?;
+        let mut best = (f64::INFINITY, 0, 0);
+        for (a, &i) in active.iter().enumerate() {
+            for &j in active.iter().skip(a + 1) {
+                let candidate = (d[i][j], i, j);
+                if candidate < best {
+                    best = candidate;
+                }
+            }
+        }
+        if !best.0.is_finite() {
+            return Err(input(
+                "Similarity distances are not finite; grouping is undefined.",
+            ));
+        }
+        let (squared, i, j) = best;
+        let next = n + merges.len();
+        counts[next] = counts[i] + counts[j];
+        for &k in &active {
+            if k == i || k == j {
+                continue;
+            }
+            let (ni, nj, nk) = (counts[i] as f64, counts[j] as f64, counts[k] as f64);
+            let value = ((ni + nk) * d[i][k] + (nj + nk) * d[j][k] - nk * squared) / (ni + nj + nk);
+            d[next][k] = value;
+            d[k][next] = value;
+        }
+        merges.push(Merge {
+            left: i,
+            right: j,
+            distance: squared.max(0.).sqrt(),
+            count: counts[next],
+        });
+        active.retain(|&k| k != i && k != j);
+        active.push(next);
+    }
+    Ok(merges)
+}
+/// Group per member after the first `n - groups` merges, numbered by first member.
+pub fn cut_assignment(merges: &[Merge], n: usize, groups: usize) -> Vec<usize> {
+    let mut members: Vec<Option<Vec<usize>>> = (0..n).map(|i| Some(vec![i])).collect();
+    members.resize(2 * n - 1, None);
+    for (step, merge) in merges.iter().take(n - groups).enumerate() {
+        let mut joined = members[merge.left].take().unwrap_or_default();
+        joined.extend(members[merge.right].take().unwrap_or_default());
+        members[n + step] = Some(joined);
+    }
+    let mut clusters: Vec<Vec<usize>> = members.into_iter().flatten().collect();
+    clusters.sort_by_key(|c| c.iter().copied().min());
+    let mut assignment = vec![0; n];
+    for (group, cluster) in clusters.iter().enumerate() {
+        for &i in cluster {
+            assignment[i] = group;
+        }
+    }
+    assignment
+}
+/// Mean silhouette (Rousseeuw 1987) over all members: s = (b − a) / max(a, b)
+/// with a the mean distance to the member's own group and b the smallest mean
+/// distance to another group; a member alone in its group scores 0, and so
+/// does a member with a = b = 0.
+pub fn mean_silhouette(distances: &[Vec<f64>], assignment: &[usize], groups: usize) -> f64 {
+    let n = distances.len();
+    let mut sizes = vec![0usize; groups];
+    for &g in assignment {
+        sizes[g] += 1;
+    }
+    let mut total = 0.;
+    for i in 0..n {
+        let own = assignment[i];
+        if sizes[own] < 2 {
+            continue;
+        }
+        let mut sums = vec![0.; groups];
+        for j in 0..n {
+            if j != i {
+                sums[assignment[j]] += distances[i][j];
+            }
+        }
+        let a = sums[own] / (sizes[own] - 1) as f64;
+        let b = (0..groups)
+            .filter(|&g| g != own)
+            .map(|g| sums[g] / sizes[g] as f64)
+            .fold(f64::INFINITY, f64::min);
+        let scale = a.max(b);
+        if scale > 0. {
+            total += (b - a) / scale;
+        }
+    }
+    total / n as f64
+}
+/// Silhouette-scored cuts for 2..=min(8, n − 1) groups.
+pub fn grouping_summary(
+    distances: &[Vec<f64>],
+    merges: &[Merge],
+    linkage: Linkage,
+) -> GroupingSummary {
+    let n = distances.len();
+    let cuts: Vec<GroupingCut> = (2..=MAX_SCORED_GROUPS.min(n.saturating_sub(1)))
+        .map(|groups| {
+            let assignment = cut_assignment(merges, n, groups);
+            let mut sizes = vec![0usize; groups];
+            for &g in &assignment {
+                sizes[g] += 1;
+            }
+            GroupingCut {
+                groups,
+                silhouette: mean_silhouette(distances, &assignment, groups),
+                singletons: (0..n).filter(|&i| sizes[assignment[i]] == 1).collect(),
+                assignment,
+            }
+        })
+        .collect();
+    let best = cuts
+        .iter()
+        .fold(None::<&GroupingCut>, |best, cut| match best {
+            Some(b) if b.silhouette >= cut.silhouette => Some(b),
+            _ => Some(cut),
+        });
+    GroupingSummary {
+        linkage,
+        best_groups: best.map(|c| c.groups),
+        clear_grouping: best.is_some_and(|c| c.silhouette > CLEAR_GROUPING_SILHOUETTE),
+        silhouette_threshold: CLEAR_GROUPING_SILHOUETTE,
+        cuts,
+    }
+}
 fn average_linkage(distances: &[Vec<f64>], token: &SampleCancellation) -> BridgeResult<Vec<Merge>> {
     let n = distances.len();
     let size = 2 * n - 1;
@@ -324,6 +572,11 @@ fn average_linkage(distances: &[Vec<f64>], token: &SampleCancellation) -> Bridge
                     best = candidate;
                 }
             }
+        }
+        if !best.0.is_finite() {
+            return Err(input(
+                "Similarity distances are not finite; grouping is undefined.",
+            ));
         }
         let (distance, i, j) = best;
         let next = n + merges.len();
@@ -572,6 +825,164 @@ mod explanation_tests {
                 .unwrap();
                 assert!((norm - 1.).abs() < 1e-10);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod grouping_tests {
+    use super::*;
+    fn line(points: &[f64]) -> Vec<Vec<f64>> {
+        points
+            .iter()
+            .map(|a| points.iter().map(|b| (a - b).abs()).collect())
+            .collect()
+    }
+    fn token() -> SampleCancellation {
+        SampleCancellation::default()
+    }
+    #[test]
+    fn ward_heights_match_the_variance_criterion_by_hand() {
+        // {0,1} merge at 1; {0,1}+{5}: ΔESS = (2·1/3)·4.5² = 13.5, height sqrt(2·13.5).
+        let merges = linkage_merges(&line(&[0., 1., 5.]), Linkage::Ward, &token()).unwrap();
+        assert_eq!(
+            (merges[0].left, merges[0].right, merges[0].count),
+            (0, 1, 2)
+        );
+        assert!((merges[0].distance - 1.).abs() < 1e-12);
+        assert_eq!(
+            (merges[1].left, merges[1].right, merges[1].count),
+            (2, 3, 3)
+        );
+        assert!((merges[1].distance - 27f64.sqrt()).abs() < 1e-12);
+        // Two tight pairs: ties resolve by index; centroids 0.5 and 10.5 give
+        // ΔESS = (2·2/4)·10² = 100, height sqrt(200). Average linkage gives 10 (mean of 10, 11, 9, 10).
+        let d = line(&[0., 1., 10., 11.]);
+        let ward = linkage_merges(&d, Linkage::Ward, &token()).unwrap();
+        let pairs: Vec<_> = ward.iter().map(|m| (m.left, m.right)).collect();
+        assert_eq!(pairs, vec![(0, 1), (2, 3), (4, 5)]);
+        assert!((ward[2].distance - 200f64.sqrt()).abs() < 1e-12);
+        let average = linkage_merges(&d, Linkage::Average, &token()).unwrap();
+        assert!((average[2].distance - 10.).abs() < 1e-12);
+        assert_eq!(
+            average
+                .iter()
+                .map(|m| (m.left, m.right, m.count))
+                .collect::<Vec<_>>(),
+            average_linkage(&d, &token())
+                .unwrap()
+                .iter()
+                .map(|m| (m.left, m.right, m.count))
+                .collect::<Vec<_>>()
+        );
+    }
+    #[test]
+    fn silhouettes_singletons_and_best_cut_by_hand() {
+        let d = line(&[0., 1., 10., 11.]);
+        let merges = linkage_merges(&d, Linkage::Ward, &token()).unwrap();
+        let summary = grouping_summary(&d, &merges, Linkage::Ward);
+        assert_eq!(summary.cuts.len(), 2); // 2..=min(8, n-1) = 2..=3
+        let two = &summary.cuts[0];
+        assert_eq!(two.assignment, vec![0, 0, 1, 1]);
+        assert!(two.singletons.is_empty());
+        // s(0) = (10.5-1)/10.5, s(1) = (9.5-1)/9.5, symmetric for 10 and 11.
+        let expected = (9.5 / 10.5 + 8.5 / 9.5) / 2.;
+        assert!((two.silhouette - expected).abs() < 1e-12);
+        let three = &summary.cuts[1];
+        assert_eq!(three.assignment, vec![0, 0, 1, 2]);
+        assert_eq!(three.singletons, vec![2, 3]);
+        // s(0) = (10-1)/10, s(1) = (9-1)/9, singletons score 0.
+        assert!((three.silhouette - (0.9 + 8. / 9.) / 4.).abs() < 1e-12);
+        assert_eq!(summary.best_groups, Some(2));
+        assert!(summary.clear_grouping);
+        assert_eq!(summary.silhouette_threshold, 0.25);
+    }
+    #[test]
+    fn equidistant_members_report_no_clear_grouping() {
+        let d: Vec<Vec<f64>> = (0..5)
+            .map(|i| (0..5).map(|j| if i == j { 0. } else { 1. }).collect())
+            .collect();
+        let merges = linkage_merges(&d, Linkage::Ward, &token()).unwrap();
+        let summary = grouping_summary(&d, &merges, Linkage::Ward);
+        assert_eq!(summary.cuts.len(), 3);
+        assert!(summary.cuts.iter().all(|c| c.silhouette.abs() < 1e-12));
+        assert_eq!(summary.best_groups, Some(2));
+        assert!(!summary.clear_grouping);
+        // Two members: nothing to score.
+        let pair = line(&[0., 1.]);
+        let merges = linkage_merges(&pair, Linkage::Ward, &token()).unwrap();
+        let summary = grouping_summary(&pair, &merges, Linkage::Ward);
+        assert!(summary.cuts.is_empty() && summary.best_groups.is_none());
+        assert!(!summary.clear_grouping);
+    }
+    #[test]
+    fn an_outlier_is_a_singleton_not_a_group() {
+        // Two groups of three plus one far member; the 3-group cut isolates it.
+        let d = line(&[0., 0.5, 1., 10., 10.5, 11., 40.]);
+        let merges = linkage_merges(&d, Linkage::Ward, &token()).unwrap();
+        let summary = grouping_summary(&d, &merges, Linkage::Ward);
+        let three = summary.cuts.iter().find(|c| c.groups == 3).unwrap();
+        assert_eq!(three.assignment, vec![0, 0, 0, 1, 1, 1, 2]);
+        assert_eq!(three.singletons, vec![6]);
+        assert_eq!(summary.cuts.len(), 5); // 2..=6
+    }
+    #[test]
+    fn v1_geometry_has_no_grouping_and_v3_scores_cuts() {
+        let rows: Vec<Vec<f32>> = vec![
+            vec![0., 0., 1.],
+            vec![0.1, 0., 1.],
+            vec![5., 5., 0.],
+            vec![5.1, 5., 0.],
+        ];
+        let support = [0, 1, 2];
+        let v1 = fit(&rows, &support, &Distance::Effect, &token()).unwrap();
+        assert!(v1.grouping.is_none());
+        assert!(!serde_json::to_string(&v1).unwrap().contains("grouping"));
+        let v3 = fit_with(
+            &rows,
+            &support,
+            &Distance::Effect,
+            Some(Linkage::Ward),
+            &token(),
+        )
+        .unwrap();
+        assert_eq!(v1.distances, v3.distances);
+        let grouping = v3.grouping.unwrap();
+        assert_eq!(grouping.best_groups, Some(2));
+        assert!(grouping.clear_grouping);
+    }
+}
+
+#[cfg(test)]
+mod grouping_boundary_tests {
+    use super::*;
+    #[test]
+    fn a_silhouette_of_exactly_the_threshold_is_not_clear() {
+        // Points a, b, c with d(a,b) = 5 and d(c,a) = d(c,b) = 8. The 2-group
+        // cut {a,b}{c}: s(a) = s(b) = (8 - 5) / 8 = 0.375, s(c) = 0 (alone),
+        // mean exactly 0.25 in binary floating point.
+        let x = 8.;
+        let d = vec![vec![0., 5., x], vec![5., 0., x], vec![x, x, 0.]];
+        let merges = linkage_merges(&d, Linkage::Average, &SampleCancellation::default()).unwrap();
+        let summary = grouping_summary(&d, &merges, Linkage::Average);
+        assert_eq!(summary.cuts.len(), 1);
+        assert!((summary.cuts[0].silhouette - 0.25).abs() < 1e-15);
+        assert_eq!(summary.cuts[0].silhouette, 0.25);
+        assert!(!summary.clear_grouping);
+        let wider: Vec<Vec<f64>> = d
+            .iter()
+            .map(|row| row.iter().map(|&v| if v == x { 9. } else { v }).collect())
+            .collect();
+        let merges =
+            linkage_merges(&wider, Linkage::Average, &SampleCancellation::default()).unwrap();
+        assert!(grouping_summary(&wider, &merges, Linkage::Average).clear_grouping);
+    }
+    #[test]
+    fn non_finite_distances_are_refused_not_looped_on() {
+        let nan = f64::NAN;
+        let d = vec![vec![0., nan, nan], vec![nan, 0., nan], vec![nan, nan, 0.]];
+        for linkage in [Linkage::Ward, Linkage::Average] {
+            assert!(linkage_merges(&d, linkage, &SampleCancellation::default()).is_err());
         }
     }
 }

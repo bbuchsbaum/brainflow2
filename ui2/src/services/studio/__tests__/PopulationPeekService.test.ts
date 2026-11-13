@@ -163,6 +163,56 @@ describe('PopulationPeekService', () => {
     expect(evaluate).toHaveBeenCalledTimes(2);
   });
 
+  it('prefetches the shown member\'s neighbours one at a time while idle, publishing nothing', async () => {
+    const { evaluate, calls } = deferredEvaluate();
+    const service = new PopulationPeekService(evaluate);
+    service.setScope('s');
+    service.request(target('a', 0));
+    // Nothing is queued while the wanted slice loads.
+    service.prefetch([target('a', 1)]);
+    expect(evaluate).toHaveBeenCalledTimes(1);
+    calls[0].resolve();
+    await Promise.resolve();
+    const shown = service.getSnapshot();
+    expect(shown.raster?.crosshairMm).toEqual([0, 0, 0]);
+    // Another member's slice and a cached one are skipped.
+    service.prefetch([target('a', 0), target('b', 1), target('a', 1), target('a', 2)]);
+    expect(evaluate).toHaveBeenCalledTimes(2);
+    expect(calls[1].target.crosshairMm).toEqual([0, 0, 1]);
+    calls[1].resolve();
+    await Promise.resolve();
+    expect(evaluate).toHaveBeenCalledTimes(3);
+    expect(calls[2].target.crosshairMm).toEqual([0, 0, 2]);
+    calls[2].resolve();
+    await Promise.resolve();
+    // The shown slice is untouched, and stepping to a prefetched one is instant.
+    expect(service.getSnapshot()).toBe(shown);
+    service.request(target('a', 2));
+    expect(service.getSnapshot()).toMatchObject({ pending: false });
+    expect(service.getSnapshot().raster?.crosshairMm).toEqual([0, 0, 2]);
+    expect(evaluate).toHaveBeenCalledTimes(3);
+  });
+
+  it('a step while a prefetch is in flight waits for it; a new request drops the rest of the queue', async () => {
+    const { evaluate, calls } = deferredEvaluate();
+    const service = new PopulationPeekService(evaluate);
+    service.setScope('s');
+    service.request(target('a', 0));
+    calls[0].resolve();
+    await Promise.resolve();
+    service.prefetch([target('a', 1), target('a', 2), target('a', 3)]);
+    expect(calls[1].target.crosshairMm).toEqual([0, 0, 1]);
+    // The user steps onto the slice being prefetched: no second read of it.
+    service.request(target('a', 1));
+    expect(service.getSnapshot()).toMatchObject({ pending: true });
+    calls[1].resolve();
+    await Promise.resolve();
+    expect(service.getSnapshot()).toMatchObject({ pending: false });
+    expect(service.getSnapshot().raster?.crosshairMm).toEqual([0, 0, 1]);
+    // Slices 2 and 3 were dropped with the queue.
+    expect(evaluate).toHaveBeenCalledTimes(2);
+  });
+
   it('reports errors and the absence of a slice to peek from', async () => {
     const { evaluate, calls } = deferredEvaluate();
     const service = new PopulationPeekService(evaluate);
@@ -289,6 +339,8 @@ describe('PopulationSliceService.evaluatePeek', () => {
       cutouts: query.request.cutouts,
     });
     expect(same).toMatchObject({ memberId: 'b', values: [7, null], orientation: 'axial' });
+    // No background was returned: the peek draws on the dark pane.
+    expect(same.underlay).toBeNull();
     evaluate.mockResolvedValueOnce({ ...data([1, 2]), summary: [], cutouts: null });
     await service.evaluatePeek(
       { memberId: 'b', crosshairMm: [0, 0, 4], orientation: 'coronal' },
@@ -316,6 +368,39 @@ describe('PopulationSliceService.evaluatePeek', () => {
         new AbortController().signal,
       ),
     ).rejects.toThrow(/not in the displayed population/);
+    service.stop();
+  });
+
+  it('carries the background on the peek\'s plane, in the lens\'s grey window', async () => {
+    vi.useFakeTimers();
+    const lensUnderlay = { values: [20, 80] };
+    const evaluate = vi.fn(async () => ({ ...data(), underlay: lensUnderlay }));
+    const service = new PopulationSliceService(
+      {
+        evaluate,
+        release: vi.fn(async () => {}),
+        bitmap: vi.fn(async () => ({ close: vi.fn() }) as unknown as ImageBitmap),
+      },
+      0,
+    );
+    service.request({ ...query, request: { ...query.request, underlay: { sourcePath: '/t1.nii' } } });
+    await vi.runAllTimersAsync();
+    evaluate.mockResolvedValueOnce({
+      ...data([7, null]),
+      summary: [],
+      cutouts: null,
+      underlay: { values: [50, null] },
+    });
+    const peek = await service.evaluatePeek(
+      { memberId: 'b', crosshairMm: [0, 0, 4], orientation: 'axial' },
+      new AbortController().signal,
+    );
+    // The request asks for the same background as the lens.
+    expect(evaluate.mock.calls.at(-1)![0]).toMatchObject({ underlay: { sourcePath: '/t1.nii' } });
+    expect(peek.underlay).toBeInstanceOf(Float32Array);
+    // 50 in the lens's 20–80 window is mid-grey.
+    expect(peek.underlay![0]).toBeCloseTo(0.5);
+    expect(Number.isNaN(peek.underlay![1])).toBe(true);
     service.stop();
   });
 });

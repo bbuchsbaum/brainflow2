@@ -13,6 +13,8 @@ import type {
 const mocks = vi.hoisted(() => ({
   materializeComparePanes: vi.fn(),
   ensureMemberDisplayed: vi.fn(),
+  syncBackground: vi.fn(),
+  retryBackground: vi.fn(),
   emit: vi.fn(),
 }));
 
@@ -25,7 +27,14 @@ vi.mock('../StudioCompareService', () => ({
 vi.mock('../StudioDisplayService', () => ({
   getStudioDisplayService: () => ({
     ensureMemberDisplayed: mocks.ensureMemberDisplayed,
+    syncBackground: mocks.syncBackground,
+    retryBackground: mocks.retryBackground,
   }),
+}));
+
+// No member layer exists in these tests: there is no header to read.
+vi.mock('../studioMemberGrid', () => ({
+  readMemberGridHeader: async () => null,
 }));
 
 vi.mock('@/events/EventBus', () => ({
@@ -174,6 +183,11 @@ describe('StudioCoordinationService materialization jobs', () => {
     mocks.materializeComparePanes.mockReset();
     mocks.ensureMemberDisplayed.mockReset();
     mocks.ensureMemberDisplayed.mockResolvedValue(undefined);
+    mocks.syncBackground.mockReset();
+    mocks.syncBackground.mockImplementation(async (sourcePath: string | null) => ({
+      status: sourcePath ? 'ready' : 'none',
+      sourcePath,
+    }));
     mocks.emit.mockReset();
     bootstrapStore();
     service = new StudioCoordinationService();
@@ -343,3 +357,274 @@ describe('StudioCoordinationService population transitions', () => {
     expect(useSetStudioStore.getState().selection.activeMemberId).toBe('sub001');
   });
 });
+
+describe('StudioCoordinationService background', () => {
+  const TEMPLATE = 'template:MNI152NLin2009cAsym_T1w_1mm';
+  const OTHER = 'template:MNI152NLin6Asym_T1w_1mm';
+  let service: StudioCoordinationService;
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  beforeEach(() => {
+    useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
+    mocks.materializeComparePanes.mockReset();
+    mocks.ensureMemberDisplayed.mockReset();
+    mocks.ensureMemberDisplayed.mockResolvedValue(undefined);
+    mocks.syncBackground.mockReset();
+    mocks.syncBackground.mockImplementation(async (sourcePath: string | null) => ({
+      status: sourcePath ? 'ready' : 'none',
+      sourcePath,
+    }));
+    bootstrapStore();
+    service = new StudioCoordinationService();
+    service.start();
+  });
+  afterEach(() => service.stop());
+
+  it('hands a change of background to the display service once, not on every member', () => {
+    // The fixture's support declares no space: no background to start with.
+    expect(mocks.syncBackground).toHaveBeenCalledTimes(1);
+    expect(mocks.syncBackground).toHaveBeenLastCalledWith(null);
+
+    useSetStudioStore.getState().setStudioBackground(TEMPLATE);
+    expect(mocks.syncBackground).toHaveBeenCalledTimes(2);
+    expect(mocks.syncBackground).toHaveBeenLastCalledWith(TEMPLATE);
+
+    useSetStudioStore.getState().setActiveMember('sub002');
+    useSetStudioStore.getState().setActiveMember('sub001');
+    expect(mocks.syncBackground).toHaveBeenCalledTimes(2);
+
+    useSetStudioStore.getState().setStudioBackground(null);
+    expect(mocks.syncBackground).toHaveBeenLastCalledWith(null);
+  });
+
+  it('does not load a template for the Population lens, which samples its own', () => {
+    useSetStudioStore.getState().setActiveLens('population');
+    mocks.syncBackground.mockClear();
+    useSetStudioStore.getState().setStudioBackground(TEMPLATE);
+    expect(mocks.syncBackground).not.toHaveBeenCalled();
+    useSetStudioStore.getState().setActiveLens('deck');
+    expect(mocks.syncBackground).toHaveBeenCalledWith(TEMPLATE);
+  });
+
+  it('reports a template that could not be opened, for that template only', async () => {
+    mocks.syncBackground.mockResolvedValueOnce({ status: 'failed', sourcePath: TEMPLATE });
+    useSetStudioStore.getState().setStudioBackground(TEMPLATE);
+    await settle();
+    expect(useSetStudioStore.getState().studioBackgroundIssue).toEqual({
+      sourcePath: TEMPLATE,
+      message: 'This template could not be opened.',
+    });
+    // Choosing again clears it.
+    useSetStudioStore.getState().setStudioBackground(OTHER);
+    expect(useSetStudioStore.getState().studioBackgroundIssue).toBeNull();
+  });
+
+  it('reports a rejected request as a failure instead of leaving it unhandled', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mocks.syncBackground.mockRejectedValueOnce(new Error('layer service down'));
+    useSetStudioStore.getState().setStudioBackground(TEMPLATE);
+    await settle();
+    expect(useSetStudioStore.getState().studioBackgroundIssue).toEqual({
+      sourcePath: TEMPLATE,
+      message: 'This template could not be opened.',
+    });
+    warn.mockRestore();
+  });
+
+  it('tries a failed template again when the same one is chosen again', async () => {
+    mocks.syncBackground.mockResolvedValueOnce({ status: 'failed', sourcePath: TEMPLATE });
+    mocks.retryBackground.mockReset();
+    mocks.retryBackground.mockResolvedValue({ status: 'ready', sourcePath: TEMPLATE });
+    service.chooseBackground(TEMPLATE);
+    await settle();
+    expect(useSetStudioStore.getState().studioBackgroundIssue?.sourcePath).toBe(TEMPLATE);
+    expect(mocks.retryBackground).not.toHaveBeenCalled();
+
+    service.chooseBackground(TEMPLATE);
+    expect(mocks.retryBackground).toHaveBeenCalledWith(TEMPLATE);
+    await settle();
+    expect(useSetStudioStore.getState().studioBackgroundIssue).toBeNull();
+    // A template that is fine is not reloaded by choosing it again.
+    service.chooseBackground(TEMPLATE);
+    expect(mocks.retryBackground).toHaveBeenCalledTimes(1);
+  });
+
+  it('records a choice through the service', () => {
+    service.chooseBackground(OTHER);
+    expect(useSetStudioStore.getState().studioBackground).toEqual({
+      setId: 'set-a',
+      sourcePath: OTHER,
+    });
+    expect(mocks.syncBackground).toHaveBeenLastCalledWith(OTHER);
+    service.chooseBackground(null);
+    expect(mocks.syncBackground).toHaveBeenLastCalledWith(null);
+  });
+
+  it('asks again for the active member on a retry, and not once stopped', () => {
+    mocks.ensureMemberDisplayed.mockClear();
+    service.retryActiveMember();
+    expect(mocks.ensureMemberDisplayed).toHaveBeenCalledTimes(1);
+    const [activeSet, memberId] = mocks.ensureMemberDisplayed.mock.calls[0];
+    expect(activeSet.id).toBe('set-a');
+    expect(memberId).toBe(useSetStudioStore.getState().selection.activeMemberId);
+    service.stop();
+    service.retryActiveMember();
+    expect(mocks.ensureMemberDisplayed).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a failure that arrives after another background was chosen', async () => {
+    const late = deferred<{ status: 'failed'; sourcePath: string }>();
+    mocks.syncBackground.mockReturnValueOnce(late.promise);
+    useSetStudioStore.getState().setStudioBackground(TEMPLATE);
+    useSetStudioStore.getState().setStudioBackground(OTHER);
+    late.resolve({ status: 'failed', sourcePath: TEMPLATE });
+    await settle();
+    expect(useSetStudioStore.getState().studioBackgroundIssue).toBeNull();
+  });
+
+  it('drops a failure that arrives after another set was opened', async () => {
+    const late = deferred<{ status: 'failed'; sourcePath: string }>();
+    mocks.syncBackground.mockReturnValueOnce(late.promise);
+    useSetStudioStore.getState().setStudioBackground(TEMPLATE);
+    useSetStudioStore.getState().bootstrapStudio({
+      set: { ...set, id: 'set-b' },
+      background: TEMPLATE,
+      features: [feature],
+      cohorts: [cohort],
+      expressions: [expression],
+    });
+    mocks.syncBackground.mockClear();
+    late.resolve({ status: 'failed', sourcePath: TEMPLATE });
+    await settle();
+    expect(useSetStudioStore.getState().studioBackgroundIssue).toBeNull();
+  });
+});
+
+describe('StudioCoordinationService automatic grid check', () => {
+  const unchecked: SpatialFieldSetSummary = {
+    ...set,
+    id: 'set-unchecked',
+    importContract: { ...set.importContract!, readiness: 'review_required', capabilities: ['import', 'deck'] },
+    supportLabel: 'headers not sampled',
+    alignmentClass: 'unknown',
+    ingestAudit: {
+      ...set.ingestAudit,
+      support: {
+        supportLabel: 'headers not sampled',
+        alignmentClass: 'unknown',
+        readyForCompare: false,
+        severity: 'ok',
+      },
+    },
+    discoveryRequest: {
+      root: '/study',
+      filePattern: 'x',
+      includePatterns: [],
+      excludePatterns: [],
+      rolePatterns: [],
+      requiredRoles: [],
+      maxDepth: 4,
+      maxFiles: 100,
+    },
+  };
+  let service: StudioCoordinationService;
+  const autoCheckGrids = vi.fn();
+
+  function open(target: SpatialFieldSetSummary, lens: 'deck' | 'population' | 'compare' = 'deck') {
+    useSetStudioStore.getState().bootstrapStudio({
+      set: target,
+      features: [feature],
+      cohorts: [cohort],
+      expressions: [expression],
+      selection: {
+        activeLens: lens,
+        activeMemberId: members[0].id,
+        compareCohortId: cohort.id,
+        activeExpressionId: expression.id,
+      },
+    });
+  }
+
+  beforeEach(() => {
+    useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
+    autoCheckGrids.mockReset();
+    mocks.materializeComparePanes.mockReset();
+    mocks.materializeComparePanes.mockResolvedValue([]);
+    mocks.ensureMemberDisplayed.mockReset();
+    mocks.syncBackground.mockReset();
+    mocks.syncBackground.mockResolvedValue({ status: 'none', sourcePath: null });
+    service = new StudioCoordinationService();
+  });
+
+  afterEach(() => {
+    service.stop();
+  });
+
+  it('starts the check only after the first member is on display', async () => {
+    const display = deferred<void>();
+    mocks.ensureMemberDisplayed.mockReturnValue(display.promise);
+    open(unchecked);
+    service.start({ autoCheckGrids });
+    await Promise.resolve();
+    // The member's image is still loading: the header reads wait for it.
+    expect(mocks.ensureMemberDisplayed).toHaveBeenCalled();
+    expect(autoCheckGrids).not.toHaveBeenCalled();
+
+    display.resolve();
+    await vi.waitFor(() => expect(autoCheckGrids).toHaveBeenCalled());
+  });
+
+  it('starts it even when the member could not be displayed', async () => {
+    mocks.ensureMemberDisplayed.mockRejectedValue(new Error('offline'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    open(unchecked);
+    service.start({ autoCheckGrids });
+    await vi.waitFor(() => expect(autoCheckGrids).toHaveBeenCalled());
+    warn.mockRestore();
+  });
+
+  it('starts it at once in Population, where no member image is loaded', () => {
+    mocks.ensureMemberDisplayed.mockResolvedValue(undefined);
+    open(unchecked, 'population');
+    service.start({ autoCheckGrids });
+    expect(autoCheckGrids).toHaveBeenCalled();
+    expect(mocks.ensureMemberDisplayed).not.toHaveBeenCalled();
+  });
+
+  it('leaves a set alone whose grids are known, or whose check is running', async () => {
+    mocks.ensureMemberDisplayed.mockResolvedValue(undefined);
+    open(set);
+    service.start({ autoCheckGrids });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(autoCheckGrids).not.toHaveBeenCalled();
+
+    open(unchecked, 'population');
+    autoCheckGrids.mockClear();
+    useSetStudioStore.getState().setGridCheck({ status: 'checking', message: null });
+    useSetStudioStore.getState().setActiveMember(members[1].id);
+    expect(autoCheckGrids).not.toHaveBeenCalled();
+  });
+
+  it('computes the Compare panes by itself when the check makes the set comparable', async () => {
+    mocks.ensureMemberDisplayed.mockResolvedValue(undefined);
+    open(unchecked, 'compare');
+    service.start({ autoCheckGrids });
+    await vi.waitFor(() => expect(mocks.materializeComparePanes).toHaveBeenCalledTimes(1));
+
+    // The header check lands: the same set, now on one grid.
+    useSetStudioStore.getState().applySetAudit(unchecked.id, {
+      supportLabel: set.supportLabel,
+      alignmentClass: 'same-grid',
+      ingestAudit: set.ingestAudit,
+      memberSummaries: unchecked.memberSummaries,
+      importContract: set.importContract,
+    });
+
+    await vi.waitFor(() => expect(mocks.materializeComparePanes).toHaveBeenCalledTimes(2));
+    expect(mocks.materializeComparePanes.mock.calls[1][0].activeSet.importContract.readiness).toBe(
+      'compare_ready',
+    );
+  });
+});
+

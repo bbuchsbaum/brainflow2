@@ -7,6 +7,8 @@ interface FilesFooterStatusProps {
   rootNode: FileTreeNode | null;
   recentsCount: number;
   pinnedCount: number;
+  /** A one-line keyboard hint for the current selection. */
+  hint?: string;
 }
 
 function countFiles(nodes: FileTreeNode[] | undefined): number {
@@ -23,6 +25,7 @@ export const FilesFooterStatus: React.FC<FilesFooterStatusProps> = ({
   rootNode,
   recentsCount,
   pinnedCount,
+  hint,
 }) => {
   if (!rootNode) return null;
 
@@ -55,6 +58,7 @@ export const FilesFooterStatus: React.FC<FilesFooterStatusProps> = ({
           </span>
         </>
       )}
+      {hint ? <span className="fb-footer-hint">{hint}</span> : null}
     </div>
   );
 };

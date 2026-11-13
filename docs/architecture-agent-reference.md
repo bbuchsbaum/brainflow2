@@ -20,6 +20,7 @@ using them as evidence of present behavior or readiness.
 - [Loading lifecycle](#alpha-loading-lifecycle-2026-09-04).
 - [Parcel overlays](#parcel-table-overlays-2026-09-05).
 - [Folder image sets](#folder-image-sets).
+- [Dataset cards](#dataset-cards-2026-11-10): folder markers, dataset and sidecar cards.
 - [Population extensions](#neurotabs-population-extensions-2026-09-06).
 - [Targeted checks and local installation](#targeted-checks-and-local-installation).
 
@@ -31,6 +32,7 @@ using them as evidence of present behavior or readiness.
 - Remote mounts: `RemoteMountDialog` and `RemoteMountService` drive `remote_mount_connect` / challenge-response commands, while `api_bridge` keeps the `RemoteMountRegistry`, saved-profile metadata, and staged cache. SSH/session behavior stays in `remotely`; Brainflow owns command translation, keychain-backed credential policy, cache freshness metadata, and the handoff back into the existing local `load_file` path via `materialize_remote_file_if_needed()`.
 - Recovery behavior is split deliberately: `remotely` retries retryable SFTP list/stat/download operations once and exposes recovery hooks; `api_bridge` converts those hooks into `remote-mount-recovery` app events and tracing warnings, and `useMountListener` turns them into warning notifications for the UI.
 - SFTP transport hardening (in `remotely`): all filesystem ops on a mount share a single multiplexed SFTP channel per SSH session (the `*_blocking` adapters clone the persistent `RemoteFs` instead of opening a fresh channel per call), so concurrent list/stat/download no longer exhaust the session and surface as "Channel send error". On top of the one-shot SFTP retry, `Session::ensure_connected` transparently re-establishes a dropped SSH session before each op — but only when auth can be replayed without a human (key file / agent / stored password; never keyboard-interactive), with a short cooldown to avoid reconnect storms against a down host.
+- A session that is gone has one code: `map_remotely_error` reports `remotely`'s "session or transport ended" errors (`SshError::Disconnected`, also inside a `Context`; an SFTP stream or channel that closed, hit EOF, a broken pipe or a reset) as `Io 8266` (`REMOTE_SESSION_LOST_CODE`) with the transport's sentence as details, whatever operation met it. A refused login, a missing file, a request that timed out on a live session and a failed sign-in (8221/8224/8227) keep their own codes. The UI offers Reconnect on it (`isRemoteConnectionLost`). A sign-in to a folder whose registered mount has no live session replaces that mount (`register_remote_mount`: retired as unmount does, cache kept, same local root, new mount id); a mount whose session answers is returned as it is.
 - Templates & atlases: `TemplateService` and `AtlasService` feed menu builders in `src-tauri/src/main.rs`; ensure new resources register there and in TS bindings.
 - Shared enums/structs annotated with `#[ts(export)]` for TS binding generation. Keep them ASCII-friendly and update `packages/api` after changes.
 - Frontend bootstraps services via hooks (`useServicesInit`, `useStatusBarInit`, `useMountListener`); global state lives in Zustand stores under `ui2/src/stores` with coalescing middleware to prevent render loops.
@@ -137,6 +139,17 @@ using them as evidence of present behavior or readiness.
   exceeding a 4 GiB default budget (`BRAINFLOW_REMOTE_CACHE_BYTES` overrides it).
   Active mounts are pinned; downloads serialize cache admission to avoid exceeding
   the disk budget. Directory browsing remains independently bounded per mount.
+- Set studio lenses that read every member (Population, Compare, probes,
+  relationships, exports) read member files by local path. On a remote mount
+  only opened files are cached, so the UI first calls `fetch_studio_sources`
+  (`api_bridge::studio_source_fetch`, `StudioSourceFetchService`) with exactly
+  the files the request reads. It stats them once, asks before fetching more
+  than `LARGE_FETCH_CONFIRM_BYTES` (2 GiB), then downloads the missing ones one
+  at a time through `materialize_remote_file_on` on the mount it captured. The
+  fetch runs before, never inside, the two-minute population ticket; a
+  cancelled or failed fetch continues from the files still missing.
+  `resolve_member_source_path` refuses an unfetched remote member in plain
+  words instead of letting the decoder report a missing file.
 - Regression evidence and limitations: `docs/loading-hardening-2026-09-04.md`.
 
 ## Parcel table overlays (2026-09-05)
@@ -196,6 +209,58 @@ using them as evidence of present behavior or readiness.
   this browsing workflow does not preallocate the whole collection or assume the
   co-registered `ImageSet` GPU ring contract. See `docs/folder-image-sets.md` and
   the dev-only `/image-set-harness.html` for the workflow and UI check.
+
+## Dataset cards (2026-11-10)
+
+- `core/api_bridge/src/dataset_card.rs` owns three read-only probes for the file
+  browser: `probe_dataset_markers` (per visible folder row: has a
+  `dataset_description.json`, how many child analyses, hover summary),
+  `get_dataset_card` (description, README, counted contents, analyses table) and
+  `get_sidecar_card` (NIfTI header facts and sidecar metadata merged by the BIDS
+  inheritance principle, with the level each value came from). Types are in
+  `core/bridge_types/src/dataset_card.rs`.
+- Paths are the paths the browser shows. A path under an active remote mount is
+  read on the server through `CardFs::Remote`: listings without link resolution,
+  bounded text reads and header prefixes, all under the mount's operation
+  permits. Nothing is downloaded, staged or mirrored into the cache. A path under
+  the remote cache with no active mount is `Input 8232`.
+- Every read is bounded (see the constants at the top of the module); a contents
+  walk that meets a bound returns `truncated` and counts that are floors. Links
+  to folders are never followed; a local file is read only if it resolves inside
+  the browse root (`rootPath`) or, without one, the probed folder.
+- Each probe runs in an owned worker that stops when its future is dropped. The
+  commands take the optional `ticket` used by population queries
+  (`cancel_population_sample`). The mount is captured before I/O; a result read
+  from a mount that was unmounted or replaced meanwhile is `Io 8262` and is not
+  cached.
+- Markers and cards are cached per (endpoint or local disk, containment bound,
+  folder) against a fingerprint of the folder's listing: the bound (browse root
+  or mount root) decides which linked files may be read, so it is part of the
+  key. A marker is returned without I/O for 10 s, revalidated by one listing
+  after that, and recomputed after 5 min; a card is revalidated by one listing
+  and kept 10 min unless `refresh` is passed. `refresh` also bumps the folder's
+  generation: a read that began before it answers its caller but keeps nothing.
+- An answer that fell short for a reason that may not hold next time is returned
+  and not kept (`BuiltCard.transient`): an unreadable folder or file, a child
+  description that exists but could not be read (a missing one is a fact), or a
+  time budget. Besides the walk's `WalkCaps::budget`, each phase has
+  `CARD_READ_BUDGET` for what it reads before the walk; out of time it says so
+  in `descriptionIssue` (descriptions phase) or `contents.truncatedReason`.
+- `DatasetImageKind.subjectFolders` is the number of `sub-*` folders beside the
+  ones a kind's images are in. Only it, never `contents.subjectCount` (every
+  subject label met, including stray folders and group-level file names), may
+  be used to say images are missing.
+- `get_dataset_card` has two phases (`phase`, default `full`). `descriptions`
+  reads the folder's description and README and asks for each candidate child's
+  `dataset_description.json` by name, without listing the child or walking
+  anything: its card has empty `contents`, uncounted analyses, and only the
+  children that have a description. `full` adds the child listings and the
+  counting walk, and continues from a kept `descriptions` card of the same
+  listing instead of reading those files again. `DatasetCard.phase` says which
+  one an answer is: a whole card that is still valid answers either phase.
+  `refresh` forgets both, so a reload passes it with its first phase only. The
+  UI (`DatasetCardService.load`) shows the first answer and fills in the second,
+  one abort controller across both and one ticket per phase.
 
 ## NeuroTabs population extensions (2026-09-06)
 

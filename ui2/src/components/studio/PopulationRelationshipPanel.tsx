@@ -1,4 +1,5 @@
 import { Button, Notice, NumberField, Select, StatusPill } from '@/components/ui/bf';
+import { MARK_UNSELECTED_OPACITY } from './subsetOpacity';
 import { PopulationExplanation, type ExplanationPairRequest } from './PopulationExplanation';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -20,6 +21,8 @@ import {
   type PopulationSummaryKind,
 } from '@/services/studio/relationshipNeighbours';
 import { resolvePopulation } from '@/services/studio/populationContext';
+import { comparableGroups } from '@/services/studio/populationGroups';
+import { DEFAULT_SIMILARITY_MEASURE, SIMILARITY_MEASURE_LINE } from './montageModel';
 import { participantIdentity } from '@/services/studio/populationParticipants';
 import { resolveStudioPopulationPreview } from '@/services/studio/observationStatus';
 import type { PopulationSliceService } from '@/services/studio/PopulationSliceService';
@@ -34,7 +37,8 @@ import {
 
 const count = (n: number) => n.toLocaleString('en-US');
 
-function Swatch({ kind }: { kind: 'observation' | 'selected' | 'focused' | 'preview' | 'line' }) {
+/** Legend marks. Selection is shown by contrast only, as the scatter draws it: one ink, others dimmed. */
+function Swatch({ kind }: { kind: 'dimmed' | 'selected' | 'focused' | 'preview' | 'line' }) {
   return (
     <svg aria-hidden width="20" height="14" viewBox="0 0 20 14" className="shrink-0">
       {kind === 'line' ? (
@@ -55,7 +59,8 @@ function Swatch({ kind }: { kind: 'observation' | 'selected' | 'focused' | 'prev
             cx="10"
             cy="7"
             r={kind === 'focused' ? 3 : 2.5}
-            fill={kind === 'observation' ? 'var(--bf-text-muted)' : 'var(--bf-text-primary)'}
+            fill="var(--bf-text-primary)"
+            fillOpacity={kind === 'dimmed' ? MARK_UNSELECTED_OPACITY : 1}
           />
           {kind === 'focused' && (
             <circle
@@ -91,8 +96,21 @@ export function PopulationRelationshipPanel({
     service.getSnapshot,
   );
   const { scope, source, issue } = relationshipSource();
-  const [distance, setDistance] = useState<RelationshipRequest['distance']>('effect');
+  // One measure for the panel and the montage (the store's; the fit in force
+  // writes it), so the two never disagree about what "similarity" is.
+  const distance: RelationshipRequest['distance'] =
+    state.population.similarityMeasure ?? DEFAULT_SIMILARITY_MEASURE;
+  const setDistance = state.setPopulationSimilarityMeasure;
   const [count_, setCount] = useState(2);
+  // The count follows the similarity grouping in force (the montage's Group
+  // control cuts the same fit), so the two controls read the same number.
+  const groupedCount =
+    state.population.partition?.origin === 'map-derived'
+      ? comparableGroups(state.population.partition).length
+      : null;
+  useEffect(() => {
+    if (groupedCount !== null) setCount(groupedCount);
+  }, [groupedCount]);
   const [bounds, setBounds] = useState<HTMLDivElement | null>(null);
   const [pairRequest, setPairRequest] = useState<ExplanationPairRequest | null>(null);
   const nonce = useRef(0);
@@ -212,8 +230,12 @@ export function PopulationRelationshipPanel({
               value={distance}
               onChange={(e) => setDistance(e.target.value as typeof distance)}
             >
-              <option value="effect">Effect · RMS difference</option>
-              <option value="pattern-shape">Pattern shape · centered, unit norm</option>
+              <option value="pattern-shape" title={SIMILARITY_MEASURE_LINE['pattern-shape']}>
+                Correlation · pattern shape
+              </option>
+              <option value="effect" title={SIMILARITY_MEASURE_LINE.effect}>
+                Amplitude · RMS difference
+              </option>
             </Select>
           </label>
           <Button
@@ -245,8 +267,9 @@ export function PopulationRelationshipPanel({
         </div>
         {!fit && (
           <p className="m-0 text-bf-text-muted">
-            Effect distance compares magnitudes in map units. Pattern shape removes each map's mean
-            and scale first. Pin a region to compare maps within it.
+            Correlation compares the shape of the maps: each is centred and scaled first, so
+            amplitude is ignored. Amplitude compares the values themselves (RMS difference). Pin a
+            region to compare maps within it.
           </p>
         )}
         {snapshot.pending && (
@@ -267,8 +290,8 @@ export function PopulationRelationshipPanel({
           <>
             <p className="m-0">
               {fit.request.distance === 'effect'
-                ? 'Effect distance: root mean squared difference in original map units.'
-                : 'Pattern-shape distance: each map spatially centered and normalized to unit Euclidean norm; magnitude removed.'}{' '}
+                ? 'Amplitude: root-mean-square difference in the maps’ own units.'
+                : 'Correlation: each map centred and scaled to unit length over the shared voxels; amplitude ignored.'}{' '}
               {fit.request.region
                 ? `Sphere: ${fit.request.region.radiusMm} mm at (${fit.request.region.worldMm.join(', ')}).`
                 : 'Whole current support.'}{' '}
@@ -331,12 +354,12 @@ export function PopulationRelationshipPanel({
                 </PopulationBrush>
                 <figcaption className="flex flex-wrap gap-x-4 gap-y-1 text-bf-xs text-bf-text-muted">
                   <span className="inline-flex items-center gap-1.5">
-                    <Swatch kind="observation" />
-                    Observation
+                    <Swatch kind="selected" />
+                    Selected (full contrast)
                   </span>
                   <span className="inline-flex items-center gap-1.5">
-                    <Swatch kind="selected" />
-                    Selected
+                    <Swatch kind="dimmed" />
+                    Others, dimmed while a selection exists
                   </span>
                   <span className="inline-flex items-center gap-1.5">
                     <Swatch kind="focused" />
@@ -372,6 +395,7 @@ export function PopulationRelationshipPanel({
                 {centroid && (
                   <RelationshipCentroidList
                     result={centroid}
+                    fit={fit}
                     distanceScale={relationshipDistanceScale(fit)}
                     stale={stale}
                     activeMemberId={focusedId}

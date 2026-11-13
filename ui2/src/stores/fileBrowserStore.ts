@@ -19,8 +19,16 @@ import {
   LOCAL_SEARCH_LIMITS,
   REMOTE_SEARCH_LIMITS,
   collectSearchMatches,
+  findOwningRoot,
   nextDirectoriesToIndex,
 } from "./fileBrowserSearch";
+import {
+  forgetRemoteMount,
+  markRemoteMountActive,
+  markRemoteMountDown,
+  useRemoteConnectionStore,
+} from "./remoteConnectionStore";
+import { isRemoteConnectionLost } from "@/utils/remoteConnectionError";
 
 // Enable Map and Set support in Immer
 enableMapSet();
@@ -174,6 +182,11 @@ interface FileBrowserActions {
     options?: { displayName?: string; mountSource?: MountSource },
   ) => Promise<void>;
   unmountDirectory: (path: string) => void;
+  /**
+   * A mounted root was reconnected: take the new session's mount source
+   * (its mount id changes) without treating it as a new mount.
+   */
+  updateMountSource: (path: string, mountSource: MountSource) => void;
 
   // Navigation
   setCurrentPath: (path: string) => void;
@@ -424,10 +437,14 @@ const createFileBrowserStore = () => {
           // Add the mount node to state
           set((state) => {
             // Add to entries if not already mounted
-            if (!state.entries.find((e) => e.path === path)) {
+            const existing = state.entries.find((e) => e.path === path);
+            if (!existing) {
               forgetListed(path);
               state.entries.push(mountedNode);
               console.log("Mounted directory node added:", mountedNode);
+            } else if (options?.mountSource) {
+              // Mounted again (a reconnect): the session's mount id is new.
+              existing.mountSource = options.mountSource;
             }
           });
 
@@ -464,9 +481,17 @@ const createFileBrowserStore = () => {
           await get().loadDirectory(path);
         },
 
+        updateMountSource: (path, mountSource) => {
+          set((state) => {
+            const entry = state.entries.find((e) => e.path === path);
+            if (entry) entry.mountSource = mountSource;
+          });
+        },
+
         unmountDirectory: (path) => {
           invalidate(path);
           forgetListed(path);
+          forgetRemoteMount(path);
           set((state) => {
             state.entries = state.entries.filter((e) => e.path !== path);
             // Also remove from expanded paths
@@ -524,6 +549,11 @@ const createFileBrowserStore = () => {
             const files = await apiService.listDirectory(path, 1);
             if (requests.get(path) !== request) return;
             listed.add(path);
+            // A listing that answers proves the session is back.
+            const answered = findOwningRoot(get().entries, path);
+            if (answered && useRemoteConnectionStore.getState().down[answered.path]) {
+              markRemoteMountActive(answered.path);
+            }
 
             set((state) => {
               const node = findNodeByPath(state.entries, path);
@@ -547,6 +577,10 @@ const createFileBrowserStore = () => {
           } catch (error) {
             if (requests.get(path) !== request) return;
             console.error("Error loading directory:", error);
+            const failed = findOwningRoot(get().entries, path);
+            if (failed?.mountSource?.kind === "remote" && isRemoteConnectionLost(error)) {
+              markRemoteMountDown(failed.path);
+            }
             set((state) => {
               state.loadingPaths.delete(path);
               state.loading = state.loadingPaths.size > 0;

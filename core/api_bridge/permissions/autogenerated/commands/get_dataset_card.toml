@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-dataset-card"
+description = "Enables the get_dataset_card command without any pre-configured scope."
+commands.allow = ["get_dataset_card"]
+
+[[permission]]
+identifier = "deny-get-dataset-card"
+description = "Denies the get_dataset_card command without any pre-configured scope."
+commands.deny = ["get_dataset_card"]

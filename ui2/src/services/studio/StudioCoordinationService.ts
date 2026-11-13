@@ -12,6 +12,10 @@ import type {
 } from '@/types/studio';
 import { getStudioCompareService } from './StudioCompareService';
 import { getStudioDisplayService } from './StudioDisplayService';
+import { isSetCompareReady } from './importContract';
+import { setNeedsGridCheck } from './studioReadiness';
+import { selectStudioBackgroundPath, studioGridEvidence } from './studioBackground';
+import { readMemberGridHeader } from './studioMemberGrid';
 
 function buildCompareArtifact(args: {
   pane: StudioComparePaneSpec | null;
@@ -129,12 +133,28 @@ export class StudioCoordinationService {
   private active = false;
   private lastAutoCompareKey: string | null = null;
   private activeAbortController: AbortController | null = null;
+  /** The set and background last handed to the display service. */
+  private lastBackgroundKey: string | null = null;
+  /**
+   * The member whose header was asked for last: whether the answer is still
+   * out, and whether a header was read (`read`) and said something (`found`).
+   */
+  private gridProbe: { key: string; pending: boolean; read: boolean; found: boolean } | null =
+    null;
+  private autoCheckGrids: (() => void) | null = null;
 
-  start() {
+  /**
+   * `autoCheckGrids`: starts the active set's header check when nobody has
+   * read its headers (SetIngestionService.autoCheckActiveSetGrids, wired by
+   * useStudioCoordination). Passed in so this service does not import the
+   * ingestion service and its stores.
+   */
+  start(options: { autoCheckGrids?: () => void } = {}) {
     if (this.active) {
       return;
     }
     this.active = true;
+    this.autoCheckGrids = options.autoCheckGrids ?? null;
 
     // Subscribe before reconciliation: it can update focus synchronously.
     this.unsubscribe = useSetStudioStore.subscribe((state) => {
@@ -191,6 +211,8 @@ export class StudioCoordinationService {
     }
 
     if (derived.activeLens === 'population') {
+      // No member image is loaded here, so nothing waits behind the headers.
+      this.startGridCheckIfNeeded();
       // The live population service owns visible slices and actual-member samples.
       // Focus changes here must not create file-backed GPU layers or exports.
       this.cancelActiveMaterialization();
@@ -199,6 +221,7 @@ export class StudioCoordinationService {
       return;
     }
     void this.ensureMemberDisplayed(derived.activeSet, derived.activeMemberId);
+    this.syncBackground(state);
 
     // Dataset bootstrap owns filter reset atomically. Mounting this service
     // must preserve a population definition that already exists in the store.
@@ -226,6 +249,9 @@ export class StudioCoordinationService {
         memberPath: derived.activeMember?.sourcePath ?? null,
         cohortId: derived.compareCohort?.id ?? null,
         expressionId: derived.activeExpression?.id ?? null,
+        // A grid check that lands makes the set comparable: compute the
+        // panes then, with no action from the user.
+        ready: isSetCompareReady(derived.activeSet),
       });
 
       const compareCoordinatesChanged = compareKey !== this.lastAutoCompareKey;
@@ -288,10 +314,20 @@ export class StudioCoordinationService {
     this.active = false;
     this.requestVersion += 1;
     this.lastAutoCompareKey = null;
+    this.lastBackgroundKey = null;
+    this.gridProbe = null;
+    this.autoCheckGrids = null;
     if (this.unsubscribe) {
       this.unsubscribe();
       this.unsubscribe = null;
     }
+  }
+
+  /** Compute the Compare panes again for the same member and group. */
+  retryComparePanes(): void {
+    if (!this.active) return;
+    this.lastAutoCompareKey = null;
+    this.processStoreState(useSetStudioStore.getState());
   }
 
   cancelActiveMaterialization(): boolean {
@@ -412,11 +448,191 @@ export class StudioCoordinationService {
     return true;
   }
 
+  /**
+   * Keep the template under the Deck and Compare member views in step with
+   * the active set's background. Only a change is handed on, so paging
+   * members does not touch the template. The set is captured before the
+   * load: a result that arrives for another set or choice is dropped.
+   */
+  private syncBackground(state: StoreState, retry = false) {
+    const sourcePath = selectStudioBackgroundPath(state);
+    const setId = state.selection.activeSetId;
+    const key = JSON.stringify([setId, sourcePath]);
+    if (key === this.lastBackgroundKey && !retry) return;
+    this.lastBackgroundKey = key;
+    const display = getStudioDisplayService();
+    const owns = () => {
+      const live = useSetStudioStore.getState();
+      return (
+        this.active &&
+        this.lastBackgroundKey === key &&
+        live.selection.activeSetId === setId &&
+        selectStudioBackgroundPath(live) === sourcePath
+      );
+    };
+    const report = (failed: boolean) => {
+      if (!owns()) return;
+      useSetStudioStore
+        .getState()
+        .setStudioBackgroundIssue(
+          failed && sourcePath
+            ? { sourcePath, message: 'This template could not be opened.' }
+            : null,
+        );
+    };
+    void (retry ? display.retryBackground(sourcePath) : display.syncBackground(sourcePath)).then(
+      (result) => {
+        if (result.status !== 'stale') report(result.status === 'failed');
+      },
+      (error) => {
+        // The display service reports failures as results; a rejection is
+        // unexpected, and must still reach the Background control.
+        console.warn('[StudioCoordinationService] Background request failed:', error);
+        report(true);
+      },
+    );
+  }
+
+  /**
+   * The user's Background choice for the active set (null is "None"). The
+   * same template chosen again after it failed to open is tried again.
+   */
+  chooseBackground(sourcePath: string | null): void {
+    const before = useSetStudioStore.getState();
+    const current = selectStudioBackgroundPath(before);
+    const failed = !!sourcePath && before.studioBackgroundIssue?.sourcePath === sourcePath;
+    before.setStudioBackground(sourcePath);
+    const after = useSetStudioStore.getState();
+    if (this.active && failed && current === sourcePath && after.selection.activeLens !== 'population') {
+      after.setStudioBackgroundIssue(null);
+      this.syncBackground(useSetStudioStore.getState(), true);
+    }
+  }
+
+  /** Ask again for the active member's image (the Deck's Retry after a failed load). */
+  retryActiveMember(): void {
+    const state = useSetStudioStore.getState();
+    const setId = state.selection.activeSetId;
+    if (!this.active || !setId) return;
+    void this.ensureMemberDisplayed(state.sets[setId] ?? null, state.selection.activeMemberId);
+  }
+
   private async ensureMemberDisplayed(
     activeSet: SpatialFieldSetSummary | null,
     activeMemberId: string | null,
   ) {
-    await getStudioDisplayService().ensureMemberDisplayed(activeSet, activeMemberId);
+    try {
+      await getStudioDisplayService().ensureMemberDisplayed(activeSet, activeMemberId);
+    } catch (error) {
+      // The load queue records why; the Deck shows it (StudioMemberLoadOverlay).
+      console.warn('[StudioCoordinationService] Could not display the member:', error);
+    }
+    // After the member, never before it: on a remote mount the header reads
+    // share the connection with the member's download, and the first image
+    // on screen comes first.
+    this.startGridCheckIfNeeded();
+    await this.readMemberGrid(activeSet, activeMemberId);
+  }
+
+  /**
+   * Start the active set's header check in the background when nobody has
+   * read its headers (SetIngestionService.autoCheckActiveSetGrids: once per
+   * opened set, cancelled when the set or the Studio goes away). It is
+   * started after the member on display has loaded or failed, never before:
+   * it must not hold up the first image. Population
+   * and Compare become ready when it lands (`applySetAudit`), and the
+   * background default gains whole-set evidence.
+   */
+  private startGridCheckIfNeeded(): void {
+    if (!this.active || !this.autoCheckGrids) return;
+    const state = useSetStudioStore.getState();
+    const setId = state.selection.activeSetId;
+    if (!setId || state.gridCheck.status !== 'idle' || !setNeedsGridCheck(state.sets[setId])) return;
+    this.autoCheckGrids();
+  }
+
+  /**
+   * Record what the header of the member now on display says about the set's
+   * space: the evidence an unchosen background rests on (studioBackground.ts).
+   * The evidence of the member shown before stays until this one's is known,
+   * as that member's image stays on screen until this one has loaded. The set
+   * and member are captured before the read: an answer for a member paged
+   * away from, or for another set, is dropped. A member that did not load
+   * leaves no evidence.
+   */
+  private async readMemberGrid(
+    activeSet: SpatialFieldSetSummary | null,
+    memberId: string | null,
+  ): Promise<void> {
+    if (!activeSet || !memberId || activeSet.supportKind !== 'volume') {
+      this.dropMemberGridEvidence(activeSet);
+      return;
+    }
+    const setId = activeSet.id;
+    const owns = () => {
+      const live = useSetStudioStore.getState();
+      return (
+        this.active &&
+        live.selection.activeSetId === setId &&
+        live.selection.activeMemberId === memberId
+      );
+    };
+    if (!owns()) return;
+    const sourcePath = activeSet.memberSummaries
+      .find((candidate) => candidate.id === memberId)
+      ?.sourcePath?.trim();
+    if (!sourcePath) {
+      // No file to read a header from: the member shown before is not this one.
+      this.dropMemberGridEvidence(activeSet);
+      return;
+    }
+    const key = JSON.stringify([setId, memberId, sourcePath]);
+    const known = useSetStudioStore.getState().studioGridEvidence;
+    // Asked already, and the answer is out or still stands. A member that had
+    // no layer yet (its load failed) is asked about again: a retry may load it.
+    const last = this.gridProbe?.key === key ? this.gridProbe : null;
+    if (
+      last &&
+      (last.pending ||
+        (last.read && (!last.found || (known?.setId === setId && known.memberId === memberId))))
+    )
+      return;
+    const probe = { key, pending: true, read: false, found: false };
+    this.gridProbe = probe;
+    let evidence: ReturnType<typeof studioGridEvidence> = null;
+    try {
+      const header = await readMemberGridHeader(sourcePath);
+      evidence = header ? studioGridEvidence(setId, memberId, header) : null;
+      probe.read = header !== null;
+      probe.found = evidence !== null;
+    } catch (error) {
+      // Not asked again for this member: the default stays "None".
+      probe.read = true;
+      console.warn('[StudioCoordinationService] Could not read the member header:', error);
+    }
+    probe.pending = false;
+    if (this.gridProbe !== probe || !owns()) return;
+    useSetStudioStore.getState().setStudioGridEvidence(evidence);
+  }
+
+  /**
+   * Forget the header evidence when the member now on display has none of
+   * its own to read. It was another member's, and the resolver would not use
+   * it for this one. The exception is a set audited to be on one grid: there
+   * any member's header is the set's, and keeping it keeps the template on
+   * while paging.
+   */
+  private dropMemberGridEvidence(activeSet: SpatialFieldSetSummary | null): void {
+    const state = useSetStudioStore.getState();
+    const known = state.studioGridEvidence;
+    if (!known) return;
+    const wholeSet =
+      !!activeSet &&
+      activeSet.supportKind === 'volume' &&
+      known.setId === activeSet.id &&
+      state.selection.activeSetId === activeSet.id &&
+      (state.sets[activeSet.id]?.alignmentClass ?? activeSet.alignmentClass) === 'same-grid';
+    if (!wholeSet) state.setStudioGridEvidence(null);
   }
 }
 

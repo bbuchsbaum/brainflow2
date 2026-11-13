@@ -18,7 +18,7 @@ pub enum BuiltinColormap {
     Parula = 11,
     Hsv = 12,
     Phase = 13,
-    Reserved14 = 14,
+    ColdHot = 14,
     Reserved15 = 15,
 }
 
@@ -41,7 +41,7 @@ impl BuiltinColormap {
             Self::Parula => &PARULA,
             Self::Hsv => &HSV,
             Self::Phase => &PHASE,
-            Self::Reserved14 => &GRAYSCALE, // fallback
+            Self::ColdHot => &COLD_HOT,
             Self::Reserved15 => &GRAYSCALE, // fallback
         }
     }
@@ -131,6 +131,63 @@ pub const PET_HOT_METAL: [[u8; 4]; 256] = {
 /// fMRI activation map - blue (negative) to red (positive) with white at zero
 pub const FMRI_RED_BLUE: [[u8; 4]; 256] = include!("colormaps/fmri_redblue.rs");
 
+/// Stops of the dark-centred diverging map, from the hidden band outward:
+/// luminance rises with |v| (dark blue to light cyan below zero, dark red to
+/// yellow above). The Set studio's population overlay
+/// (`PopulationSliceService.ts`, `POPULATION_NEGATIVE`/`POPULATION_POSITIVE`)
+/// uses the same stops.
+pub const COLD_HOT_NEGATIVE: [[u8; 3]; 3] = [[25, 45, 120], [40, 110, 235], [150, 225, 255]];
+pub const COLD_HOT_POSITIVE: [[u8; 3]; 3] = [[120, 20, 25], [230, 70, 30], [255, 235, 110]];
+/// Share of the window around zero the map leaves at its darkest stop: the
+/// Studio's hidden band (a tenth of the symmetric window), so the first shown
+/// value is the first stop.
+const COLD_HOT_BAND: f32 = 0.1;
+
+const fn cold_hot_ramp(stops: &[[u8; 3]; 3], t: f32) -> [u8; 3] {
+    let at = if t < 0.0 {
+        0.0
+    } else if t > 1.0 {
+        2.0
+    } else {
+        t * 2.0
+    };
+    let i = if at >= 1.0 { 1 } else { 0 };
+    let f = at - i as f32;
+    let mut out = [0u8; 3];
+    let mut c = 0;
+    while c < 3 {
+        let a = stops[i][c] as f32;
+        let b = stops[i + 1][c] as f32;
+        out[c] = (a + f * (b - a) + 0.5) as u8;
+        c += 1;
+    }
+    out
+}
+
+/// Dark-centred diverging map ("cold-hot"): −max light cyan, near zero dark,
+/// +max yellow; the darkest colours sit at the hidden band's edges.
+pub const COLD_HOT: [[u8; 4]; 256] = {
+    let mut lut = [[0u8; 4]; 256];
+    let mut i = 0;
+    while i < 256 {
+        let v = i as f32 / 255.0 * 2.0 - 1.0;
+        let a = if v < 0.0 { -v } else { v };
+        let t = if a < COLD_HOT_BAND {
+            0.0
+        } else {
+            (a - COLD_HOT_BAND) / (1.0 - COLD_HOT_BAND)
+        };
+        let rgb = if v < 0.0 {
+            cold_hot_ramp(&COLD_HOT_NEGATIVE, t)
+        } else {
+            cold_hot_ramp(&COLD_HOT_POSITIVE, t)
+        };
+        lut[i] = [rgb[0], rgb[1], rgb[2], 255];
+        i += 1;
+    }
+    lut
+};
+
 /// Phase colormap for complex-valued data (circular HSV)
 pub const PHASE: [[u8; 4]; 256] = include!("colormaps/phase.rs");
 
@@ -162,6 +219,6 @@ pub const BUILTIN_COLORMAPS: [[[u8; 4]; 256]; 16] = [
     PARULA,        // 11
     HSV,           // 12
     PHASE,         // 13
-    GRAYSCALE,     // 14 (reserved)
+    COLD_HOT,      // 14
     GRAYSCALE,     // 15 (reserved)
 ];

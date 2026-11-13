@@ -200,3 +200,29 @@ fn test_colormap_metadata() {
     assert_eq!(phase_info.name, "phase");
     assert_eq!(phase_info.category, ColorMapCategory::Cyclic);
 }*/
+
+#[test]
+fn test_cold_hot_is_dark_centred_and_brightens_with_magnitude() {
+    use colormap::{colormap_by_name, BuiltinColormap};
+    assert_eq!(colormap_by_name("cold_hot"), Some(BuiltinColormap::ColdHot));
+    let lut = BuiltinColormap::ColdHot.data();
+    let luminance = |c: [u8; 4]| 0.2126 * c[0] as f32 + 0.7152 * c[1] as f32 + 0.0722 * c[2] as f32;
+    // Ends: light cyan at -max, yellow at +max; darkest colours next to zero.
+    assert_eq!(&lut[0][..3], &[150, 225, 255]);
+    assert_eq!(&lut[255][..3], &[255, 235, 110]);
+    assert_eq!(&lut[128][..3], &[120, 20, 25]);
+    assert_eq!(&lut[127][..3], &[25, 45, 120]);
+    // Luminance never falls as |v| grows on either side.
+    for i in 128..255 {
+        assert!(
+            luminance(lut[i + 1]) + 0.5 >= luminance(lut[i]),
+            "positive side at {i}"
+        );
+    }
+    for i in 1..128 {
+        assert!(
+            luminance(lut[i - 1]) + 0.5 >= luminance(lut[i]),
+            "negative side at {i}"
+        );
+    }
+}

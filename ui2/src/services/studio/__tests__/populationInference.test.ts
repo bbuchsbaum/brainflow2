@@ -48,12 +48,17 @@ it('keeps selection and focus while routing typed tests and retaining selection 
   expect(q.request.aggregation?.groups.length).toBeGreaterThan(1);
   const ids = q.request.workingMemberIds.slice(0, 2);
   state().selectPopulationMembers(ids, 'map-derived', 'response lasso');
+  // C′: a new selection does not re-run the test; it waits for the next Run.
+  expect(
+    buildPopulationSliceQuery(state(), 'workspace', options).query?.request.inference,
+  ).toBeUndefined();
+  expect(configureInference({ ...spec, channel: 't' })).toBeNull();
   expect(
     buildPopulationSliceQuery(state(), 'workspace', options).query?.request.inference
       ?.selectionOrigin,
   ).toBe('map-derived');
   state().selectPopulationMembers(ids.slice(0, 1));
-  expect(buildPopulationSliceQuery(state(), 'workspace', options).issue).toMatch(/two/);
+  expect(configureInference(spec)).toMatch(/two/);
   configureInference(null);
   expect(
     buildPopulationSliceQuery(state(), 'workspace', options).query?.request.inference,
@@ -89,9 +94,11 @@ it('routes Welch through declared disjoint A/B participants without changing foc
   const b = state().createSavedCohort({ memberIds: ids.slice(1), label: 'Overlapping B' })!;
   state().setCompareCohort(b);
   state().setPopulationReferenceMode('cohort');
-  expect(buildPopulationSliceQuery(state(), 'workspace', options).issue).toMatch(
-    /disjoint participant/,
-  );
+  // C′: changing B does not re-run the test; the next Run says what is wrong.
+  expect(
+    buildPopulationSliceQuery(state(), 'workspace', options).query?.request.inference,
+  ).toBeUndefined();
+  expect(configureInference({ ...spec, method: 'welch' })).toMatch(/disjoint participant/);
   state().setPopulationPresentation({
     ...state().population.presentation,
     arrangement: 'comparison',
@@ -233,6 +240,7 @@ it('routes an explicit OLS design without inventing population B and rejects mem
   expect(result.query!.request.inference!.design).toEqual(model.design);
   expect(result.query!.request.reference).toBeUndefined();
   state().selectPopulationMembers(ids.slice(0, 3), 'manual');
+  // C′: the drifted membership is refused at the next Run, not re-tested silently.
   expect(
     buildPopulationSliceQuery(state(), 'workspace', {
       crosshairMm: [0, 0, 0],
@@ -240,6 +248,34 @@ it('routes an explicit OLS design without inventing population B and rejects mem
       dimPx: [2, 2],
       zoom: 1,
       summary: 'mean',
-    }).issue,
-  ).toMatch(/participant-keyed/);
+    }).query?.request.inference,
+  ).toBeUndefined();
+  expect(configureInference(model)).toMatch(/participant-keyed/);
+});
+it('a test with no recorded operands is not current: it waits for a Run', () => {
+  const setId = state().selection.activeSetId!;
+  state().configurePopulationParticipants({
+    setId,
+    identity: { kind: 'observationIds' },
+    reduction: 'single',
+  });
+  // Set without a Run (no operands recorded).
+  expect(
+    state().configurePopulationInference({
+      ...spec,
+      setId,
+      featureId: state().selection.activeFeatureId!,
+    }).ok,
+  ).toBe(true);
+  expect(state().population.inferenceOperands ?? null).toBeNull();
+  const options = {
+    crosshairMm: [0, 0, 0] as [number, number, number],
+    orientation: 'axial' as const,
+    dimPx: [2, 2] as [number, number],
+    zoom: 1,
+    summary: 'mean' as const,
+  };
+  expect(buildPopulationSliceQuery(state(), 'workspace', options).query?.request.inference).toBeUndefined();
+  expect(configureInference(spec)).toBeNull();
+  expect(buildPopulationSliceQuery(state(), 'workspace', options).query?.request.inference).toBeDefined();
 });

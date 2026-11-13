@@ -29,6 +29,13 @@ import { buildActiveCrosshairStyle } from '@/utils/crosshairUtils';
 import { getEventBus } from '@/events/EventBus';
 import { residencyFreed, useResidencyStore } from '@/stores/residencyStore';
 import { safeUnlisten } from '@/utils/eventUtils';
+import { getStudioDisplayService } from '@/services/studio/StudioDisplayService';
+import {
+  formatStudioScaleValue,
+  studioMapKind,
+  type StudioMapWindow,
+} from '@/services/studio/studioMapDisplay';
+import { fetchStudioRobustLimit, forgetStudioHistogram } from '@/services/studio/studioMapLimit';
 
 /** How long a pane keeps its cached bitmap waiting for its anatomy on return (N29). */
 const ANATOMY_WAIT_MS = 1500;
@@ -51,6 +58,8 @@ export function StudioDerivedPaneCanvas({
   workspaceId,
   underlayPath = null,
   plane = 'axial',
+  shareMemberScale = false,
+  sharedDisplay = null,
 }: {
   paneId: string;
   sourcePath: string;
@@ -63,6 +72,17 @@ export function StudioDerivedPaneCanvas({
   /** The Studio's workspace (captured by the lens, not the one in front). */
   workspaceId: string;
   plane?: StudioPanePlane;
+  /**
+   * The pane shares the current member's scale (the group mean, pane B): its
+   * map's robust window end is given to the member's default, so one window
+   * serves both.
+   */
+  shareMemberScale?: boolean;
+  /**
+   * The member's display, drawn here in place of the map's own while the
+   * scale is shared; null: the map's own.
+   */
+  sharedDisplay?: StudioMapWindow | null;
 }) {
   const active = useAppModeStore((state) => state.mode === 'studio');
   const inFront = useWorkspaceStore((state) => state.activeWorkspaceId === workspaceId);
@@ -194,9 +214,34 @@ export function StudioDerivedPaneCanvas({
     };
   }, [studioActive, borrowedAnatomy]);
 
+  // A map that shares the member's scale says how wide its own robust window
+  // is (the percentile rule, not its extreme voxel): the member's default is
+  // then at least that wide.
+  useEffect(() => {
+    if (!shareMemberScale || !map) return;
+    let alive = true;
+    const signed = STUDIO_SIGNED_PANES.has(paneId);
+    void fetchStudioRobustLimit(map.layerId, studioMapKind(map.dataRange, signed)).then((limit) => {
+      if (alive) getStudioDisplayService().setCompareMeanLimit(limit);
+    });
+    return () => {
+      alive = false;
+      getStudioDisplayService().setCompareMeanLimit(null);
+      forgetStudioHistogram(map.layerId);
+    };
+  }, [shareMemberScale, map, paneId]);
+
   const layer = useMemo(
-    () => (map ? studioDerivedDisplay(map, label, STUDIO_SIGNED_PANES.has(paneId)) : null),
-    [map, label, paneId],
+    () =>
+      map
+        ? studioDerivedDisplay(
+            map,
+            label,
+            STUDIO_SIGNED_PANES.has(paneId),
+            shareMemberScale ? sharedDisplay : null,
+          )
+        : null,
+    [map, label, paneId, shareMemberScale, sharedDisplay],
   );
   const layers = useMemo(
     () => (layer ? (anatomy ? [studioAnatomyDisplay(anatomy), layer] : [layer]) : []),
@@ -371,6 +416,7 @@ export function StudioDerivedPaneCanvas({
           colormap={layer.colormap}
           label={label}
           paneHeight={size.height}
+          format={formatStudioScaleValue}
         />
       ) : null}
     </div>

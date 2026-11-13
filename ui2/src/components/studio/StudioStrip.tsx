@@ -16,6 +16,13 @@ interface StudioStripProps {
   onClearScope?: () => void;
   onClearSearch?: () => void;
   onRemoveFilter?: (filter: StudioDesignFilter) => void;
+  /**
+   * Show the member cards (default). The Population lens passes false: its
+   * montage and Summary already show every member and are the navigation, so
+   * the strip keeps only its context (scope, filters, issues) and is absent
+   * when there is none.
+   */
+  showMembers?: boolean;
 }
 
 export function StudioStrip({
@@ -32,6 +39,7 @@ export function StudioStrip({
   onClearScope,
   onClearSearch,
   onRemoveFilter,
+  showMembers = true,
 }: StudioStripProps) {
   const hasChips =
     Boolean(scopeLabel) ||
@@ -52,6 +60,9 @@ export function StudioStrip({
     activeId: activeMemberId,
     orientation: 'horizontal',
   });
+
+  const hiddenFocus = !!activeMemberId && !memberIds.includes(activeMemberId);
+  if (!showMembers && !hasChips && !contextIssue && !hiddenFocus) return null;
 
   return (
     <section
@@ -107,12 +118,13 @@ export function StudioStrip({
         <Notice role="alert" severity="danger">
           {contextIssue}
         </Notice>
-      ) : activeMemberId && !memberIds.includes(activeMemberId) ? (
+      ) : hiddenFocus ? (
         <Notice severity="info">
           Focus: <span className="font-mono">{activeMemberId}</span> · hidden by list filters
         </Notice>
       ) : null}
 
+      {showMembers ? (
       <div
         role="listbox"
         aria-label="Members"
@@ -139,6 +151,7 @@ export function StudioStrip({
           </div>
         ) : null}
       </div>
+      ) : null}
     </section>
   );
 }

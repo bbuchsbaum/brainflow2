@@ -71,6 +71,13 @@ interface ViewportColorbarProps {
    * middle-truncates and the footer wraps to fit; the bar group is the floor.
    */
   maxWidth?: number | null;
+  /** Below this pane size the full block is never placed over the image. */
+  compactOnImageBelow?: number;
+  /**
+   * Never over the image: with no free margin nothing is drawn here, and the
+   * pane shows `ViewportColorbarStrip` under its canvas instead.
+   */
+  offImage?: boolean;
 }
 
 const EDGE = 8; // px from the canvas-area edges
@@ -124,6 +131,8 @@ export function ViewportColorbar({
   tag = null,
   corner = null,
   maxWidth = null,
+  compactOnImageBelow = 0,
+  offImage = false,
 }: ViewportColorbarProps) {
   const {
     cmap,
@@ -182,6 +191,8 @@ export function ViewportColorbar({
       topLetterInset,
       sideLetterY,
       paneChrome,
+      compactOnImageBelow,
+      offImage,
       previousSlot: previousSlot.current,
       previousCompact: previousCompact.current,
     };
@@ -211,7 +222,8 @@ export function ViewportColorbar({
     if (!hold) settled.current = placedSlot ? { slot: placedSlot, barH: placedBarH, compact: placedCompact } : null;
   }, [placedSlot, placedCompact, placedBarH, hold]);
 
-  if (!cmap || !layout) return null;
+  // `below`: the pane draws the strip under its canvas (ViewportColorbarStrip).
+  if (!cmap || !layout || layout.slot === 'below') return null;
   const { barH, compact } = layout;
   const { ticks, labelW, valueW, lines, boxW } = measure(barH, compact);
   const groupH = capTopH + barH + capBottomH;

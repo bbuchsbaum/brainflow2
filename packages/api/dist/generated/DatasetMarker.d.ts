@@ -1,0 +1,26 @@
+import type { DatasetMarkerSummary } from "./DatasetMarkerSummary";
+/**
+ * What `probe_dataset_markers` knows about one folder row.
+ */
+export type DatasetMarker = {
+    /**
+     * The path as it was asked for.
+     */
+    path: string;
+    hasDescription: boolean;
+    /**
+     * Child folders that look like analyses, in this folder or in its
+     * `derivatives/` child. `None` when there are none.
+     */
+    analysisCount: number | null;
+    /**
+     * More children exist than the probe looks at, so the count is a floor.
+     */
+    analysisCountTruncated: boolean;
+    summary: DatasetMarkerSummary | null;
+    /**
+     * Why this folder could not be read, or what is wrong with its
+     * description. The other fields hold whatever was still learned.
+     */
+    issue: string | null;
+};

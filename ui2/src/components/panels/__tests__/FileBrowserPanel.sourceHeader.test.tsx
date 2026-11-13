@@ -109,4 +109,49 @@ describe('FileBrowserPanel SourceHeader', () => {
 
     expect(screen.queryByRole('region', { name: 'Mounted source' })).toBeNull();
   });
+
+  it('marks a remote mount whose session dropped as disconnected, with Reconnect', async () => {
+    const { markRemoteMountDown, resetRemoteConnectionStore, setRemoteMountReconnecting } =
+      await import('@/stores/remoteConnectionStore');
+    const { act } = await import('@testing-library/react');
+    resetRemoteConnectionStore();
+    const root = '/tmp/brainflow/mounts/mount-remote-1';
+    resetStore([
+      makeRootNode(root, 'study-remote', {
+        kind: 'remote',
+        mountId: 'mount-remote-1',
+        host: 'login.example.org',
+        user: 'alice',
+        remotePath: '/data/study',
+      }),
+    ]);
+    useFileBrowserStore.setState({ recents: [], pinned: [], errorPath: null });
+
+    render(<FileBrowserPanel />);
+    expect(screen.queryByTestId('fb-source-disconnected')).toBeNull();
+    expect(screen.queryByTestId('fb-source-reconnect')).toBeNull();
+
+    act(() => markRemoteMountDown(root));
+    expect(screen.getByTestId('fb-source-disconnected')).toHaveTextContent('Disconnected');
+    expect(screen.getByTestId('fb-source-reconnect')).toHaveTextContent('Reconnect');
+
+    // A listing that failed for this reason says so and offers the same action.
+    act(() =>
+      useFileBrowserStore.setState({
+        error: 'SSH error: SSH session disconnected',
+        errorPath: `${root}/sub-04`,
+      }),
+    );
+    expect(screen.getByText('The connection to login.example.org was lost')).toBeInTheDocument();
+    expect(screen.queryByText('SSH error: SSH session disconnected')).toBeNull();
+    expect(screen.getByTestId('fb-error-reconnect')).toHaveTextContent('Reconnect');
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+
+    act(() => setRemoteMountReconnecting(root, true));
+    expect(screen.getByTestId('fb-source-disconnected')).toHaveTextContent('Reconnecting');
+    expect(screen.queryByTestId('fb-source-reconnect')).toBeNull();
+    expect(screen.getByTestId('fb-error-reconnect')).toBeDisabled();
+    act(() => resetRemoteConnectionStore());
+    useFileBrowserStore.setState({ error: null, errorPath: null });
+  });
 });

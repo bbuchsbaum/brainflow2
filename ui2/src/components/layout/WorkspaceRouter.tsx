@@ -25,6 +25,7 @@ import { OrthogonalViewContainer } from "@/components/views/OrthogonalViewContai
 import { OrthogonalPanelsWorkspace } from "@/components/views/OrthogonalPanelsWorkspace";
 import { MosaicViewPromise } from "@/components/views/MosaicViewPromise";
 import { SetStudioWorkspace } from "@/components/studio/SetStudioWorkspace";
+import { POPULATION_VALUES_TAB, SET_STUDIO_DOCK_TABS } from "@/components/studio/populationDock";
 import { ComparisonWorkspace } from "@/components/views/ComparisonWorkspace";
 import { BidsExplorerWorkspace } from "@/components/bids/BidsExplorerWorkspace";
 import { BidsRunsDock } from "@/components/bids/BidsRunsDock";
@@ -151,7 +152,11 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
     // › Plot Panel work there too (NeuroTabs workspace shape: bottom Plot dock).
     case "set-studio":
       return (
-        <CenterWithBottomDock heightKey="set-studio">
+        <CenterWithBottomDock
+          heightKey="set-studio"
+          extraTabs={SET_STUDIO_DOCK_TABS}
+          initialTab={POPULATION_VALUES_TAB}
+        >
           <SetStudioWorkspace />
         </CenterWithBottomDock>
       );

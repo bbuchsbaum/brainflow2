@@ -5,6 +5,7 @@ import { PopulationUnitControls } from '@/components/studio/PopulationUnitContro
 import { setTransport } from '@/services/transport';
 import { PopulationInspector } from '@/components/studio/PopulationInspector';
 import { StudioToolbar } from '@/components/studio/StudioToolbar';
+import { PopulationOpenControls } from '@/components/studio/PopulationOpenControls';
 import { StudioLensSwitcher } from '@/components/studio/StudioLensSwitcher';
 import { DesignPane } from '@/components/studio/DesignPane';
 import { useStudioDerivedState } from '@/hooks/useStudioDerivedState';
@@ -369,7 +370,17 @@ const slices = new PopulationSliceService(
                 ? Math.sqrt(
                     values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1),
                   )
-                : mean;
+                : request.summary === 'oneSampleT'
+                  ? mean /
+                    Math.sqrt(
+                      values.reduce((sum, v) => sum + (v - mean) ** 2, 0) /
+                        (values.length - 1) /
+                        values.length,
+                    )
+                  : request.summary === 'positiveFraction'
+                    ? values.filter((v) => v > 0).length /
+                      values.filter((v) => v !== 0).length
+                    : mean;
       const spec = request.inference;
       const se =
         values.length > 1
@@ -448,7 +459,10 @@ const slices = new PopulationSliceService(
         cutouts:
           request.cutouts && !request.focusOnly
             ? (() => {
-                const { centerMm, widthMm, dimPx, memberIds } = request.cutouts;
+                const { centerMm, widthMm, memberIds } = request.cutouts;
+                // As the native sampler: 0 asks for the image's own resolution
+                // (this synthetic field's is 40 samples an edge).
+                const dimPx = request.cutouts.dimPx || 40;
                 const spacing = (request.cutouts.wholePlane ? 64 : widthMm) / dimPx;
                 const origin: [number, number, number] = [
                   centerMm[0] - (spacing * (dimPx - 1)) / 2,
@@ -524,6 +538,8 @@ function Harness() {
       <StudioToolbar
         setName={active?.name ?? 'Population'}
         dataStateLabel={active?.savedPopulation ? 'Saved calculation' : 'Synthetic fixture'}
+        // No lens row here to hold the Studio's one menu: the header keeps it.
+        menu={<PopulationOpenControls />}
       />
       <div className="grid min-w-0 grid-cols-1 gap-3 pt-3 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="min-w-0 space-y-3">

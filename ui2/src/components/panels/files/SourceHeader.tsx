@@ -1,7 +1,9 @@
 import React from 'react';
 import { VscFolder, VscRemote } from 'react-icons/vsc';
 import type { FileTreeNode, MountSource } from '@/types/filesystem';
-import { Chip } from '@/components/ui/bf';
+import { Chip, StatusPill } from '@/components/ui/bf';
+import { RemoteReconnectButton } from '@/components/ui/RemoteReconnectButton';
+import { useRemoteReconnect } from '@/hooks/useRemoteReconnect';
 import './SourceHeader.css';
 
 interface SourceHeaderProps {
@@ -35,6 +37,11 @@ function buildBreadcrumbs(rootPath: string, selectedPath: string | null): string
 }
 
 export const SourceHeader: React.FC<SourceHeaderProps> = ({ rootNode, selectedPath }) => {
+  // Known only after something failed on the mount: the backend sends no
+  // "session dropped" event.
+  const connection = useRemoteReconnect(
+    rootNode?.mountSource?.kind === 'remote' ? rootNode.path : null,
+  );
   if (!rootNode) return null;
 
   const isRemote = rootNode.mountSource?.kind === 'remote';
@@ -58,6 +65,24 @@ export const SourceHeader: React.FC<SourceHeaderProps> = ({ rootNode, selectedPa
           <Chip className={`fb-source-kind fb-source-kind--${isRemote ? 'remote' : 'local'}`}>
             {isRemote ? 'SSH' : 'Local'}
           </Chip>
+          {isRemote && (connection.down || connection.reconnecting) ? (
+            <>
+              <StatusPill
+                status={connection.reconnecting ? 'running' : 'warning'}
+                data-testid="fb-source-disconnected"
+              >
+                {connection.reconnecting ? 'Reconnecting' : 'Disconnected'}
+              </StatusPill>
+              {connection.reconnecting ? null : (
+                <RemoteReconnectButton
+                  path={rootNode.path}
+                  variant="link"
+                  className="min-h-6 shrink-0"
+                  testId="fb-source-reconnect"
+                />
+              )}
+            </>
+          ) : null}
         </div>
         {(remoteRoot || crumbs.length > 0) && (
           <div className="fb-source-breadcrumb" aria-label="Path">

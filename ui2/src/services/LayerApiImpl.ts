@@ -252,7 +252,7 @@ export class LayerApiImpl implements LayerApi {
     const dataRange = layerMetadata?.dataRange;
     const defaultMin = dataRange?.min ?? 0;
     const defaultMax = dataRange?.max ?? 100;
-    const mode = layerRenderMode(layer, layerMetadata?.source === 'atlas');
+    const mode = layerRenderMode(layer, layerMetadata?.source === 'atlas', layerMetadata?.isBinaryLike);
     const isLabelLike = mode === 'label';
     const metadataRenderProps = (layerMetadata as any)?.renderProps as LayerRender | undefined;
     const intensity: [number, number] = metadataRenderProps?.intensity ?? [defaultMin, defaultMax];
@@ -451,7 +451,7 @@ export class LayerApiImpl implements LayerApi {
               : useLayerStore.getState().getLayerMetadata(id),
         );
       }
-      const mode = layerRenderMode(newLayer);
+      const mode = layerRenderMode(newLayer, false, gpuInfo.is_binary_like);
       const isLabelLike = mode === 'label';
       const dataRange = gpuInfo.data_range ?? { min: 0, max: 100 };
       rangeOptions = {
@@ -809,10 +809,11 @@ export class LayerApiImpl implements LayerApi {
 
   /** What a refinement leaves as it is: the user's opacity, the layer's sampling and mode. */
   private refinedRender(layer: Layer): LayerRender {
-    const mode = layerRenderMode(layer);
+    const metadata = useLayerStore.getState().getLayerMetadata(layer.id);
+    const mode = layerRenderMode(layer, false, metadata?.isBinaryLike);
     const isLabelLike = mode === 'label';
     return {
-      opacity: useLayerStore.getState().getLayerMetadata(layer.id)?.renderProps?.opacity ?? 1.0,
+      opacity: metadata?.renderProps?.opacity ?? 1.0,
       intensity: [0, 0],
       threshold: [0, 0],
       colormap: 'gray',

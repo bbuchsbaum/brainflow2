@@ -1,5 +1,6 @@
 //! Bounded exact spatial relationship fit. Owns temporary arrays, not GPU layers.
 use super::*;
+use futures::StreamExt;
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 #[path = "relationship_math.rs"]
@@ -28,6 +29,12 @@ pub struct Request {
     /// which reports unusable members as unassigned instead of refusing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub eligibility: Option<Eligibility>,
+    /// Absent: v1/v2 (average-linkage merges, no grouping summary). Present:
+    /// v3, merges under `grouping.linkage` (Ward by default) plus silhouette-
+    /// scored cuts. Absent fields serialize exactly as before, so v1/v2 fit
+    /// ids are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grouping: Option<Grouping>,
     pub members: Vec<SetMemberRef>,
     pub mask: Option<crate::population_mask::MaskSource>,
     pub region: Option<Region>,
@@ -40,8 +47,17 @@ pub struct Eligibility {
     /// `tau x median` (median over members with any finite value) are unassigned.
     pub low_coverage_tau: f64,
 }
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Grouping {
+    #[serde(default)]
+    pub linkage: math::Linkage,
+}
 const LABEL_V1: &str = "classical-mds-common-support-v1";
 const LABEL_V2: &str = "classical-mds-common-support-v2";
+/// Any request with `grouping`, with or without eligibility: the request
+/// (hashed with the label) records which eligibility rule and linkage apply.
+const LABEL_V3: &str = "classical-mds-common-support-grouping-v3";
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum UnassignedReason {
@@ -283,16 +299,19 @@ pub async fn evaluate(
             "The requested spatial support contains fewer than two voxels.",
         ));
     }
-    let mut rows = Vec::with_capacity(n);
-    let mut finite_counts = Vec::new();
-    for (member, path) in request.members.iter_mut().zip(paths) {
-        let m = member.clone();
+    // Members are read with the cache's bounded decode pool. `buffered` yields
+    // results in request order, so rows, refusals and revisions are assigned
+    // exactly as the serial loop assigned them.
+    let reads_started = std::time::Instant::now();
+    let extraction_us = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let reads = request.members.clone().into_iter().zip(paths).map(|(m, path)| {
         let indices = candidate.clone();
         let dims = dimensions.clone();
         let support_mask = mask.clone();
         let check = token.clone();
         let held = permit.clone();
-        let (row, revision) = state
+        let extraction_us = Arc::clone(&extraction_us);
+        state
             .set_sample_cache
             .with_volume_cancelable(path, token.clone(), move |volume, revision| {
                 let _held = held;
@@ -315,22 +334,23 @@ pub async fn evaluate(
                 if selected >= frames || (frames > 1 && m.stack_index.is_none()) {
                     return Err(input(format!("{} needs an explicit valid frame.", m.member_id)));
                 }
-                let mut row = Vec::with_capacity(indices.len());
-                for (k, &index) in indices.iter().enumerate() {
-                    if k % 4096 == 0 {
-                        check.check()?;
-                    }
-                    row.push(crate::read_member_frame_at_voxel(
-                        volume,
-                        index % dims[0],
-                        index / dims[0] % dims[1],
-                        index / (dims[0] * dims[1]),
-                        selected,
-                    ).unwrap_or(f32::NAN));
-                }
+                let started = std::time::Instant::now();
+                let row = gather_row(volume, &indices, &dims, selected, &check)?;
+                extraction_us.fetch_add(
+                    started.elapsed().as_micros() as u64,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
                 Ok((row, revision.clone()))
             })
-            .await?;
+    });
+    let mut reads = futures::stream::iter(reads).buffered(state.set_sample_cache.decoders().max(1));
+    let mut rows = Vec::with_capacity(n);
+    let mut finite_counts = Vec::new();
+    for member in request.members.iter_mut() {
+        let (row, revision) = reads
+            .next()
+            .await
+            .ok_or_else(|| input("Similarity member read ended early."))??;
         let finite = row.iter().filter(|v| v.is_finite()).count();
         if finite == 0 && strict {
             return Err(input(format!("{} has no finite values on the requested support; change the context or support explicitly.",member.member_id)));
@@ -339,6 +359,15 @@ pub async fn evaluate(
         finite_counts.push(finite);
         rows.push(row);
     }
+    drop(reads);
+    log::info!(
+        "[perf] similarity member reads: {} members x {} voxels, {} ms wall (row extraction {} ms summed over members, {} decoders)",
+        n,
+        candidate.len(),
+        reads_started.elapsed().as_millis(),
+        extraction_us.load(std::sync::atomic::Ordering::Relaxed) / 1000,
+        state.set_sample_cache.decoders(),
+    );
     if let (Some(source), Some(mask)) = (&mut request.mask, &mask) {
         source.expected_sha256 = Some(mask.revision.sha256.clone());
     }
@@ -353,11 +382,13 @@ pub async fn evaluate(
     let candidates = candidate.clone();
     let explanation_request = request.explanation.clone();
     let eligibility = request.eligibility.clone();
+    let linkage = request.grouping.as_ref().map(|g| g.linkage);
     let counts = finite_counts.clone();
     let (geometry, common_voxels, support_sha256, explanation, fitted_member_ids, unassigned) =
         tokio::task::spawn_blocking(move || {
             let _held = held;
             let mut rows = rows;
+            let selection_started = std::time::Instant::now();
             let selection = select_members(
                 &rows,
                 &candidates,
@@ -382,7 +413,13 @@ pub async fn evaluate(
                 .collect();
             drop(rows);
             let common = selection.common;
-            let geometry = math::fit(&fitted_rows, &common, &distance, &check)?;
+            log::info!(
+                "[perf] similarity support selection: {} fitted, {} common voxels, {} ms",
+                fitted_rows.len(),
+                common.len(),
+                selection_started.elapsed().as_millis()
+            );
+            let geometry = math::fit_with(&fitted_rows, &common, &distance, linkage, &check)?;
             let explanation = match (explanation_request, explanation_plan) {
                 (Some(request), Some(plan)) => {
                     let (values, total, label) = math::explain(
@@ -454,6 +491,130 @@ pub async fn evaluate(
         geometry,
     })
 }
+/// One member's values at `indices` (x-fastest linear voxel indices on `dims`)
+/// for frame `frame`, with one type dispatch per member instead of per voxel.
+/// Values and missing-sample NaNs are exactly those of
+/// `crate::read_member_frame_at_voxel` at each index.
+fn gather_row(
+    volume: &VolumeSendable,
+    indices: &[usize],
+    dims: &[usize],
+    frame: usize,
+    check: &SampleCancellation,
+) -> BridgeResult<Vec<f32>> {
+    fn from_slice<T: Copy>(
+        values: &[T],
+        indices: &[usize],
+        check: &SampleCancellation,
+        cast: impl Fn(T) -> f32,
+    ) -> BridgeResult<Vec<f32>> {
+        let mut row = Vec::with_capacity(indices.len());
+        for chunk in indices.chunks(4096) {
+            check.check()?;
+            row.extend(
+                chunk
+                    .iter()
+                    .map(|&i| values.get(i).map_or(f32::NAN, |&v| cast(v))),
+            );
+        }
+        Ok(row)
+    }
+    fn from_frame<T: Copy>(
+        data: &ndarray::Array4<T>,
+        indices: &[usize],
+        dims: &[usize],
+        frame: usize,
+        check: &SampleCancellation,
+        cast: impl Fn(T) -> f32 + Copy,
+    ) -> BridgeResult<Vec<f32>> {
+        if frame >= data.shape()[3] {
+            return Ok(vec![f32::NAN; indices.len()]);
+        }
+        let view = data.index_axis(ndarray::Axis(3), frame);
+        // An x-fastest (Fortran-order) frame is one contiguous slice.
+        if view.shape() == dims {
+            if let Some(values) = view.t().to_slice() {
+                return from_slice(values, indices, check, cast);
+            }
+        }
+        let mut row = Vec::with_capacity(indices.len());
+        for chunk in indices.chunks(4096) {
+            check.check()?;
+            row.extend(chunk.iter().map(|&i| {
+                view.get([i % dims[0], i / dims[0] % dims[1], i / (dims[0] * dims[1])])
+                    .map_or(f32::NAN, |&v| cast(v))
+            }));
+        }
+        Ok(row)
+    }
+    macro_rules! dense {
+        ($vol:expr) => {{
+            if frame != 0 || $vol.space().dim.as_slice() != dims {
+                return gather_row_fallback(volume, indices, dims, frame, check);
+            }
+            let values = $vol.values_contiguous();
+            from_slice(&values, indices, check, |v| v as f32)
+        }};
+    }
+    match volume {
+        VolumeSendable::VolF32(vol, _) => dense!(vol),
+        VolumeSendable::VolF64(vol, _) => dense!(vol),
+        VolumeSendable::VolI16(vol, _) => dense!(vol),
+        VolumeSendable::VolI32(vol, _) => dense!(vol),
+        VolumeSendable::VolU8(vol, _) => dense!(vol),
+        VolumeSendable::VolI8(vol, _) => dense!(vol),
+        VolumeSendable::VolU16(vol, _) => dense!(vol),
+        VolumeSendable::VolU32(vol, _) => dense!(vol),
+        VolumeSendable::Vec4DF32(v) => from_frame(&v.data, indices, dims, frame, check, |v| v),
+        VolumeSendable::Vec4DF64(v) => {
+            from_frame(&v.data, indices, dims, frame, check, |v| v as f32)
+        }
+        VolumeSendable::Vec4DI16(v) => {
+            from_frame(&v.data, indices, dims, frame, check, |v| v as f32)
+        }
+        VolumeSendable::Vec4DU16(v) => {
+            from_frame(&v.data, indices, dims, frame, check, |v| v as f32)
+        }
+        VolumeSendable::Vec4DI32(v) => {
+            from_frame(&v.data, indices, dims, frame, check, |v| v as f32)
+        }
+        VolumeSendable::Vec4DU32(v) => {
+            from_frame(&v.data, indices, dims, frame, check, |v| v as f32)
+        }
+        VolumeSendable::Vec4DI8(v) => {
+            from_frame(&v.data, indices, dims, frame, check, |v| v as f32)
+        }
+        VolumeSendable::Vec4DU8(v) => {
+            from_frame(&v.data, indices, dims, frame, check, |v| v as f32)
+        }
+    }
+}
+/// The per-voxel reader, for layouts the typed paths do not cover.
+fn gather_row_fallback(
+    volume: &VolumeSendable,
+    indices: &[usize],
+    dims: &[usize],
+    frame: usize,
+    check: &SampleCancellation,
+) -> BridgeResult<Vec<f32>> {
+    let mut row = Vec::with_capacity(indices.len());
+    for (k, &index) in indices.iter().enumerate() {
+        if k % 4096 == 0 {
+            check.check()?;
+        }
+        row.push(
+            crate::read_member_frame_at_voxel(
+                volume,
+                index % dims[0],
+                index / dims[0] % dims[1],
+                index / (dims[0] * dims[1]),
+                frame,
+            )
+            .unwrap_or(f32::NAN),
+        );
+    }
+    Ok(row)
+}
 /// Fit identity: SHA-256 of the definition label, the request without its
 /// explanation, the grid and the support hash. v1 requests (no eligibility)
 /// serialize exactly as before eligibility existed, so v1 fit ids are unchanged.
@@ -465,7 +626,9 @@ fn fit_identity(
 ) -> BridgeResult<String> {
     let mut identity_request = request.clone();
     identity_request.explanation = None;
-    let label = if request.eligibility.is_none() {
+    let label = if request.grouping.is_some() {
+        LABEL_V3
+    } else if request.eligibility.is_none() {
         LABEL_V1
     } else {
         LABEL_V2
@@ -489,13 +652,24 @@ fn common_support(
     candidates: &[usize],
     check: &SampleCancellation,
 ) -> BridgeResult<(Vec<usize>, String)> {
+    // Row-major finiteness pass (one contiguous row at a time), then the same
+    // ordered support and hash as testing every member at each candidate.
+    let mut finite = vec![true; candidates.len()];
+    for &i in members {
+        for (k, (keep, value)) in finite.iter_mut().zip(&rows[i]).enumerate() {
+            if k % 65536 == 0 {
+                check.check()?;
+            }
+            *keep &= value.is_finite();
+        }
+    }
     let mut common = Vec::new();
     let mut hash = Sha256::new();
     for (j, &index) in candidates.iter().enumerate() {
         if j % 4096 == 0 {
             check.check()?;
         }
-        if members.iter().all(|&i| rows[i][j].is_finite()) {
+        if finite[j] {
             common.push(j);
             hash.update((index as u64).to_le_bytes());
         }
@@ -667,6 +841,7 @@ mod tests {
         Request {
             explanation: None,
             eligibility: None,
+            grouping: None,
             members: sources
                 .iter()
                 .enumerate()
@@ -1297,3 +1472,225 @@ mod tests {
         assert_eq!(none.geometry.distances, v1.geometry.distances);
     }
 }
+
+#[cfg(test)]
+mod parallel_read_and_grouping_tests {
+    use super::*;
+    use crate::set_sample_cache::TestSource;
+    fn sources(count: usize) -> Vec<TestSource> {
+        (0..count)
+            .map(|s| {
+                let values: Vec<f32> = (0..27)
+                    .map(|v| ((s * 13 + v * 7 + (v * v) % 5 * s) % 17) as f32 * 0.5 - 3.)
+                    .collect();
+                TestSource::new(&[3, 3, 3], &values)
+            })
+            .collect()
+    }
+    fn request(sources: &[TestSource], grouping: Option<Grouping>) -> Request {
+        Request {
+            explanation: None,
+            eligibility: None,
+            grouping,
+            members: sources
+                .iter()
+                .enumerate()
+                .map(|(i, s)| SetMemberRef {
+                    member_id: format!("S{i}"),
+                    display_label: None,
+                    design_values: Default::default(),
+                    source_path: s.path.to_string_lossy().into(),
+                    stack_index: None,
+                    expected_sha256: None,
+                })
+                .collect(),
+            mask: None,
+            region: None,
+            distance: Distance::PatternShape,
+        }
+    }
+    #[test]
+    fn typed_rows_equal_the_per_voxel_reader() {
+        let check = SampleCancellation::default();
+        let three = TestSource::new(
+            &[3, 4, 2],
+            &(0..24).map(|v| v as f32 * 1.5 - 7.).collect::<Vec<_>>(),
+        );
+        let four = TestSource::new(
+            &[3, 4, 2, 3],
+            &(0..72).map(|v| (v as f32).sin() * 9.).collect::<Vec<_>>(),
+        );
+        let dims = [3usize, 4, 2];
+        let indices: Vec<usize> = vec![0, 5, 23, 7, 7, 12, 1];
+        for (source, frames) in [(&three, 1), (&four, 3)] {
+            let volume = nifti_loader::load_nifti_auto_dimension(&source.path).unwrap();
+            for frame in 0..frames {
+                let row = gather_row(&volume, &indices, &dims, frame, &check).unwrap();
+                let reference =
+                    gather_row_fallback(&volume, &indices, &dims, frame, &check).unwrap();
+                assert_eq!(
+                    row.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                    reference.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                    "frame {frame}"
+                );
+            }
+        }
+    }
+    /// Parallel cached reads + typed rows reproduce a serial per-voxel fit
+    /// exactly, and repeated fits are identical (deterministic fit ids).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn parallel_fit_equals_serial_reference_and_is_deterministic() {
+        let sources = sources(9);
+        let state = BridgeState::default().unwrap();
+        let first = evaluate(
+            request(&sources, None),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        state.set_sample_cache.clear().await.unwrap();
+        let second = evaluate(
+            request(&sources, None),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(first.fit_id, second.fit_id);
+        let rows: Vec<Vec<f32>> = sources
+            .iter()
+            .map(|s| {
+                let volume = nifti_loader::load_nifti_auto_dimension(&s.path).unwrap();
+                (0..27)
+                    .map(|i| {
+                        crate::read_member_frame_at_voxel(&volume, i % 3, i / 3 % 3, i / 9, 0)
+                            .unwrap_or(f32::NAN)
+                    })
+                    .collect()
+            })
+            .collect();
+        let support: Vec<usize> = (0..27).collect();
+        let reference = math::fit(
+            &rows,
+            &support,
+            &Distance::PatternShape,
+            &SampleCancellation::default(),
+        )
+        .unwrap();
+        for g in [&first.geometry, &second.geometry] {
+            for (a, b) in g
+                .distances
+                .iter()
+                .flatten()
+                .zip(reference.distances.iter().flatten())
+            {
+                assert!((a - b).abs() <= 1e-9 * b.abs().max(1e-300), "{a} vs {b}");
+            }
+            for (a, b) in g.coordinates.iter().zip(&reference.coordinates) {
+                assert!((a[0] - b[0]).abs() <= 1e-9 * b[0].abs().max(1.));
+                assert!((a[1] - b[1]).abs() <= 1e-9 * b[1].abs().max(1.));
+            }
+            assert_eq!(
+                g.merges
+                    .iter()
+                    .map(|m| (m.left, m.right, m.count))
+                    .collect::<Vec<_>>(),
+                reference
+                    .merges
+                    .iter()
+                    .map(|m| (m.left, m.right, m.count))
+                    .collect::<Vec<_>>()
+            );
+            assert!(g.grouping.is_none());
+        }
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn grouping_fit_has_its_own_identity_and_summary() {
+        let sources = sources(6);
+        let state = BridgeState::default().unwrap();
+        let v1 = evaluate(
+            request(&sources, None),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let v3 = evaluate(
+            request(
+                &sources,
+                Some(Grouping {
+                    linkage: math::Linkage::Ward,
+                }),
+            ),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        assert_ne!(v1.fit_id, v3.fit_id);
+        assert_eq!(v1.geometry.distances, v3.geometry.distances);
+        let mut identity = v3.request.clone();
+        identity.explanation = None;
+        let affine = v3.affine;
+        let expected = format!(
+            "{:x}",
+            Sha256::digest(
+                serde_json::to_vec(&(
+                    "classical-mds-common-support-grouping-v3",
+                    &identity,
+                    &v3.dimensions,
+                    affine,
+                    &v3.support_sha256
+                ))
+                .unwrap()
+            )
+        );
+        assert_eq!(v3.fit_id, expected);
+        let summary = v3.geometry.grouping.as_ref().unwrap();
+        assert_eq!(summary.linkage, math::Linkage::Ward);
+        assert_eq!(summary.cuts.len(), 4); // 2..=5
+                                           // Ward is the default linkage; average stays available.
+        let wire: Request = serde_json::from_value(serde_json::json!({
+            "grouping": {},
+            "members": [],
+            "mask": null,
+            "region": null,
+            "distance": "effect"
+        }))
+        .unwrap();
+        assert_eq!(wire.grouping.unwrap().linkage, math::Linkage::Ward);
+        let average = evaluate(
+            request(
+                &sources,
+                Some(Grouping {
+                    linkage: math::Linkage::Average,
+                }),
+            ),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            average
+                .geometry
+                .merges
+                .iter()
+                .map(|m| (m.left, m.right, m.count))
+                .collect::<Vec<_>>(),
+            v1.geometry
+                .merges
+                .iter()
+                .map(|m| (m.left, m.right, m.count))
+                .collect::<Vec<_>>()
+        );
+        assert_ne!(average.fit_id, v3.fit_id);
+        // v1 results carry no grouping field on the wire.
+        assert!(!serde_json::to_string(&v1).unwrap().contains("\"grouping\""));
+    }
+}
+
+#[cfg(test)]
+#[path = "relationship_golden_tests.rs"]
+mod golden_tests;

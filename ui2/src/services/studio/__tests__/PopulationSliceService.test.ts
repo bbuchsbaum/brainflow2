@@ -13,10 +13,13 @@ import {
   POPULATION_POSITIVE,
   POPULATION_SEQUENTIAL,
   POPULATION_SEQUENTIAL_OPACITY,
+  POPULATION_SIGNED_ALPHA,
+  populationSummaryDrawnValues,
   populationRgba,
   populationUnderlayGrey,
   populationUnderlayWindow,
   populationUnderlaySource,
+  requestStudioPopulationScale,
   robustPopulationLimit,
   type PopulationSliceData,
   type PopulationSliceQuery,
@@ -35,6 +38,7 @@ function deferred<T>() {
 const query = (key = 'first', datasetKey = 'dataset'): PopulationSliceQuery => ({
   key,
   datasetKey,
+  setId: 'set-1',
   request: {
     contextKey: datasetKey,
     members: [
@@ -82,7 +86,19 @@ function setup() {
   const service = new PopulationSliceService({ evaluate, release, bitmap }, 0);
   return { service, evaluate, release, bitmap, bitmaps };
 }
-afterEach(() => vi.useRealTimers());
+import { useSetStudioStore } from '@/stores/setStudioStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
+import {
+  clearStudioPopulationScales,
+  setStudioPopulationScale,
+  studioPopulationScale,
+} from '../studioMapDisplay';
+
+afterEach(() => {
+  vi.useRealTimers();
+  // Every draw registers its set's limit: one test's must not reach the next.
+  clearStudioPopulationScales();
+});
 
 describe('PopulationSliceService', () => {
   it('coalesces superseded queries and independently discards a late result', async () => {
@@ -188,8 +204,9 @@ describe('PopulationSliceService', () => {
 
 it('keeps measured zero opaque and missing values transparent with identical effect mapping', () => {
   const pixels = populationRgba([-5, 0, 5, null, NaN], 5, true);
+  // Dark-centred: a measured zero is the darkest stop, the limits the brightest.
   expect(Array.from(pixels.slice(0, 12))).toEqual([
-    45, 100, 210, 255, 240, 240, 240, 255, 205, 55, 55, 255,
+    ...POPULATION_NEGATIVE[2], 255, ...POPULATION_POSITIVE[0], 255, ...POPULATION_POSITIVE[2], 255,
   ]);
   expect(Array.from(pixels.slice(12))).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
 });
@@ -385,7 +402,8 @@ it('presents cached original focus without resampling or rebuilding the anchored
   await vi.runAllTimersAsync();
   // Expired windows require native freshness validation before reusing the summary.
   expect(evaluate).toHaveBeenCalledTimes(2);
-  expect(evaluate.mock.calls[1][0]).toMatchObject({ focusOnly: true });
+  // A reused plane keeps the shown anatomy: the read does not sample it again.
+  expect(evaluate.mock.calls[1][0]).toMatchObject({ focusOnly: true, underlay: null });
   expect(service.getSnapshot().error).toBeNull();
   service.stop();
   expect(bitmaps.every((image) => vi.mocked(image.close).mock.calls.length === 1)).toBe(true);
@@ -551,6 +569,187 @@ describe('population display window from the data', () => {
     expect(robustPopulationLimit([0, 0, null, NaN], true)).toBeNull();
   });
 
+  it('a signed limit is the 98th percentile of |v|: strong negatives count by their size', () => {
+    // 98 small positives and two strong negatives (2 %): the limit reaches
+    // them (only the very strongest saturates), where the signed 2nd/98th
+    // percentiles gave 0.01 and saturated both.
+    const values = [...Array(98).fill(0.01), -0.045, -0.04];
+    expect(robustPopulationLimit(values, true)).toBe(0.04);
+    // Nonnegative data: the 98th percentile of v.
+    expect(robustPopulationLimit([...Array(98).fill(1), 5, 9], false)).toBe(5);
+  });
+
+  it('fits the shared scale to every member on the plane (contextMagnitude), and publishes it for the Subject lens', async () => {
+    const { clearStudioPopulationScales, studioPopulationScale } = await import(
+      '../studioMapDisplay'
+    );
+    clearStudioPopulationScales();
+    const { service, evaluate } = setup();
+    // The mean is weak; the members reach far further.
+    evaluate.mockResolvedValue({ ...data(), summary: [0.004, null], contextMagnitude: 0.03 });
+    const q = query();
+    service.request(q);
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().displayed?.effectLimit).toBe(0.03);
+    // The mean shares it (one scale for the set's own maps).
+    expect(service.getSnapshot().displayed?.summaryLimit).toBe(0.03);
+    for (const member of q.request.members)
+      expect(studioPopulationScale(q.setId, member.sourcePath)).toBe(0.03);
+    // Keyed by set: the same file in another set has no population limit.
+    expect(studioPopulationScale('another-set', q.request.members[0].sourcePath)).toBeNull();
+    // A limit the user sets is kept, and is the one the Subject lens takes.
+    service.setEffectLimit(0.05);
+    await vi.runAllTimersAsync();
+    expect(studioPopulationScale(q.setId, q.request.members[0].sourcePath)).toBe(0.05);
+    service.stop();
+    clearStudioPopulationScales();
+  });
+
+  it('adopts a limit the set already has (measured for the Subject lens): one map, one scale', async () => {
+    const { service, evaluate } = setup();
+    evaluate.mockResolvedValue({ ...data(), summary: [0.004, null], contextMagnitude: 0.03 });
+    const q = query();
+    setStudioPopulationScale(q.setId!, q.request.members, 0.021);
+    service.request(q);
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().displayed?.effectLimit).toBe(0.021);
+    service.stop();
+  });
+
+  it('measures the active set\'s limit before Population draws, in a context of its own, and registers it', async () => {
+    useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
+    useSetStudioStore.getState().loadDemoSession();
+    const workspace = useViewStateStore.getState().activeWorkspaceKey;
+    const seen: Record<string, unknown>[] = [];
+    const deps = {
+      evaluate: vi.fn(async (request: unknown) => {
+        seen.push(request as Record<string, unknown>);
+        return { ...data(), contextMagnitude: 0.025 };
+      }),
+      release: vi.fn().mockResolvedValue(undefined),
+    };
+    const first = requestStudioPopulationScale(workspace, deps);
+    // A second ask while the first runs joins it.
+    const second = requestStudioPopulationScale(workspace, deps);
+    expect(await first).toBe(0.025);
+    expect(await second).toBe(0.025);
+    expect(deps.evaluate).toHaveBeenCalledTimes(1);
+    const request = seen[0] as { contextKey: string; groups?: unknown; cutouts?: unknown; members: { sourcePath: string }[] };
+    expect(request.contextKey).toMatch(/#scale$/);
+    expect(request.groups).toBeUndefined();
+    expect(request.cutouts).toBeNull();
+    expect(deps.release).toHaveBeenCalledWith(request.contextKey);
+    const setId = useSetStudioStore.getState().selection.activeSetId!;
+    expect(studioPopulationScale(setId, request.members[0].sourcePath)).toBe(0.025);
+    // Known now: no second evaluation.
+    expect(await requestStudioPopulationScale(workspace, deps)).toBe(0.025);
+    expect(deps.evaluate).toHaveBeenCalledTimes(1);
+  });
+
+  it('remembers a failed measurement for the set and dataset: later asks do not re-run it (until cleared)', async () => {
+    useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
+    useSetStudioStore.getState().loadDemoSession();
+    const workspace = useViewStateStore.getState().activeWorkspaceKey;
+    const deps = {
+      evaluate: vi.fn(async () => ({ ...data(), contextMagnitude: 0 })),
+      release: vi.fn().mockResolvedValue(undefined),
+    };
+    expect(await requestStudioPopulationScale(workspace, deps)).toBeNull();
+    // Paging the Deck asks again: answered at once, no second evaluation.
+    expect(await requestStudioPopulationScale(workspace, deps)).toBeNull();
+    expect(deps.evaluate).toHaveBeenCalledTimes(1);
+    // A thrown evaluation is remembered too (after the set's limits clear).
+    const setId = useSetStudioStore.getState().selection.activeSetId!;
+    clearStudioPopulationScales(setId);
+    deps.evaluate.mockRejectedValueOnce(new Error('native failure'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await requestStudioPopulationScale(workspace, deps)).toBeNull();
+    expect(await requestStudioPopulationScale(workspace, deps)).toBeNull();
+    expect(deps.evaluate).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+    // A session reset forgets the failure: the next ask measures again.
+    clearStudioPopulationScales();
+    deps.evaluate.mockResolvedValueOnce({ ...data(), contextMagnitude: 0.02 });
+    expect(await requestStudioPopulationScale(workspace, deps)).toBe(0.02);
+    expect(deps.evaluate).toHaveBeenCalledTimes(3);
+  });
+
+  it('aborts a measurement in flight when the limits are cleared, and registers nothing for a superseded session or removed set', async () => {
+    useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
+    useSetStudioStore.getState().loadDemoSession();
+    const workspace = useViewStateStore.getState().activeWorkspaceKey;
+    const setId = useSetStudioStore.getState().selection.activeSetId!;
+    const pending: { resolve: (value: PopulationSliceData) => void; signal: AbortSignal; members: { sourcePath: string }[] }[] = [];
+    const deps = {
+      evaluate: vi.fn(
+        (request: { members: { sourcePath: string }[] }, signal: AbortSignal) =>
+          new Promise<PopulationSliceData>((resolve) => pending.push({ resolve, signal, members: request.members })),
+      ),
+      release: vi.fn().mockResolvedValue(undefined),
+    };
+    // Cleared (a release, a session reset or this set removed): aborted.
+    const first = requestStudioPopulationScale(workspace, deps as never);
+    expect(pending[0].signal.aborted).toBe(false);
+    clearStudioPopulationScales(setId);
+    expect(pending[0].signal.aborted).toBe(true);
+    pending[0].resolve({ ...data(), contextMagnitude: 0.03 });
+    expect(await first).toBeNull();
+    expect(studioPopulationScale(setId, pending[0].members[0].sourcePath)).toBeNull();
+    // Not a failure: a fresh ask measures again.
+    const second = requestStudioPopulationScale(workspace, deps as never);
+    expect(deps.evaluate).toHaveBeenCalledTimes(2);
+    // The session moved on (its revision changed) before the result came back.
+    useSetStudioStore.setState((state) => ({
+      population: { ...state.population, sessionRevision: state.population.sessionRevision + 1 },
+    }));
+    pending[1].resolve({ ...data(), contextMagnitude: 0.03 });
+    expect(await second).toBeNull();
+    expect(studioPopulationScale(setId, pending[1].members[0].sourcePath)).toBeNull();
+    // The set was removed meanwhile.
+    const third = requestStudioPopulationScale(workspace, deps as never);
+    const rest = { ...useSetStudioStore.getState().sets };
+    delete rest[setId];
+    useSetStudioStore.setState({ sets: rest });
+    pending[2].resolve({ ...data(), contextMagnitude: 0.03 });
+    expect(await third).toBeNull();
+    expect(studioPopulationScale(setId, pending[2].members[0].sourcePath)).toBeNull();
+  });
+
+  it('a draw adopts a limit registered after its request began, instead of registering its own', async () => {
+    const { service, evaluate } = setup();
+    const first = deferred<PopulationSliceData>();
+    evaluate.mockReturnValueOnce(first.promise);
+    const q = query();
+    service.request(q);
+    await vi.advanceTimersByTimeAsync(0);
+    // The Subject lens's measurement (another plane size) lands meanwhile.
+    setStudioPopulationScale(q.setId!, q.request.members, 0.021);
+    first.resolve({ ...data(), summary: [0.004, null], contextMagnitude: 0.03 });
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().displayed?.effectLimit).toBe(0.021);
+    expect(studioPopulationScale(q.setId, q.request.members[0].sourcePath)).toBe(0.021);
+    service.stop();
+  });
+
+  it('Fit returns to the default scale (contextMagnitude), not the range extreme', async () => {
+    const { service, evaluate } = setup();
+    evaluate.mockResolvedValue({
+      ...data(),
+      contextRange: [-0.9, 0.8],
+      contextMagnitude: 0.03,
+    });
+    service.request(query());
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().displayed?.effectLimit).toBe(0.03);
+    service.setEffectLimit(0.5);
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().displayed?.effectLimit).toBe(0.5);
+    service.fitEffectScale();
+    await vi.runAllTimersAsync();
+    expect(service.getSnapshot().displayed?.effectLimit).toBe(0.03);
+    service.stop();
+  });
+
   it('windows a sparse mean around its in-head values instead of a fixed ±1', async () => {
     const { service, evaluate } = setup();
     const size = 400;
@@ -628,16 +827,35 @@ describe('population display over anatomy', () => {
     });
     expect(pixel(rgba, 0)).toEqual([100, 100, 100, 255]);
     expect(pixel(rgba, 1)).toEqual([100, 100, 100, 255]);
-    // Positive ends deep red, negative deep blue: both saturated, neither grey.
-    expect(pixel(rgba, 2)).toEqual([200, 25, 35, 255]);
-    expect(pixel(rgba, 3)).toEqual([35, 80, 200, 255]);
+    // At the limit: the brightest stop of each side (yellow, light cyan) at
+    // the top opacity over the anatomy grey.
+    const [, top] = POPULATION_SIGNED_ALPHA;
+    const over = (c: readonly number[]) => [
+      ...Uint8ClampedArray.from(c, (v) => 100 + top * (v - 100)),
+      255,
+    ];
+    expect(pixel(rgba, 2)).toEqual(over(POPULATION_POSITIVE[2]));
+    expect(pixel(rgba, 3)).toEqual(over(POPULATION_NEGATIVE[2]));
     // No anatomy there and nothing to show: transparent onto the dark pane.
     expect(pixel(rgba, 4)).toEqual([0, 0, 0, 0]);
   });
 
-  it('starts each ramp saturated at the hidden band', () => {
-    const low = populationOverlayRgba([0.1], 1, true, { band: 0.1 });
-    expect(pixel(low, 0)).toEqual([240, 150, 125, 255]);
+  it('starts the signed ramp dark and faint at the hidden band, brightening with |v|', () => {
+    const [bottom, top] = POPULATION_SIGNED_ALPHA;
+    const low = populationOverlayRgba([0.1, -0.1, 1], 1, true, { band: 0.1 });
+    expect(pixel(low, 0)).toEqual([...POPULATION_POSITIVE[0], Math.round(bottom * 255)]);
+    expect(pixel(low, 1)).toEqual([...POPULATION_NEGATIVE[0], Math.round(bottom * 255)]);
+    expect(pixel(low, 2)).toEqual([...POPULATION_POSITIVE[2], Math.round(top * 255)]);
+    // Luminance and opacity rise monotonically with |v| on both sides.
+    const luminance = (p: number[]) => 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+    for (const sign of [1, -1]) {
+      const values = Array.from({ length: 10 }, (_, i) => sign * (0.1 + (0.9 * i) / 9));
+      const rgba = populationOverlayRgba(values, 1, true, { band: 0.1 });
+      for (let i = 1; i < values.length; i++) {
+        expect(luminance(pixel(rgba, i))).toBeGreaterThanOrEqual(luminance(pixel(rgba, i - 1)) - 0.5);
+        expect(pixel(rgba, i)[3]).toBeGreaterThanOrEqual(pixel(rgba, i - 1)[3]);
+      }
+    }
     const sequential = populationOverlayRgba([0.1, 1, -1], 1, false, { band: 0.1 });
     expect(pixel(sequential, 0)).toEqual([110, 60, 10, 255]);
     expect(pixel(sequential, 1)).toEqual([255, 235, 150, 255]);
@@ -712,7 +930,7 @@ describe('population display over anatomy', () => {
       ...query().request,
       summary,
     });
-    for (const summary of ['mean', 'median'] as const)
+    for (const summary of ['mean', 'median', 'oneSampleT', 'positiveFraction'] as const)
       expect(populationDiverging(request(summary))).toBe(true);
     for (const summary of ['coverage', 'mad', 'sampleSd', 'meanAbsolute', 'cancellation'] as const)
       expect(populationDiverging(request(summary))).toBe(false);
@@ -733,17 +951,22 @@ describe('population display over anatomy', () => {
     const [summary, focused] = bitmap.mock.calls.map((call) => call[0] as Uint8ClampedArray);
     // Zero shows the (dark end of the) anatomy, not a white square.
     expect(pixel(summary, 0)).toEqual([0, 0, 0, 255]);
-    expect(pixel(summary, 1)).toEqual([200, 25, 35, 255]);
+    // The limit: the brightest stop at the top opacity over the anatomy grey (200).
+    const [, top] = POPULATION_SIGNED_ALPHA;
+    expect(pixel(summary, 1)).toEqual([
+      ...Uint8ClampedArray.from(POPULATION_POSITIVE[2], (c) => 200 + top * (c - 200)),
+      255,
+    ]);
     expect(pixel(focused, 1)).toEqual([200, 200, 200, 255]);
     service.stop();
   });
 
   it('keeps the signed and nonnegative ramps apart: no red in the gold ramp', () => {
     // QA F20: a mostly positive mean looked like SD/coverage when both ramps
-    // ran red to yellow. Signed maps are blue–white–red; gold has no red.
+    // ran red to yellow. Signed maps are dark-centred red/blue; gold has no red.
     for (const stop of POPULATION_SEQUENTIAL) expect(stop[1]).toBeGreaterThan(stop[2]);
     for (const stop of POPULATION_SEQUENTIAL) expect(stop[1] / stop[0]).toBeGreaterThan(0.5);
-    expect(POPULATION_POSITIVE[1][0]).toBeGreaterThan(4 * POPULATION_POSITIVE[1][1]);
+    expect(POPULATION_POSITIVE[1][0]).toBeGreaterThan(3 * POPULATION_POSITIVE[1][1]);
     expect(POPULATION_NEGATIVE[1][2]).toBeGreaterThan(2 * POPULATION_NEGATIVE[1][0]);
   });
 
@@ -783,10 +1006,14 @@ describe('population display over anatomy', () => {
       service.stop();
       return rgba;
     };
-    for (const summary of ['mean', 'median'] as const) {
+    // The anatomy here is black (one grey level), so the colour at the limit
+    // is the brightest stop at the top opacity.
+    const [, top] = POPULATION_SIGNED_ALPHA;
+    const over = (c: readonly number[]) => [...Uint8ClampedArray.from(c, (v) => top * v), 255];
+    for (const summary of ['mean', 'median', 'oneSampleT'] as const) {
       const rgba = await run(summary);
-      expect(pixel(rgba, 0)).toEqual([...POPULATION_NEGATIVE[1], 255]);
-      expect(pixel(rgba, 1)).toEqual([...POPULATION_POSITIVE[1], 255]);
+      expect(pixel(rgba, 0)).toEqual(over(POPULATION_NEGATIVE[2]));
+      expect(pixel(rgba, 1)).toEqual(over(POPULATION_POSITIVE[2]));
     }
     const coverage = await run('coverage');
     // Negative counts never paint; a positive count is mixed onto the grey.
@@ -798,12 +1025,27 @@ describe('population display over anatomy', () => {
   it('builds the colourbar gradient from the renderer stops', () => {
     const diverging = populationColorbarGradient(true, 0.1);
     expect(diverging).toContain('to top');
-    expect(diverging).toContain(`rgb(${POPULATION_NEGATIVE[1].join(', ')}) 0%`);
-    expect(diverging).toContain(`rgb(${POPULATION_POSITIVE[1].join(', ')}) 100%`);
+    // Brightest at the ends, darkest at the band's edges.
+    expect(diverging).toContain(`rgb(${POPULATION_NEGATIVE[2].join(', ')}) 0.00%`);
+    expect(diverging).toContain(`rgb(${POPULATION_NEGATIVE[0].join(', ')}) 45.00%`);
+    expect(diverging).toContain(`rgb(${POPULATION_POSITIVE[0].join(', ')}) 55.00%`);
+    expect(diverging).toContain(`rgb(${POPULATION_POSITIVE[2].join(', ')}) 100.00%`);
     expect(diverging).toContain('transparent 45.00%, transparent 55.00%');
     const sequential = populationColorbarGradient(false, 0.25);
     expect(sequential).toContain('transparent 25.00%');
     expect(sequential).toContain(`rgb(${POPULATION_SEQUENTIAL[2].join(', ')}) 100.00%`);
+  });
+
+  it('draws t and the sign share as signed maps, the share about its even split', () => {
+    const request = (summary: PopulationSummary) => ({ ...query().request, summary });
+    expect(populationDiverging(request('oneSampleT'))).toBe(true);
+    expect(populationDiverging(request('positiveFraction'))).toBe(true);
+    expect(populationSummaryOpacity(request('positiveFraction'))).toBe(1);
+    expect(populationSummaryDrawnValues(request('positiveFraction'), [0, 0.5, 1, null])).toEqual([
+      -0.5, 0, 0.5, null,
+    ]);
+    const t = [2.5, null];
+    expect(populationSummaryDrawnValues(request('oneSampleT'), t)).toBe(t);
   });
 
   it('rejects an underlay that does not match the plane', async () => {

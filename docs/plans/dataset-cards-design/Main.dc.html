@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>File browser with dataset markers</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 820px; height: 700px; box-sizing: border-box; background: #1b1c1f; color: #e9eaec; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; line-height: 20px; display: flex; position: relative">
+
+<div style="width: 340px; height: 700px; box-sizing: border-box; background: #222326; border-right: 1px solid rgba(255,255,255,0.16); display: flex; flex-direction: column">
+<div style="height: 40px; box-sizing: border-box; padding: 0 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.08)">
+<span style="font-size: 13px; font-weight: 600">Files</span>
+<button type="button" style="height: 26px; padding: 0 10px; background: #2a2b2f; color: #e9eaec; border: 1px solid rgba(255,255,255,0.16); border-radius: 2px; font: inherit; font-size: 12px">Mount</button>
+</div>
+<div style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 2px">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+<span style="font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">brad@trillium.alliancecan.ca</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #bdbfc4; border: 1px solid rgba(255,255,255,0.16); border-radius: 2px; padding: 0 5px">SSH</span>
+</div>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; color: #a4a7ad">/scratch/brad/dsets</span>
+</div>
+
+<div style="flex-grow: 1; padding: 6px 0; display: flex; flex-direction: column">
+
+<div style="height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 12px">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a4a7ad" stroke-width="1.4"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><path d="M1.5 3.5h4l1.2 1.5h5.8v6.5h-11z"/></svg>
+<span style="flex-grow: 1">pcmri</span>
+<svg role="img" aria-label="Has a dataset description" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><rect x="2.5" y="1.5" width="9" height="11" rx="1"/><path d="M4.8 4.8h4.4M4.8 7h4.4M4.8 9.2h2.6"/></svg>
+</div>
+
+<div style="height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 28px">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a4a7ad" stroke-width="1.4"><path d="M4.5 3 7.5 6 4.5 9"/></svg>
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><path d="M1.5 3.5h4l1.2 1.5h5.8v6.5h-11z"/></svg>
+<span style="flex-grow: 1">sub-1001</span>
+</div>
+<div style="height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 28px">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a4a7ad" stroke-width="1.4"><path d="M4.5 3 7.5 6 4.5 9"/></svg>
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><path d="M1.5 3.5h4l1.2 1.5h5.8v6.5h-11z"/></svg>
+<span style="flex-grow: 1; color: #a4a7ad">34 more subjects</span>
+</div>
+
+<div style="height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 28px">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a4a7ad" stroke-width="1.4"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><path d="M1.5 3.5h4l1.2 1.5h5.8v6.5h-11z"/></svg>
+<span style="flex-grow: 1">derivatives</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #a4a7ad">4 analyses</span>
+</div>
+
+<div style="height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 44px">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a4a7ad" stroke-width="1.4"><path d="M4.5 3 7.5 6 4.5 9"/></svg>
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><path d="M1.5 3.5h4l1.2 1.5h5.8v6.5h-11z"/></svg>
+<span style="flex-grow: 1">fmriprep</span>
+<svg role="img" aria-label="Has a dataset description" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><rect x="2.5" y="1.5" width="9" height="11" rx="1"/><path d="M4.8 4.8h4.4M4.8 7h4.4M4.8 9.2h2.6"/></svg>
+</div>
+
+<div style="height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 44px">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a4a7ad" stroke-width="1.4"><path d="M4.5 3 7.5 6 4.5 9"/></svg>
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><path d="M1.5 3.5h4l1.2 1.5h5.8v6.5h-11z"/></svg>
+<span style="flex-grow: 1">glm_encoding</span>
+<svg role="img" aria-label="Has a dataset description" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><rect x="2.5" y="1.5" width="9" height="11" rx="1"/><path d="M4.8 4.8h4.4M4.8 7h4.4M4.8 9.2h2.6"/></svg>
+</div>
+
+<div style="height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 42px; background: #2e2f33; border-left: 2px solid #d4a556">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a4a7ad" stroke-width="1.4"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#e9eaec" stroke-width="1.2"><path d="M1.5 3.5h4l1.2 1.5h5.8v6.5h-11z"/></svg>
+<span style="flex-grow: 1; font-weight: 500">glm_recog</span>
+<button type="button" aria-label="Show dataset description for glm_recog" style="width: 22px; height: 22px; padding: 0; display: flex; align-items: center; justify-content: center; background: #36383d; border: 1px solid rgba(255,255,255,0.28); border-radius: 2px">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#e9eaec" stroke-width="1.2"><rect x="2.5" y="1.5" width="9" height="11" rx="1"/><path d="M4.8 4.8h4.4M4.8 7h4.4M4.8 9.2h2.6"/></svg>
+</button>
+</div>
+
+<div style="height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 60px">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a4a7ad" stroke-width="1.4"><path d="M4.5 3 7.5 6 4.5 9"/></svg>
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><path d="M1.5 3.5h4l1.2 1.5h5.8v6.5h-11z"/></svg>
+<span style="flex-grow: 1">group</span>
+</div>
+<div style="height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 60px">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a4a7ad" stroke-width="1.4"><path d="M4.5 3 7.5 6 4.5 9"/></svg>
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><path d="M1.5 3.5h4l1.2 1.5h5.8v6.5h-11z"/></svg>
+<span style="flex-grow: 1">sub-1001</span>
+</div>
+<div style="height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 60px">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a4a7ad" stroke-width="1.4"><path d="M4.5 3 7.5 6 4.5 9"/></svg>
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><path d="M1.5 3.5h4l1.2 1.5h5.8v6.5h-11z"/></svg>
+<span style="flex-grow: 1; color: #a4a7ad">34 more subjects</span>
+</div>
+
+<div style="height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 44px">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a4a7ad" stroke-width="1.4"><path d="M4.5 3 7.5 6 4.5 9"/></svg>
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><path d="M1.5 3.5h4l1.2 1.5h5.8v6.5h-11z"/></svg>
+<span style="flex-grow: 1">rsa_item</span>
+</div>
+
+</div>
+<div style="height: 30px; box-sizing: border-box; padding: 0 12px; display: flex; align-items: center; border-top: 1px solid rgba(255,255,255,0.08); font-size: 11px; color: #a4a7ad">
+Space shows the description of the selected folder
+</div>
+</div>
+
+<div role="tooltip" style="position: absolute; left: 348px; top: 268px; width: 316px; box-sizing: border-box; background: #2a2b2f; border: 1px solid rgba(255,255,255,0.28); border-radius: 3px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-size: 13px; font-weight: 600">Recognition GLM, first and group level</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; color: #a4a7ad">derivatives/glm_recog</span>
+</div>
+<div style="display: grid; grid-template-columns: 84px minmax(0, 1fr); row-gap: 3px; font-size: 12px; line-height: 18px">
+<span style="color: #a4a7ad">Generated by</span><span>fmrireg 0.4.1</span>
+<span style="color: #a4a7ad">Contents</span><span>35 subjects · 2 contrasts · group level</span>
+<span style="color: #a4a7ad">Space</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px">MNI152NLin2009cAsym</span>
+</div>
+<div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; font-size: 11px; line-height: 16px; color: #bdbfc4">
+Click the page icon or press Space for the full description
+</div>
+</div>
+
+<div style="position: absolute; left: 372px; top: 40px; width: 420px; display: flex; flex-direction: column; gap: 14px; font-size: 12px; line-height: 18px; color: #bdbfc4">
+<div style="display: flex; gap: 10px; align-items: flex-start">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2" style="flex-shrink: 0; margin-top: 2px"><rect x="2.5" y="1.5" width="9" height="11" rx="1"/><path d="M4.8 4.8h4.4M4.8 7h4.4M4.8 9.2h2.6"/></svg>
+<span>A page icon marks every folder that holds a <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #e9eaec">dataset_description.json</span>. Folders without one, such as rsa_item, show nothing.</span>
+</div>
+<div style="display: flex; gap: 10px; align-items: flex-start">
+<span style="flex-shrink: 0; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #e9eaec; width: 14px">4</span>
+<span>A folder whose children are analyses shows a count in place of the icon.</span>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":820,"height":700}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

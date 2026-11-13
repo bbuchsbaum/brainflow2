@@ -113,7 +113,38 @@ describe("layoutSettingsStore", () => {
         bottomDockHeights: { imaging: 250, "set-studio": 140 },
         bottomDockOpenByKey: { "set-studio": false },
       };
-      expect(migrateLayoutSettings(v4, 4)).toEqual(v4);
+      expect(migrateLayoutSettings(v4, 4)).toEqual({
+        ...v4,
+        bottomDockHeights: { imaging: 250 },
+      });
+      expect(migrateLayoutSettings(v4, 5)).toEqual(v4);
+    });
+  });
+
+  // Set studio round 3: its dock sizes to the Values tab (auto-height).
+  describe("v4 → v5 migration (Set studio auto-height)", () => {
+    it("drops the Set studio's pre-auto-height dock height once, keeping the others", () => {
+      expect(
+        migrateLayoutSettings(
+          { bottomDockHeights: { imaging: 250, "set-studio": 140 }, bottomDockOpenByKey: {} },
+          4,
+        ),
+      ).toEqual({ bottomDockHeights: { imaging: 250 }, bottomDockOpenByKey: {} });
+    });
+
+    it("rehydrates a v4 payload without the Set studio height; a later drag is kept", async () => {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          state: { bottomDockHeights: { imaging: 250, "set-studio": 140 }, bottomDockOpenByKey: {} },
+          version: 4,
+        }),
+      );
+      await useLayoutSettingsStore.persist.rehydrate();
+      expect(useLayoutSettingsStore.getState().bottomDockHeights).toEqual({ imaging: 250 });
+      useLayoutSettingsStore.getState().setBottomDockHeight(180, "set-studio");
+      await useLayoutSettingsStore.persist.rehydrate();
+      expect(useLayoutSettingsStore.getState().bottomDockHeights["set-studio"]).toBe(180);
     });
   });
 

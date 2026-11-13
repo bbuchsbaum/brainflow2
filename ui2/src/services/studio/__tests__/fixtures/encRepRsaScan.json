@@ -1,0 +1,1927 @@
+{
+ "summary": {
+  "root": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa",
+  "rootExists": true,
+  "sourceLabel": "user@host",
+  "scannedFiles": 12,
+  "neuroimagingFiles": 12,
+  "truncated": false,
+  "candidates": [
+   {
+    "id": "member-folders",
+    "label": "One member per folder",
+    "description": "Immediate subfolders identify members; relative filenames identify images.",
+    "strategy": "member_folders",
+    "score": 1.0,
+    "coverage": 1.0,
+    "completeness": 1.0,
+    "matchedFiles": 12,
+    "unmatchedFiles": 0,
+    "duplicateKeys": 0,
+    "missingRoleBindings": 0,
+    "filePattern": "^(?P<member>[^/]+)/(?P<image>.+\\.(?:nii(?:\\.gz)?|(?:surf|func)\\.gii|gii)$)",
+    "designColumns": [
+     "member"
+    ],
+    "observedRoles": [
+     "enc_rep/maps/same_item.nii.gz",
+     "enc_rep/maps/same_run.nii.gz",
+     "enc_rep/maps/temporal_dist.nii.gz"
+    ],
+    "requiredRoles": [],
+    "rolePatterns": [],
+    "factors": [
+     {
+      "name": "member",
+      "source": "inferred",
+      "values": [
+       "sub-1002",
+       "sub-1003",
+       "sub-1004",
+       "sub-1006"
+      ],
+      "confidence": 0.6
+     }
+    ],
+    "roles": [
+     {
+      "role": "enc_rep/maps/same_item.nii.gz",
+      "source": "filename",
+      "examples": [
+       "sub-1002/enc_rep/maps/same_item.nii.gz",
+       "sub-1003/enc_rep/maps/same_item.nii.gz",
+       "sub-1004/enc_rep/maps/same_item.nii.gz",
+       "sub-1006/enc_rep/maps/same_item.nii.gz"
+      ],
+      "confidence": 0.0
+     },
+     {
+      "role": "enc_rep/maps/same_run.nii.gz",
+      "source": "filename",
+      "examples": [
+       "sub-1002/enc_rep/maps/same_run.nii.gz",
+       "sub-1003/enc_rep/maps/same_run.nii.gz",
+       "sub-1004/enc_rep/maps/same_run.nii.gz",
+       "sub-1006/enc_rep/maps/same_run.nii.gz"
+      ],
+      "confidence": 0.0
+     },
+     {
+      "role": "enc_rep/maps/temporal_dist.nii.gz",
+      "source": "filename",
+      "examples": [
+       "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1006/enc_rep/maps/temporal_dist.nii.gz"
+      ],
+      "confidence": 0.0
+     }
+    ],
+    "groups": [
+     {
+      "memberId": "sub-1002",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1002"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "enc_rep/maps/same_item.nii.gz",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.0
+       },
+       {
+        "role": "enc_rep/maps/same_run.nii.gz",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.0
+       },
+       {
+        "role": "enc_rep/maps/temporal_dist.nii.gz",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     },
+     {
+      "memberId": "sub-1003",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1003"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "enc_rep/maps/same_item.nii.gz",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.0
+       },
+       {
+        "role": "enc_rep/maps/same_run.nii.gz",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.0
+       },
+       {
+        "role": "enc_rep/maps/temporal_dist.nii.gz",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     },
+     {
+      "memberId": "sub-1004",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1004"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "enc_rep/maps/same_item.nii.gz",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.0
+       },
+       {
+        "role": "enc_rep/maps/same_run.nii.gz",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.0
+       },
+       {
+        "role": "enc_rep/maps/temporal_dist.nii.gz",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     },
+     {
+      "memberId": "sub-1006",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1006"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "enc_rep/maps/same_item.nii.gz",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.0
+       },
+       {
+        "role": "enc_rep/maps/same_run.nii.gz",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.0
+       },
+       {
+        "role": "enc_rep/maps/temporal_dist.nii.gz",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     }
+    ],
+    "reasons": [
+     "The selected folder contains multiple image-bearing subfolders.",
+     "Image names retain nested paths; no statistical roles are inferred."
+    ],
+    "warnings": []
+   },
+   {
+    "id": "maps-basename-roles",
+    "label": "Subject maps with basename roles",
+    "description": "Treat each file basename under a subject maps folder as an image role.",
+    "strategy": "path_subject_maps_basename_role",
+    "score": 0.895,
+    "coverage": 1.0,
+    "completeness": 1.0,
+    "matchedFiles": 12,
+    "unmatchedFiles": 0,
+    "duplicateKeys": 0,
+    "missingRoleBindings": 0,
+    "filePattern": "(?P<subject>[^/]+)/maps/(?P<role>[^/]+)\\.(?:nii(?:\\.gz)?|(?:surf|func)\\.gii|gii)$",
+    "designColumns": [
+     "subject"
+    ],
+    "observedRoles": [
+     "same_item",
+     "same_run",
+     "temporal_dist"
+    ],
+    "requiredRoles": [
+     "same_item",
+     "same_run",
+     "temporal_dist"
+    ],
+    "rolePatterns": [
+     {
+      "role": "same_item",
+      "patterns": [
+       "(^|[_\\-\\./])same_item([_\\-\\./]|$)"
+      ]
+     },
+     {
+      "role": "same_run",
+      "patterns": [
+       "(^|[_\\-\\./])same_run([_\\-\\./]|$)"
+      ]
+     },
+     {
+      "role": "temporal_dist",
+      "patterns": [
+       "(^|[_\\-\\./])temporal_dist([_\\-\\./]|$)"
+      ]
+     }
+    ],
+    "factors": [
+     {
+      "name": "subject",
+      "source": "path_entity",
+      "values": [
+       "sub-1002",
+       "sub-1003",
+       "sub-1004",
+       "sub-1006"
+      ],
+      "confidence": 0.95
+     }
+    ],
+    "roles": [
+     {
+      "role": "same_item",
+      "source": "filename",
+      "examples": [
+       "sub-1002/enc_rep/maps/same_item.nii.gz",
+       "sub-1003/enc_rep/maps/same_item.nii.gz",
+       "sub-1004/enc_rep/maps/same_item.nii.gz",
+       "sub-1006/enc_rep/maps/same_item.nii.gz"
+      ],
+      "confidence": 0.86
+     },
+     {
+      "role": "same_run",
+      "source": "filename",
+      "examples": [
+       "sub-1002/enc_rep/maps/same_run.nii.gz",
+       "sub-1003/enc_rep/maps/same_run.nii.gz",
+       "sub-1004/enc_rep/maps/same_run.nii.gz",
+       "sub-1006/enc_rep/maps/same_run.nii.gz"
+      ],
+      "confidence": 0.86
+     },
+     {
+      "role": "temporal_dist",
+      "source": "filename",
+      "examples": [
+       "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1006/enc_rep/maps/temporal_dist.nii.gz"
+      ],
+      "confidence": 0.86
+     }
+    ],
+    "groups": [
+     {
+      "memberId": "sub-1002",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1002"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "same_item",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.86
+       },
+       {
+        "role": "same_run",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.86
+       },
+       {
+        "role": "temporal_dist",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.86
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.85999995
+     },
+     {
+      "memberId": "sub-1003",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1003"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "same_item",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.86
+       },
+       {
+        "role": "same_run",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.86
+       },
+       {
+        "role": "temporal_dist",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.86
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.85999995
+     },
+     {
+      "memberId": "sub-1004",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1004"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "same_item",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.86
+       },
+       {
+        "role": "same_run",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.86
+       },
+       {
+        "role": "temporal_dist",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.86
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.85999995
+     },
+     {
+      "memberId": "sub-1006",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1006"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "same_item",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.86
+       },
+       {
+        "role": "same_run",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.86
+       },
+       {
+        "role": "temporal_dist",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.86
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.85999995
+     }
+    ],
+    "reasons": [
+     "Found image files beneath maps folders.",
+     "Used the nearest subject-like ancestor as the member factor.",
+     "Used each basename as a role binding."
+    ],
+    "warnings": []
+   },
+   {
+    "id": "flat-statmaps",
+    "label": "One member per file",
+    "description": "Each image is a member; no statistical role is inferred.",
+    "strategy": "flat_statmap_fallback",
+    "score": 0.66499996,
+    "coverage": 1.0,
+    "completeness": 1.0,
+    "matchedFiles": 12,
+    "unmatchedFiles": 0,
+    "duplicateKeys": 0,
+    "missingRoleBindings": 0,
+    "filePattern": "^(?P<member>.+\\.(?:nii(?:\\.gz)?|(?:surf|func)\\.gii|gii)$)",
+    "designColumns": [
+     "member"
+    ],
+    "observedRoles": [
+     "image"
+    ],
+    "requiredRoles": [],
+    "rolePatterns": [
+     {
+      "role": "image",
+      "patterns": [
+       "(^|[_\\-\\./])image([_\\-\\./]|$)"
+      ]
+     }
+    ],
+    "factors": [
+     {
+      "name": "member",
+      "source": "inferred",
+      "values": [
+       "sub-1002/enc_rep/maps/same_item.nii.gz",
+       "sub-1002/enc_rep/maps/same_run.nii.gz",
+       "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1003/enc_rep/maps/same_item.nii.gz",
+       "sub-1003/enc_rep/maps/same_run.nii.gz",
+       "sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1004/enc_rep/maps/same_item.nii.gz",
+       "sub-1004/enc_rep/maps/same_run.nii.gz",
+       "sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1006/enc_rep/maps/same_item.nii.gz",
+       "sub-1006/enc_rep/maps/same_run.nii.gz",
+       "sub-1006/enc_rep/maps/temporal_dist.nii.gz"
+      ],
+      "confidence": 0.6
+     }
+    ],
+    "roles": [
+     {
+      "role": "image",
+      "source": "filename",
+      "examples": [
+       "sub-1002/enc_rep/maps/same_item.nii.gz",
+       "sub-1002/enc_rep/maps/same_run.nii.gz",
+       "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1003/enc_rep/maps/same_item.nii.gz",
+       "sub-1003/enc_rep/maps/same_run.nii.gz"
+      ],
+      "confidence": 0.0
+     }
+    ],
+    "groups": [
+     {
+      "memberId": "sub-1002/enc_rep/maps/same_item.nii.gz",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1002/enc_rep/maps/same_item.nii.gz"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "image",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     },
+     {
+      "memberId": "sub-1002/enc_rep/maps/same_run.nii.gz",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1002/enc_rep/maps/same_run.nii.gz"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "image",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     },
+     {
+      "memberId": "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1002/enc_rep/maps/temporal_dist.nii.gz"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "image",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     },
+     {
+      "memberId": "sub-1003/enc_rep/maps/same_item.nii.gz",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1003/enc_rep/maps/same_item.nii.gz"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "image",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     },
+     {
+      "memberId": "sub-1003/enc_rep/maps/same_run.nii.gz",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1003/enc_rep/maps/same_run.nii.gz"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "image",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     },
+     {
+      "memberId": "sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1003/enc_rep/maps/temporal_dist.nii.gz"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "image",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     },
+     {
+      "memberId": "sub-1004/enc_rep/maps/same_item.nii.gz",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1004/enc_rep/maps/same_item.nii.gz"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "image",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     },
+     {
+      "memberId": "sub-1004/enc_rep/maps/same_run.nii.gz",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1004/enc_rep/maps/same_run.nii.gz"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "image",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     },
+     {
+      "memberId": "sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1004/enc_rep/maps/temporal_dist.nii.gz"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "image",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     },
+     {
+      "memberId": "sub-1006/enc_rep/maps/same_item.nii.gz",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1006/enc_rep/maps/same_item.nii.gz"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "image",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     },
+     {
+      "memberId": "sub-1006/enc_rep/maps/same_run.nii.gz",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1006/enc_rep/maps/same_run.nii.gz"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "image",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     },
+     {
+      "memberId": "sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+      "designValues": [
+       {
+        "column": "member",
+        "value": "sub-1006/enc_rep/maps/temporal_dist.nii.gz"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "image",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.0
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [],
+      "confidence": 0.0
+     }
+    ],
+    "reasons": [
+     "Fallback candidate for image folders without a recognizable hierarchy.",
+     "Each file becomes its own member."
+    ],
+    "warnings": [
+     {
+      "code": "fallback_schema",
+      "message": "No richer hierarchy is required for this candidate; review member names carefully.",
+      "paths": []
+     }
+    ]
+   },
+   {
+    "id": "bids-entities",
+    "label": "BIDS-like filename entities",
+    "description": "Use BIDS-style entities from paths and filenames as factors.",
+    "strategy": "bids_like_entities",
+    "score": 0.36499998,
+    "coverage": 1.0,
+    "completeness": 0.0,
+    "matchedFiles": 12,
+    "unmatchedFiles": 0,
+    "duplicateKeys": 4,
+    "missingRoleBindings": 0,
+    "filePattern": ".*\\.(?:nii(?:\\.gz)?|(?:surf|func)\\.gii|gii)$",
+    "designColumns": [
+     "subject"
+    ],
+    "observedRoles": [
+     "statmap"
+    ],
+    "requiredRoles": [],
+    "rolePatterns": [
+     {
+      "role": "statmap",
+      "patterns": [
+       "(^|[_\\-\\./])statmap([_\\-\\./]|$)"
+      ]
+     }
+    ],
+    "factors": [
+     {
+      "name": "subject",
+      "source": "path_entity",
+      "values": [
+       "1002",
+       "1003",
+       "1004",
+       "1006"
+      ],
+      "confidence": 0.95
+     }
+    ],
+    "roles": [
+     {
+      "role": "statmap",
+      "source": "filename",
+      "examples": [
+       "sub-1002/enc_rep/maps/same_item.nii.gz",
+       "sub-1002/enc_rep/maps/same_run.nii.gz",
+       "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1003/enc_rep/maps/same_item.nii.gz",
+       "sub-1003/enc_rep/maps/same_run.nii.gz"
+      ],
+      "confidence": 0.7799999
+     }
+    ],
+    "groups": [
+     {
+      "memberId": "1002",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "1002"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "statmap",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.78
+       },
+       {
+        "role": "statmap",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.78
+       },
+       {
+        "role": "statmap",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.78
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [
+       "statmap"
+      ],
+      "confidence": 0.78
+     },
+     {
+      "memberId": "1003",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "1003"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "statmap",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.78
+       },
+       {
+        "role": "statmap",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.78
+       },
+       {
+        "role": "statmap",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.78
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [
+       "statmap"
+      ],
+      "confidence": 0.78
+     },
+     {
+      "memberId": "1004",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "1004"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "statmap",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.78
+       },
+       {
+        "role": "statmap",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.78
+       },
+       {
+        "role": "statmap",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.78
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [
+       "statmap"
+      ],
+      "confidence": 0.78
+     },
+     {
+      "memberId": "1006",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "1006"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "statmap",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.78
+       },
+       {
+        "role": "statmap",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.78
+       },
+       {
+        "role": "statmap",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.78
+       }
+      ],
+      "missingRoles": [],
+      "duplicateRoles": [
+       "statmap"
+      ],
+      "confidence": 0.78
+     }
+    ],
+    "reasons": [
+     "Found BIDS-like key-value entities such as sub-, ses-, task-, or desc-.",
+     "Used entity values as design factors."
+    ],
+    "warnings": [
+     {
+      "code": "duplicate_role_bindings",
+      "message": "4 duplicate role binding(s) would need review before compare/export.",
+      "paths": []
+     }
+    ]
+   },
+   {
+    "id": "maps-role-condition",
+    "label": "Subject maps with filename condition factor",
+    "description": "Treat the first basename token as the role and remaining tokens as a condition factor.",
+    "strategy": "path_subject_maps_role_condition",
+    "score": 0.3399999,
+    "coverage": 1.0,
+    "completeness": 0.0,
+    "matchedFiles": 12,
+    "unmatchedFiles": 0,
+    "duplicateKeys": 0,
+    "missingRoleBindings": 12,
+    "filePattern": "(?P<subject>[^/]+)/maps/(?P<role>[A-Za-z0-9]+)(?:_(?P<condition>[^/]+))?\\.(?:nii(?:\\.gz)?|(?:surf|func)\\.gii|gii)$",
+    "designColumns": [
+     "subject",
+     "condition"
+    ],
+    "observedRoles": [
+     "same",
+     "temporal"
+    ],
+    "requiredRoles": [
+     "same",
+     "temporal"
+    ],
+    "rolePatterns": [
+     {
+      "role": "same",
+      "patterns": [
+       "(^|[_\\-\\./])same([_\\-\\./]|$)"
+      ]
+     },
+     {
+      "role": "temporal",
+      "patterns": [
+       "(^|[_\\-\\./])temporal([_\\-\\./]|$)"
+      ]
+     }
+    ],
+    "factors": [
+     {
+      "name": "condition",
+      "source": "filename_modifier",
+      "values": [
+       "dist",
+       "item",
+       "run"
+      ],
+      "confidence": 0.7
+     },
+     {
+      "name": "subject",
+      "source": "path_entity",
+      "values": [
+       "sub-1002",
+       "sub-1003",
+       "sub-1004",
+       "sub-1006"
+      ],
+      "confidence": 0.95
+     }
+    ],
+    "roles": [
+     {
+      "role": "same",
+      "source": "filename",
+      "examples": [
+       "sub-1002/enc_rep/maps/same_item.nii.gz",
+       "sub-1002/enc_rep/maps/same_run.nii.gz",
+       "sub-1003/enc_rep/maps/same_item.nii.gz",
+       "sub-1003/enc_rep/maps/same_run.nii.gz",
+       "sub-1004/enc_rep/maps/same_item.nii.gz"
+      ],
+      "confidence": 0.74
+     },
+     {
+      "role": "temporal",
+      "source": "filename",
+      "examples": [
+       "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1006/enc_rep/maps/temporal_dist.nii.gz"
+      ],
+      "confidence": 0.74
+     }
+    ],
+    "groups": [
+     {
+      "memberId": "sub-1002_dist",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1002"
+       },
+       {
+        "column": "condition",
+        "value": "dist"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "temporal",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.74
+       }
+      ],
+      "missingRoles": [
+       "same"
+      ],
+      "duplicateRoles": [],
+      "confidence": 0.74
+     },
+     {
+      "memberId": "sub-1002_item",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1002"
+       },
+       {
+        "column": "condition",
+        "value": "item"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "same",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.74
+       }
+      ],
+      "missingRoles": [
+       "temporal"
+      ],
+      "duplicateRoles": [],
+      "confidence": 0.74
+     },
+     {
+      "memberId": "sub-1002_run",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1002"
+       },
+       {
+        "column": "condition",
+        "value": "run"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "same",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1002/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.74
+       }
+      ],
+      "missingRoles": [
+       "temporal"
+      ],
+      "duplicateRoles": [],
+      "confidence": 0.74
+     },
+     {
+      "memberId": "sub-1003_dist",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1003"
+       },
+       {
+        "column": "condition",
+        "value": "dist"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "temporal",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.74
+       }
+      ],
+      "missingRoles": [
+       "same"
+      ],
+      "duplicateRoles": [],
+      "confidence": 0.74
+     },
+     {
+      "memberId": "sub-1003_item",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1003"
+       },
+       {
+        "column": "condition",
+        "value": "item"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "same",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.74
+       }
+      ],
+      "missingRoles": [
+       "temporal"
+      ],
+      "duplicateRoles": [],
+      "confidence": 0.74
+     },
+     {
+      "memberId": "sub-1003_run",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1003"
+       },
+       {
+        "column": "condition",
+        "value": "run"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "same",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1003/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.74
+       }
+      ],
+      "missingRoles": [
+       "temporal"
+      ],
+      "duplicateRoles": [],
+      "confidence": 0.74
+     },
+     {
+      "memberId": "sub-1004_dist",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1004"
+       },
+       {
+        "column": "condition",
+        "value": "dist"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "temporal",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.74
+       }
+      ],
+      "missingRoles": [
+       "same"
+      ],
+      "duplicateRoles": [],
+      "confidence": 0.74
+     },
+     {
+      "memberId": "sub-1004_item",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1004"
+       },
+       {
+        "column": "condition",
+        "value": "item"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "same",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.74
+       }
+      ],
+      "missingRoles": [
+       "temporal"
+      ],
+      "duplicateRoles": [],
+      "confidence": 0.74
+     },
+     {
+      "memberId": "sub-1004_run",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1004"
+       },
+       {
+        "column": "condition",
+        "value": "run"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "same",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1004/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.74
+       }
+      ],
+      "missingRoles": [
+       "temporal"
+      ],
+      "duplicateRoles": [],
+      "confidence": 0.74
+     },
+     {
+      "memberId": "sub-1006_dist",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1006"
+       },
+       {
+        "column": "condition",
+        "value": "dist"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "temporal",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+        "confidence": 0.74
+       }
+      ],
+      "missingRoles": [
+       "same"
+      ],
+      "duplicateRoles": [],
+      "confidence": 0.74
+     },
+     {
+      "memberId": "sub-1006_item",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1006"
+       },
+       {
+        "column": "condition",
+        "value": "item"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "same",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_item.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/same_item.nii.gz",
+        "confidence": 0.74
+       }
+      ],
+      "missingRoles": [
+       "temporal"
+      ],
+      "duplicateRoles": [],
+      "confidence": 0.74
+     },
+     {
+      "memberId": "sub-1006_run",
+      "designValues": [
+       {
+        "column": "subject",
+        "value": "sub-1006"
+       },
+       {
+        "column": "condition",
+        "value": "run"
+       }
+      ],
+      "bindings": [
+       {
+        "role": "same",
+        "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_run.nii.gz",
+        "relativePath": "sub-1006/enc_rep/maps/same_run.nii.gz",
+        "confidence": 0.74
+       }
+      ],
+      "missingRoles": [
+       "temporal"
+      ],
+      "duplicateRoles": [],
+      "confidence": 0.74
+     }
+    ],
+    "reasons": [
+     "Found underscore-delimited filename modifiers under maps folders.",
+     "Preserved those modifiers as a design factor instead of folding them into role names.",
+     "Included condition in member keys to avoid duplicate role bindings."
+    ],
+    "warnings": [
+     {
+      "code": "ambiguous_basename_modifier",
+      "message": "Filename modifiers may be conditions or distinct roles; confirm this mapping before export.",
+      "paths": [
+       "sub-1002/enc_rep/maps/same_item.nii.gz",
+       "sub-1002/enc_rep/maps/same_run.nii.gz",
+       "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1003/enc_rep/maps/same_item.nii.gz",
+       "sub-1003/enc_rep/maps/same_run.nii.gz",
+       "sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+       "sub-1004/enc_rep/maps/same_item.nii.gz",
+       "sub-1004/enc_rep/maps/same_run.nii.gz"
+      ]
+     },
+     {
+      "code": "missing_role_bindings",
+      "message": "12 required role binding(s) are missing across inferred members.",
+      "paths": []
+     }
+    ]
+   }
+  ],
+  "warnings": []
+ },
+ "candidate": {
+  "id": "candidate-regex-b",
+  "label": "Regex discovery preview",
+  "description": "Grouped 12 matched file(s) into 4 member set(s) beneath /cache/mount-a/pcmri/derivatives/enc_rep_rsa.",
+  "mode": "regex",
+  "sourceHint": "root=/cache/mount-a/pcmri/derivatives/enc_rep_rsa pattern=^(?P<member>[^/]+)/(?P<image>.+\\.(?:nii(?:\\.gz)?|(?:surf|func)\\.gii|gii)$) maxDepth=4 maxFiles=500 source=user@host",
+  "contract": {
+   "readiness": "review_required",
+   "provenanceKind": "regex_discovery",
+   "provenanceLabel": "root=/cache/mount-a/pcmri/derivatives/enc_rep_rsa pattern=^(?P<member>[^/]+)/(?P<image>.+\\.(?:nii(?:\\.gz)?|(?:surf|func)\\.gii|gii)$) maxDepth=4 maxFiles=500 source=user@host",
+   "canImport": true,
+   "capabilities": [
+    "import",
+    "deck",
+    "export_neurotabs"
+   ],
+   "reason": "Backend audit found warnings; import for review before compare."
+  },
+  "set": {
+   "id": "study-regex-preview",
+   "name": "user@host / Discovery Import",
+   "memberCount": 4,
+   "primaryFeatureId": "enc_rep/maps/same_item.nii.gz",
+   "supportKind": "volume",
+   "supportLabel": "headers not sampled",
+   "alignmentClass": "unknown",
+   "designColumns": [
+    "member",
+    "roles"
+   ],
+   "designTablePreview": {
+    "columns": [
+     "member",
+     "roles"
+    ],
+    "rows": [
+     {
+      "id": "sub-1002",
+      "cells": [
+       "sub-1002",
+       "enc_rep/maps/same_item.nii.gz,enc_rep/maps/same_run.nii.gz,enc_rep/maps/temporal_dist.nii.gz"
+      ]
+     },
+     {
+      "id": "sub-1003",
+      "cells": [
+       "sub-1003",
+       "enc_rep/maps/same_item.nii.gz,enc_rep/maps/same_run.nii.gz,enc_rep/maps/temporal_dist.nii.gz"
+      ]
+     },
+     {
+      "id": "sub-1004",
+      "cells": [
+       "sub-1004",
+       "enc_rep/maps/same_item.nii.gz,enc_rep/maps/same_run.nii.gz,enc_rep/maps/temporal_dist.nii.gz"
+      ]
+     },
+     {
+      "id": "sub-1006",
+      "cells": [
+       "sub-1006",
+       "enc_rep/maps/same_item.nii.gz,enc_rep/maps/same_run.nii.gz,enc_rep/maps/temporal_dist.nii.gz"
+      ]
+     }
+    ]
+   },
+   "memberSummaries": [
+    {
+     "id": "sub-1002",
+     "designValues": {
+      "member": "sub-1002",
+      "roles": "enc_rep/maps/same_item.nii.gz,enc_rep/maps/same_run.nii.gz,enc_rep/maps/temporal_dist.nii.gz"
+     },
+     "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_item.nii.gz",
+     "bindings": [
+      {
+       "role": "enc_rep/maps/same_item.nii.gz",
+       "featureId": "enc_rep/maps/same_item.nii.gz",
+       "sourceLocator": "sub-1002/enc_rep/maps/same_item.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_item.nii.gz",
+       "relativePath": "sub-1002/enc_rep/maps/same_item.nii.gz",
+       "selector": null,
+       "supportKind": "volume",
+       "supportLabel": "headers not sampled",
+       "availability": "available",
+       "isPrimary": true
+      },
+      {
+       "role": "enc_rep/maps/same_run.nii.gz",
+       "featureId": "enc_rep/maps/same_run.nii.gz",
+       "sourceLocator": "sub-1002/enc_rep/maps/same_run.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_run.nii.gz",
+       "relativePath": "sub-1002/enc_rep/maps/same_run.nii.gz",
+       "selector": null,
+       "supportKind": "volume",
+       "supportLabel": "headers not sampled",
+       "availability": "available",
+       "isPrimary": false
+      },
+      {
+       "role": "enc_rep/maps/temporal_dist.nii.gz",
+       "featureId": "enc_rep/maps/temporal_dist.nii.gz",
+       "sourceLocator": "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+       "relativePath": "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+       "selector": null,
+       "supportKind": "volume",
+       "supportLabel": "headers not sampled",
+       "availability": "available",
+       "isPrimary": false
+      }
+     ]
+    },
+    {
+     "id": "sub-1003",
+     "designValues": {
+      "member": "sub-1003",
+      "roles": "enc_rep/maps/same_item.nii.gz,enc_rep/maps/same_run.nii.gz,enc_rep/maps/temporal_dist.nii.gz"
+     },
+     "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_item.nii.gz",
+     "bindings": [
+      {
+       "role": "enc_rep/maps/same_item.nii.gz",
+       "featureId": "enc_rep/maps/same_item.nii.gz",
+       "sourceLocator": "sub-1003/enc_rep/maps/same_item.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_item.nii.gz",
+       "relativePath": "sub-1003/enc_rep/maps/same_item.nii.gz",
+       "selector": null,
+       "supportKind": "volume",
+       "supportLabel": "headers not sampled",
+       "availability": "available",
+       "isPrimary": true
+      },
+      {
+       "role": "enc_rep/maps/same_run.nii.gz",
+       "featureId": "enc_rep/maps/same_run.nii.gz",
+       "sourceLocator": "sub-1003/enc_rep/maps/same_run.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_run.nii.gz",
+       "relativePath": "sub-1003/enc_rep/maps/same_run.nii.gz",
+       "selector": null,
+       "supportKind": "volume",
+       "supportLabel": "headers not sampled",
+       "availability": "available",
+       "isPrimary": false
+      },
+      {
+       "role": "enc_rep/maps/temporal_dist.nii.gz",
+       "featureId": "enc_rep/maps/temporal_dist.nii.gz",
+       "sourceLocator": "sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+       "relativePath": "sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+       "selector": null,
+       "supportKind": "volume",
+       "supportLabel": "headers not sampled",
+       "availability": "available",
+       "isPrimary": false
+      }
+     ]
+    },
+    {
+     "id": "sub-1004",
+     "designValues": {
+      "member": "sub-1004",
+      "roles": "enc_rep/maps/same_item.nii.gz,enc_rep/maps/same_run.nii.gz,enc_rep/maps/temporal_dist.nii.gz"
+     },
+     "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_item.nii.gz",
+     "bindings": [
+      {
+       "role": "enc_rep/maps/same_item.nii.gz",
+       "featureId": "enc_rep/maps/same_item.nii.gz",
+       "sourceLocator": "sub-1004/enc_rep/maps/same_item.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_item.nii.gz",
+       "relativePath": "sub-1004/enc_rep/maps/same_item.nii.gz",
+       "selector": null,
+       "supportKind": "volume",
+       "supportLabel": "headers not sampled",
+       "availability": "available",
+       "isPrimary": true
+      },
+      {
+       "role": "enc_rep/maps/same_run.nii.gz",
+       "featureId": "enc_rep/maps/same_run.nii.gz",
+       "sourceLocator": "sub-1004/enc_rep/maps/same_run.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_run.nii.gz",
+       "relativePath": "sub-1004/enc_rep/maps/same_run.nii.gz",
+       "selector": null,
+       "supportKind": "volume",
+       "supportLabel": "headers not sampled",
+       "availability": "available",
+       "isPrimary": false
+      },
+      {
+       "role": "enc_rep/maps/temporal_dist.nii.gz",
+       "featureId": "enc_rep/maps/temporal_dist.nii.gz",
+       "sourceLocator": "sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+       "relativePath": "sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+       "selector": null,
+       "supportKind": "volume",
+       "supportLabel": "headers not sampled",
+       "availability": "available",
+       "isPrimary": false
+      }
+     ]
+    },
+    {
+     "id": "sub-1006",
+     "designValues": {
+      "member": "sub-1006",
+      "roles": "enc_rep/maps/same_item.nii.gz,enc_rep/maps/same_run.nii.gz,enc_rep/maps/temporal_dist.nii.gz"
+     },
+     "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_item.nii.gz",
+     "bindings": [
+      {
+       "role": "enc_rep/maps/same_item.nii.gz",
+       "featureId": "enc_rep/maps/same_item.nii.gz",
+       "sourceLocator": "sub-1006/enc_rep/maps/same_item.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_item.nii.gz",
+       "relativePath": "sub-1006/enc_rep/maps/same_item.nii.gz",
+       "selector": null,
+       "supportKind": "volume",
+       "supportLabel": "headers not sampled",
+       "availability": "available",
+       "isPrimary": true
+      },
+      {
+       "role": "enc_rep/maps/same_run.nii.gz",
+       "featureId": "enc_rep/maps/same_run.nii.gz",
+       "sourceLocator": "sub-1006/enc_rep/maps/same_run.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_run.nii.gz",
+       "relativePath": "sub-1006/enc_rep/maps/same_run.nii.gz",
+       "selector": null,
+       "supportKind": "volume",
+       "supportLabel": "headers not sampled",
+       "availability": "available",
+       "isPrimary": false
+      },
+      {
+       "role": "enc_rep/maps/temporal_dist.nii.gz",
+       "featureId": "enc_rep/maps/temporal_dist.nii.gz",
+       "sourceLocator": "sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+       "relativePath": "sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+       "selector": null,
+       "supportKind": "volume",
+       "supportLabel": "headers not sampled",
+       "availability": "available",
+       "isPrimary": false
+      }
+     ]
+    }
+   ],
+   "memberIds": [
+    "sub-1002",
+    "sub-1003",
+    "sub-1004",
+    "sub-1006"
+   ],
+   "savedCohortIds": [
+    "all-members"
+   ],
+   "ingestAudit": {
+    "sourceLabel": "Regex discovery",
+    "join": {
+     "matchedRows": 4,
+     "unmatchedRows": 0,
+     "duplicateKeys": 0,
+     "severity": "ok",
+     "issueDetails": []
+    },
+    "support": {
+     "supportLabel": "headers not sampled",
+     "alignmentClass": "unknown",
+     "readyForCompare": false,
+     "severity": "ok"
+    },
+    "notes": [
+     "Discovery grouped 4 member set(s) under the requested root.",
+     "Observed role(s): enc_rep/maps/same_item.nii.gz, enc_rep/maps/same_run.nii.gz, enc_rep/maps/temporal_dist.nii.gz.",
+     "Remote inventory listed 12 neuroimaging file(s) from mount mount-a without downloading NIfTI payloads."
+    ]
+   }
+  },
+  "features": [
+   {
+    "id": "enc_rep/maps/same_item.nii.gz",
+    "label": "enc_rep/maps/same_item.nii.gz",
+    "kind": "volume"
+   },
+   {
+    "id": "enc_rep/maps/same_run.nii.gz",
+    "label": "enc_rep/maps/same_run.nii.gz",
+    "kind": "volume"
+   },
+   {
+    "id": "enc_rep/maps/temporal_dist.nii.gz",
+    "label": "enc_rep/maps/temporal_dist.nii.gz",
+    "kind": "volume"
+   }
+  ],
+  "cohorts": [
+   {
+    "id": "all-members",
+    "label": "All members",
+    "memberCount": 4,
+    "description": "Discovery-backed cohort spanning all grouped members.",
+    "memberIds": [
+     "sub-1002",
+     "sub-1003",
+     "sub-1004",
+     "sub-1006"
+    ],
+    "originKind": "imported",
+    "originLabel": "Regex discovery preview"
+   }
+  ],
+  "expressions": [
+   {
+    "id": "regex-member",
+    "label": "Current member",
+    "kind": "member",
+    "recipe": "member(sample)",
+    "cohortId": null
+   }
+  ],
+  "materialization": {
+   "warm": 0,
+   "preview": 4,
+   "pending": 0,
+   "failed": 0
+  },
+  "discovery": {
+   "root": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa",
+   "filePattern": "^(?P<member>[^/]+)/(?P<image>.+\\.(?:nii(?:\\.gz)?|(?:surf|func)\\.gii|gii)$)",
+   "includePatterns": [],
+   "excludePatterns": [],
+   "rolePatterns": [
+    {
+     "role": "beta",
+     "patterns": [
+      "(^|[_\\-\\./])(beta|cope|coef)([_\\-\\./]|$)",
+      "^beta$"
+     ]
+    },
+    {
+     "role": "tstat",
+     "patterns": [
+      "(^|[_\\-\\./])(tstat|t_stat|t-map|tmap|stat)([_\\-\\./]|$)",
+      "^t(stat)?$"
+     ]
+    },
+    {
+     "role": "se",
+     "patterns": [
+      "(^|[_\\-\\./])(se|stderr|std_err|standard_error)([_\\-\\./]|$)",
+      "^se$"
+     ]
+    },
+    {
+     "role": "pvalue",
+     "patterns": [
+      "(^|[_\\-\\./])(pvalue|p_value|pval|p-map|pmap)([_\\-\\./]|$)",
+      "^p$"
+     ]
+    },
+    {
+     "role": "statmap",
+     "patterns": [
+      "(^|[_\\-\\./])(statmap|map)([_\\-\\./]|$)"
+     ]
+    }
+   ],
+   "maxDepth": 4,
+   "maxFiles": 500,
+   "dryRun": true,
+   "sampleHeaders": false,
+   "captureNames": [
+    "member",
+    "image"
+   ],
+   "inferredDesignColumns": [
+    "member",
+    "roles"
+   ],
+   "observedRoles": [
+    "enc_rep/maps/same_item.nii.gz",
+    "enc_rep/maps/same_run.nii.gz",
+    "enc_rep/maps/temporal_dist.nii.gz"
+   ],
+   "requiredRoles": [],
+   "matchedFiles": 12,
+   "unmatchedFiles": 0,
+   "duplicateKeys": 0,
+   "truncated": false,
+   "groups": [
+    {
+     "memberId": "sub-1002",
+     "designValues": [
+      {
+       "column": "member",
+       "value": "sub-1002"
+      }
+     ],
+     "bindings": [
+      {
+       "role": "enc_rep/maps/same_item.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_item.nii.gz",
+       "relativePath": "sub-1002/enc_rep/maps/same_item.nii.gz",
+       "confidence": 0.0
+      },
+      {
+       "role": "enc_rep/maps/same_run.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/same_run.nii.gz",
+       "relativePath": "sub-1002/enc_rep/maps/same_run.nii.gz",
+       "confidence": 0.0
+      },
+      {
+       "role": "enc_rep/maps/temporal_dist.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+       "relativePath": "sub-1002/enc_rep/maps/temporal_dist.nii.gz",
+       "confidence": 0.0
+      }
+     ],
+     "missingRoles": [],
+     "duplicateRoles": [],
+     "confidence": 0.0
+    },
+    {
+     "memberId": "sub-1003",
+     "designValues": [
+      {
+       "column": "member",
+       "value": "sub-1003"
+      }
+     ],
+     "bindings": [
+      {
+       "role": "enc_rep/maps/same_item.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_item.nii.gz",
+       "relativePath": "sub-1003/enc_rep/maps/same_item.nii.gz",
+       "confidence": 0.0
+      },
+      {
+       "role": "enc_rep/maps/same_run.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/same_run.nii.gz",
+       "relativePath": "sub-1003/enc_rep/maps/same_run.nii.gz",
+       "confidence": 0.0
+      },
+      {
+       "role": "enc_rep/maps/temporal_dist.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+       "relativePath": "sub-1003/enc_rep/maps/temporal_dist.nii.gz",
+       "confidence": 0.0
+      }
+     ],
+     "missingRoles": [],
+     "duplicateRoles": [],
+     "confidence": 0.0
+    },
+    {
+     "memberId": "sub-1004",
+     "designValues": [
+      {
+       "column": "member",
+       "value": "sub-1004"
+      }
+     ],
+     "bindings": [
+      {
+       "role": "enc_rep/maps/same_item.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_item.nii.gz",
+       "relativePath": "sub-1004/enc_rep/maps/same_item.nii.gz",
+       "confidence": 0.0
+      },
+      {
+       "role": "enc_rep/maps/same_run.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/same_run.nii.gz",
+       "relativePath": "sub-1004/enc_rep/maps/same_run.nii.gz",
+       "confidence": 0.0
+      },
+      {
+       "role": "enc_rep/maps/temporal_dist.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+       "relativePath": "sub-1004/enc_rep/maps/temporal_dist.nii.gz",
+       "confidence": 0.0
+      }
+     ],
+     "missingRoles": [],
+     "duplicateRoles": [],
+     "confidence": 0.0
+    },
+    {
+     "memberId": "sub-1006",
+     "designValues": [
+      {
+       "column": "member",
+       "value": "sub-1006"
+      }
+     ],
+     "bindings": [
+      {
+       "role": "enc_rep/maps/same_item.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_item.nii.gz",
+       "relativePath": "sub-1006/enc_rep/maps/same_item.nii.gz",
+       "confidence": 0.0
+      },
+      {
+       "role": "enc_rep/maps/same_run.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/same_run.nii.gz",
+       "relativePath": "sub-1006/enc_rep/maps/same_run.nii.gz",
+       "confidence": 0.0
+      },
+      {
+       "role": "enc_rep/maps/temporal_dist.nii.gz",
+       "sourcePath": "/cache/mount-a/pcmri/derivatives/enc_rep_rsa/sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+       "relativePath": "sub-1006/enc_rep/maps/temporal_dist.nii.gz",
+       "confidence": 0.0
+      }
+     ],
+     "missingRoles": [],
+     "duplicateRoles": [],
+     "confidence": 0.0
+    }
+   ]
+  }
+ }
+}

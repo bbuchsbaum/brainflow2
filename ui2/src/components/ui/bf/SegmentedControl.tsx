@@ -92,6 +92,12 @@ const itemVariants = cva(
   [
     'relative inline-flex min-w-6 items-center justify-center gap-1 whitespace-nowrap border-r border-bf-border-subtle transition-colors last:border-r-0',
     FOCUS_RING,
+    // Focus that a pointer press left on a segment draws no ring, even once
+    // a key is pressed (the browser turns :focus-visible on at the first
+    // keystroke, and the Studio's slice keys are keystrokes): selection is
+    // the fill, the ring is for focus reached by keyboard. The arrow keys
+    // are not the group's in that state either (see `pointerFocus`).
+    'group-data-[pointer-focus]/segmented:focus-visible:outline-none group-data-[pointer-focus]/segmented:focus-visible:shadow-none',
     DISABLED,
   ],
   {
@@ -140,7 +146,30 @@ export const SegmentedControl = forwardRef<HTMLDivElement, SegmentedControlProps
     // Focus that came from a pointer press: the arrow keys are then the
     // view's (slice stepping), not the group's (QA F24). Reaching the group
     // with Tab restores the APG arrow-key selection.
+    //
+    // The mark is made only when a press actually puts focus on a segment. A
+    // press that moves no focus (a disabled segment, the group's border, and
+    // every press in macOS WKWebView, where a click does not focus a button)
+    // leaves none, so a later Tab into the group gets its ring and arrows.
+    // Tab, Home and End are keyboard use of the group and remove the mark.
     const pointerFocus = useRef(false);
+    // A press is under way: focus arriving before its release is the press's.
+    const pressPending = useRef(false);
+    const endPress = useRef(() => {
+      pressPending.current = false;
+    }).current;
+    useEffect(
+      () => () => {
+        window.removeEventListener('pointerup', endPress, true);
+        window.removeEventListener('pointercancel', endPress, true);
+      },
+      [endPress],
+    );
+    const markPointerFocus = (group: Element | null, on: boolean) => {
+      pointerFocus.current = on;
+      if (on) group?.setAttribute('data-pointer-focus', '');
+      else group?.removeAttribute('data-pointer-focus');
+    };
     const named = Boolean(rest['aria-label'] || rest['aria-labelledby']);
     useEffect(() => {
       if (import.meta.env.DEV && !named) {
@@ -182,6 +211,8 @@ export const SegmentedControl = forwardRef<HTMLDivElement, SegmentedControlProps
     const stop = enabled.some((o) => o.value === value) ? value : enabled[0]?.value;
 
     const onKeyDown = (current: string) => (e: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (e.key === 'Tab' || e.key === 'Home' || e.key === 'End')
+        markPointerFocus(e.currentTarget.closest('[role="radiogroup"]'), false);
       if (enabled.length === 0) return;
       if (pointerFocus.current && e.key.startsWith('Arrow')) return;
       const i = enabled.findIndex((o) => o.value === current);
@@ -216,17 +247,36 @@ export const SegmentedControl = forwardRef<HTMLDivElement, SegmentedControlProps
         aria-disabled={disabled || undefined}
         data-activation={activation}
         className={cn(
-          'inline-flex items-stretch rounded-sm border border-bf-border',
+          'group/segmented inline-flex items-stretch rounded-sm border border-bf-border',
           fullWidth && 'flex w-full',
           className,
         )}
         {...rest}
         onPointerDown={(e) => {
-          pointerFocus.current = true;
+          const group = e.currentTarget;
+          const pressed = (e.target as Element | null)?.closest?.('[role="radio"]') ?? null;
+          if (pressed && pressed === document.activeElement && group.contains(pressed)) {
+            // Focus is already on the pressed segment: no focus event follows.
+            markPointerFocus(group, true);
+          } else {
+            pressPending.current = true;
+            window.addEventListener('pointerup', endPress, { capture: true, once: true });
+            window.addEventListener('pointercancel', endPress, { capture: true, once: true });
+          }
           rest.onPointerDown?.(e);
         }}
+        onFocus={(e) => {
+          // Focus the press brought in is pointer focus; any other arrival
+          // (Tab, a programmatic move) is the keyboard's.
+          markPointerFocus(e.currentTarget, pressPending.current);
+          pressPending.current = false;
+          rest.onFocus?.(e);
+        }}
         onBlur={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) pointerFocus.current = false;
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+            pressPending.current = false;
+            markPointerFocus(e.currentTarget, false);
+          }
           rest.onBlur?.(e);
         }}
       >

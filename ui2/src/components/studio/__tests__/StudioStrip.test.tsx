@@ -1,31 +1,36 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { StudioStrip } from '../StudioStrip';
 
 afterEach(cleanup);
 
-describe('StudioStrip population feedback', () => {
-  it('explains hidden focus while allowing another individual to be focused', () => {
-    const onSelectMember = vi.fn();
-    render(
-      <StudioStrip memberIds={['S002']} activeMemberId="S001" onSelectMember={onSelectMember} />,
-    );
-    expect(screen.getByRole('status').textContent).toContain('S001');
-    expect(screen.getByRole('status').textContent).toContain('hidden by list filters');
-    fireEvent.click(screen.getByRole('option', { name: 'S002' }));
-    expect(onSelectMember).toHaveBeenCalledWith('S002');
+const ids = ['sub-1002', 'sub-1003'];
+
+describe('StudioStrip in the Population lens (showMembers false)', () => {
+  it('renders nothing when it has no context to say: the montage and Summary are the navigation', () => {
+    render(<StudioStrip memberIds={ids} activeMemberId="sub-1002" onSelectMember={vi.fn()} showMembers={false} />);
+    expect(screen.queryByRole('region', { name: 'Set studio strip' })).toBeNull();
+    expect(screen.queryByRole('listbox', { name: 'Members' })).toBeNull();
   });
 
-  it('shows the metadata error instead of suggesting focus is only hidden by search', () => {
+  it('keeps its context (filters, issues) without the member cards', () => {
     render(
       <StudioStrip
-        memberIds={[]}
-        activeMemberId="S001"
-        contextIssue="Metadata is incomplete."
+        memberIds={ids}
+        activeMemberId="sub-1002"
         onSelectMember={vi.fn()}
+        filterLabels={['group=A']}
+        contextIssue="Two members are missing."
+        showMembers={false}
       />,
     );
-    expect(screen.getByRole('alert').textContent).toBe('Metadata is incomplete.');
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Set studio strip' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Two members are missing.');
+    expect(screen.queryByRole('listbox', { name: 'Members' })).toBeNull();
+  });
+
+  it('elsewhere lists the members as before', () => {
+    render(<StudioStrip memberIds={ids} activeMemberId="sub-1002" onSelectMember={vi.fn()} />);
+    expect(screen.getByRole('listbox', { name: 'Members' })).toBeInTheDocument();
   });
 });

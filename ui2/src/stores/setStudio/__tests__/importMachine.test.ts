@@ -549,6 +549,9 @@ describe('importReducer — confirm', () => {
       expect(bootstrap.payload.selection?.activeLens).toBe('population');
       expect(bootstrap.payload.set.id).toBe('fixture-set');
       expect(bootstrap.payload.set.importContract).toBe(candidate.contract);
+      // A newly opened set starts on its first member, in the order shown
+      // (it used to open on the third, a leftover of the demo session).
+      expect(bootstrap.payload.selection?.activeMemberId).toBe('sub001');
     }
   });
 

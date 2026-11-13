@@ -47,6 +47,11 @@ import { currentVoxelGridReference, snapWorldToVoxelCentre } from "@/utils/voxel
 enablePatches();
 
 const DEFAULT_WORKSPACE_KEY = "__default_workspace__";
+/**
+ * The app-wide crosshair visibility (the saved crosshair setting, mirrored in
+ * by `setCrosshairVisible`); null until the setting has been applied once.
+ */
+let crosshairVisiblePreference: boolean | null = null;
 
 // Declare global interface for store
 declare global {
@@ -90,7 +95,11 @@ function getInitialViewState(): ViewState {
     views: defaultViews,
     crosshair: {
       world_mm: [0, 0, 0],
-      visible: true,
+      // The app-wide setting (a reset keeps it).
+      visible:
+        crosshairVisiblePreference ??
+        useCrosshairSettingsStore.getState?.()?.settings.visible ??
+        true,
     },
     layers: [],
     // The backend refuses a render of a 4D layer without a timepoint (error
@@ -287,10 +296,21 @@ const createViewStateStore = () =>
               applyViewStateUpdate(updater, workspaceId ?? getCurrentWorkspaceKey());
             },
 
+            // The crosshair setting is app-wide: every workspace shows it or
+            // none does, and a workspace opened later starts the same way
+            // (syncWithWorkspaceStore reads crosshairVisiblePreference).
             setCrosshairVisible: (visible) => {
-              applyViewStateUpdate((state) => {
-                state.crosshair.visible = visible;
-              });
+              crosshairVisiblePreference = visible;
+              for (const key of Array.from(get().workspaceViewStates.keys())) {
+                applyViewStateUpdate((state) => {
+                  state.crosshair.visible = visible;
+                }, key);
+              }
+              // One setting: a change from the View menu or a service is
+              // saved, so the views that read the saved setting (Population,
+              // the scatter peek) and the next session agree.
+              const saved = useCrosshairSettingsStore.getState();
+              if (saved.settings.visible !== visible) saved.updateSettings({ visible });
             },
 
             setCrosshair: async (
@@ -892,6 +912,18 @@ export const useViewStateStore: ReturnType<typeof createViewStateStore> =
 
       let nextViewState =
         nextWorkspaceViewStates.get(nextActiveKey) ?? getInitialViewState();
+      // A workspace seeded before the crosshair setting was known (or from
+      // the defaults) takes the setting, as every other workspace has.
+      if (
+        crosshairVisiblePreference !== null &&
+        nextViewState.crosshair.visible !== crosshairVisiblePreference
+      ) {
+        nextViewState = {
+          ...nextViewState,
+          crosshair: { ...nextViewState.crosshair, visible: crosshairVisiblePreference },
+        };
+        nextWorkspaceViewStates.set(nextActiveKey, nextViewState);
+      }
       let nextViewStateRevisions =
         nextWorkspaceViewStateRevisions.get(nextActiveKey) ??
         createInitialViewStateRevisions();

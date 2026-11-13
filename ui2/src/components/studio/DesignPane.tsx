@@ -1,5 +1,10 @@
 import { cn } from '@/utils/cn';
 import { studioMetadata } from '@/services/studio/studioMetadata';
+import {
+  designPanelModel,
+  memberImagesText,
+  type DesignMemberImages,
+} from '@/services/studio/designPanelModel';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { findScrollContainer, scrollIntoContainer } from '@/utils/scrollIntoContainer';
 import {
@@ -10,6 +15,7 @@ import {
   Notice,
   Pager,
   Section,
+  SegmentedControl,
   SELECTED,
   Select,
   TextField,
@@ -31,6 +37,8 @@ interface DesignPaneProps {
   headerActions?: React.ReactNode;
   cohorts: StudioCohortSummary[];
   activeMemberId: string | null;
+  /** The image the set is showing (a feature id or image name), marked in the summary. */
+  activeImage?: string | null;
   activeCompareCohortId?: string | null;
   activeScopeCohortId?: string | null;
   activeIssueMemberIds?: string[];
@@ -66,6 +74,16 @@ interface DesignPaneProps {
   onSelectJoinIssue?: (issue: StudioJoinIssueDetail) => void;
   onSaveIssueFocusAsCohort?: () => void;
   onUseIssueFocusInCompare?: () => void;
+  /**
+   * In the Population lens the list follows the lens's order (or lists by
+   * ID); its own Sort is hidden so the two orders cannot disagree.
+   */
+  lensOrder?: {
+    value: 'montage' | 'id';
+    onChange: (value: 'montage' | 'id') => void;
+    /** The lens's order, in words ("Similarity order"). */
+    label: string | null;
+  } | null;
 }
 
 export function DesignPane({
@@ -73,6 +91,7 @@ export function DesignPane({
   headerActions,
   cohorts,
   activeMemberId,
+  activeImage,
   activeCompareCohortId,
   activeScopeCohortId,
   activeIssueMemberIds,
@@ -105,6 +124,7 @@ export function DesignPane({
   onSelectJoinIssue,
   onSaveIssueFocusAsCohort,
   onUseIssueFocusInCompare,
+  lensOrder = null,
 }: DesignPaneProps) {
   const [page, setPage] = useState(0);
   // A row picked while the distance ranking is shown; until then "Open in
@@ -182,15 +202,54 @@ export function DesignPane({
   }
 
   const metadata = studioMetadata(activeSet, []);
-  const previewColumns = metadata.columns;
+  const model = designPanelModel(activeSet, metadata);
+  // The images column is never shown raw: it is dropped when every member has
+  // the same images, and is a per-member completeness cell (kept in view as
+  // the last column) when they differ.
+  const designColumns = model.columns.filter((column) => column.kind !== 'images');
+  const imagesColumn = model.columns.find((column) => column.kind === 'images');
+  const visibleColumns = imagesColumn
+    ? [...designColumns.slice(0, 3), imagesColumn]
+    : designColumns.slice(0, 4);
+  // Sorting by the images column is offered only when it says something.
+  const sortColumns = metadata.columns.filter(
+    (column) =>
+      column !== model.imagesColumn || !model.uniformImages || column === sortColumn,
+  );
   const orderedIds = visibleMemberIds ?? activeSet.memberIds;
-  const previewRows = orderedIds.flatMap(id => {
+  const previewRows = orderedIds.flatMap((id) => {
     const values = metadata.rows.get(id);
-    return values ? [{ id, cells: previewColumns.map(column => values[column]) }] : [];
+    if (!values) return [];
+    const images = model.memberImages(id);
+    return [
+      {
+        id,
+        images,
+        cells: visibleColumns.map((column) =>
+          column.key === null ? (images ? memberImagesText(images) : '—') : values[column.key],
+        ),
+      },
+    ];
   });
   const pageCount = Math.max(1, Math.ceil(previewRows.length / 80));
   const currentPage = Math.min(page, pageCount - 1);
-  const visibleColumns = previewColumns.slice(0, 4);
+  // A quick filter is offered only for a column that splits the members.
+  const filterGroups = (quickFilterOptions ?? []).filter((option) =>
+    model.partitions(option.column),
+  );
+  const shownImage =
+    activeImage == null
+      ? null
+      : (model.images.find((image) => image.name === activeImage)?.name ??
+        activeSet.memberSummaries
+          .flatMap((member) => member.bindings ?? [])
+          .find((binding) => binding.featureId === activeImage)?.role ??
+        null);
+  // One image and no images column says nothing the Deck does not.
+  const showImages =
+    model.images.length > 1 || (model.images.length === 1 && model.imagesColumn !== null);
+  const listedImages = model.images.slice(0, IMAGE_TOKEN_LIMIT);
+  const unlistedImages = model.images.slice(IMAGE_TOKEN_LIMIT);
   const distanceSort = sortColumn === DISTANCE_TO_MEAN_SORT;
   const distances = distanceSort && meanDistance?.status === 'ready' ? meanDistance.byMember : null;
   const picked =
@@ -213,20 +272,31 @@ export function DesignPane({
   // and short codes ("F", "22") stay narrow, instead of four equal columns
   // that either overlap ("diagnosis" ran into "sex") or truncate ids.
   const pageRows = previewRows.slice(currentPage * 80, (currentPage + 1) * 80);
+  // A lone member-id column is a member list, not a one-column table: no
+  // header row reading "Member" above the ids.
+  const showHeaderRow = !(
+    visibleColumns.length === 1 &&
+    visibleColumns[0].kind === 'member' &&
+    !distances
+  );
   const columnTemplate =
     (visibleColumns.length === 0
       ? 'minmax(0, 1fr)'
       : visibleColumns
           .map((column, index) => {
             const longest = Math.max(
-              column.length,
+              showHeaderRow ? column.label.length : 0,
               ...pageRows.map((row) => String(row.cells[index] ?? '').length),
             );
             return `minmax(0, ${Math.min(24, Math.max(3, longest))}fr)`;
           })
           // The distance ("1.41 (0.23)") keeps its width in a narrow rail.
           .join(' ')) + (distances ? ' minmax(7.5rem, 9fr)' : '');
-  const showColumns = activeSet.designColumns.length > 0;
+  // The user's own columns; the synthesized member-id and images columns are not listed.
+  const listedColumns = activeSet.designColumns.filter(
+    (column) => column !== model.imagesColumn && column !== model.memberColumn,
+  );
+  const showColumns = listedColumns.length > 0;
   const showGroups = cohorts.length > 0;
 
   return (
@@ -237,6 +307,48 @@ export function DesignPane({
     >
       <div ref={rootRef} className="space-y-3">
         {metadata.issue && <Notice role="alert" severity="danger">{metadata.issue}</Notice>}
+        {showImages ? (
+          <div className="space-y-1.5" data-testid="design-images-summary">
+            <div className="text-bf-sm text-muted-foreground">
+              {countOf(activeSet.memberIds.length, 'member')} ·{' '}
+              {countOf(model.images.length, 'image')}
+              {model.uniformImages ? (
+                ' each'
+              ) : (
+                <>
+                  {' · '}
+                  <span className="font-medium text-foreground">
+                    {model.incompleteMembers} incomplete
+                  </span>
+                </>
+              )}
+            </div>
+            <ul aria-label="Images" className="flex flex-wrap gap-1.5">
+              {listedImages.map((image) => {
+                const shown = image.name === shownImage;
+                return (
+                  <li key={image.name} className="flex min-w-0" aria-current={shown || undefined}>
+                    <Chip
+                      mono
+                      title={shown ? `${image.name} (shown)` : image.name}
+                      className={shown ? 'font-medium text-foreground' : undefined}
+                    >
+                      {image.short}
+                      {shown ? <span className="font-sans font-normal"> · shown</span> : null}
+                    </Chip>
+                  </li>
+                );
+              })}
+              {unlistedImages.length > 0 ? (
+                <li className="flex min-w-0">
+                  <Chip title={unlistedImages.map((image) => image.name).join('\n')}>
+                    {`+${unlistedImages.length} more`}
+                  </Chip>
+                </li>
+              ) : null}
+            </ul>
+          </div>
+        ) : null}
         {showImportSummary ? (
           <Section
             variant="static"
@@ -302,7 +414,28 @@ export function DesignPane({
           placeholder="Search design rows or member IDs…"
         />
 
-        {previewColumns.length > 0 ? (
+        {lensOrder ? (
+          <div className="flex flex-col gap-1" aria-label="Subjects order" role="group">
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-bf-xs text-muted-foreground">Order</span>
+              <SegmentedControl
+                aria-label="Subjects order"
+                hideWhenSingle={false}
+                options={[
+                  { value: 'montage', label: 'Montage' },
+                  { value: 'id', label: 'ID' },
+                ]}
+                value={lensOrder.value}
+                onValueChange={(value) => lensOrder.onChange(value as 'montage' | 'id')}
+              />
+            </div>
+            <p className="m-0 text-bf-xs text-muted-foreground" role="status">
+              {lensOrder.value === 'montage'
+                ? `Same order as the montage${lensOrder.label ? `: ${lensOrder.label}` : ''}`
+                : 'By subject ID'}
+            </p>
+          </div>
+        ) : sortColumns.length > 0 ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <label className="flex min-w-0 flex-1 items-center gap-2">
               <span className="shrink-0 text-bf-xs text-muted-foreground">Sort</span>
@@ -311,9 +444,9 @@ export function DesignPane({
                 onValueChange={(value) => onSortColumnChange?.(value || null)}
               >
                 <option value="">Design order</option>
-                {previewColumns.map((column) => (
+                {sortColumns.map((column) => (
                   <option key={column} value={column}>
-                    {column}
+                    {model.columnLabel(column)}
                   </option>
                 ))}
                 {activeSet.supportKind === 'volume' ? (
@@ -335,7 +468,7 @@ export function DesignPane({
           </div>
         ) : null}
 
-        {distanceSort ? (
+        {distanceSort && !lensOrder ? (
           <div className="flex flex-wrap items-center justify-between gap-2" aria-label="Distance to group mean">
             <div role="status" className="min-w-0 text-bf-sm text-muted-foreground">
               {meanDistance?.status === 'ready'
@@ -425,7 +558,7 @@ export function DesignPane({
                       onRemoveDesignFilter?.(filter);
                     }}
                   >
-                    {filter.column}={filter.value}
+                    {filter.column === model.imagesColumn ? 'images' : filter.column}={filter.value}
                   </FilterChip>
                 ))}
               </div>
@@ -459,7 +592,7 @@ export function DesignPane({
           </Button>
         </div>
 
-        {quickFilterOptions && quickFilterOptions.length > 0 ? (
+        {filterGroups.length > 0 ? (
           <Section
             variant="static"
             title="Filters"
@@ -468,7 +601,7 @@ export function DesignPane({
             data-filter-group="filters"
             className="outline-none"
           >
-            {quickFilterOptions.map((option) => (
+            {filterGroups.map((option) => (
               <div key={option.column} role="group" aria-label={option.column}>
                 <div className="text-bf-xs text-muted-foreground">{option.column}</div>
                 <div className="mt-1 flex flex-wrap gap-1.5">
@@ -502,23 +635,28 @@ export function DesignPane({
         ) : null}
 
         {showPreview ? (
-          <div className="rounded-sm border border-border bg-background">
-            <div
-              className="grid gap-3 border-b border-border px-3 py-2 text-bf-sm text-muted-foreground"
-              style={{ gridTemplateColumns: columnTemplate }}
-            >
-              {/* Truncate so a long header ("diagnosis") never runs into its neighbour. */}
-              {visibleColumns.map((column) => (
-                <span key={column} className="min-w-0 truncate" title={column}>
-                  {column}
-                </span>
-              ))}
-              {distances ? (
-                <span className="min-w-0 truncate text-right" title="Euclidean distance to the group mean (correlation distance 1 − r)">
-                  Distance
-                </span>
-              ) : null}
-            </div>
+          <div
+            className="rounded-sm border border-border bg-background"
+            {...(showHeaderRow ? {} : { role: 'group', 'aria-label': 'Members' })}
+          >
+            {showHeaderRow ? (
+              <div
+                className="grid gap-3 border-b border-border px-3 py-2 text-bf-sm text-muted-foreground"
+                style={{ gridTemplateColumns: columnTemplate }}
+              >
+                {/* Truncate so a long header ("diagnosis") never runs into its neighbour. */}
+                {visibleColumns.map((column) => (
+                  <span key={column.key ?? 'images'} className="min-w-0 truncate" title={column.label}>
+                    {column.label}
+                  </span>
+                ))}
+                {distances ? (
+                  <span className="min-w-0 truncate text-right" title="Euclidean distance to the group mean (correlation distance 1 − r)">
+                    Distance
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             {pageRows.map((row) => (
               <button
                 key={row.id}
@@ -537,11 +675,18 @@ export function DesignPane({
                 }`}
                 style={{ gridTemplateColumns: columnTemplate }}
               >
-                {row.cells.slice(0, visibleColumns.length).map((cell, index) => (
-                  <span key={`${row.id}-${visibleColumns[index] ?? index}`} className="min-w-0 truncate">
-                    {cell}
-                  </span>
-                ))}
+                {row.cells.map((cell, index) =>
+                  visibleColumns[index].kind === 'images' ? (
+                    <ImagesCell key={`${row.id}-images`} images={row.images} />
+                  ) : (
+                    <span
+                      key={`${row.id}-${visibleColumns[index].key}`}
+                      className="min-w-0 truncate"
+                    >
+                      {cell}
+                    </span>
+                  ),
+                )}
                 {distances ? (
                   <DistanceCell distance={distances.get(row.id)} />
                 ) : null}
@@ -562,9 +707,9 @@ export function DesignPane({
         ) : null}
 
         {showColumns ? (
-          <Section title="Columns" defaultOpen={false} meta={String(activeSet.designColumns.length)}>
+          <Section title="Columns" defaultOpen={false} meta={String(listedColumns.length)}>
             <div className="flex flex-wrap gap-1.5">
-              {activeSet.designColumns.map((column) => (
+              {listedColumns.map((column) => (
                 <Chip key={column} mono>
                   {column}
                 </Chip>
@@ -599,7 +744,7 @@ export function DesignPane({
                       </div>
                       <div className="flex flex-col items-end gap-1 text-bf-xs">
                         {cohort.id === activeCompareCohortId ? (
-                          <Chip>Compare</Chip>
+                          <Chip>B</Chip>
                         ) : null}
                         {cohort.id === activeScopeCohortId ? (
                           <Chip>Scope</Chip>
@@ -612,8 +757,9 @@ export function DesignPane({
                         size="sm"
                         onClick={() => onUseCompareCohort?.(cohort.id)}
                         disabled={cohort.id === activeCompareCohortId}
+                        title="Compare and test: use this group as B"
                       >
-                        Compare
+                        Use as B
                       </Button>
                       <Button
                         variant="ghost"
@@ -645,6 +791,40 @@ export function DesignPane({
         ) : null}
       </div>
     </StudioPane>
+  );
+}
+
+/** Image tokens listed before the rest fold into "+N more". */
+const IMAGE_TOKEN_LIMIT = 12;
+
+function countOf(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+/**
+ * A member's images when members differ: "3 of 3", or "2 of 3 · missing
+ * temporal_dist". An incomplete member differs in weight and in words, not
+ * in hue.
+ */
+function ImagesCell({ images }: { images: DesignMemberImages | null }) {
+  if (!images)
+    return (
+      <span className="min-w-0 truncate text-muted-foreground" title="Images not listed">
+        —
+      </span>
+    );
+  const count = `${images.present} of ${images.total}`;
+  if (images.missing.length === 0)
+    return <span className="min-w-0 truncate tabular-nums text-muted-foreground">{count}</span>;
+  return (
+    <span
+      className="min-w-0 truncate"
+      title={`Missing ${images.missing.map((image) => image.name).join(', ')}`}
+    >
+      <span className="font-medium tabular-nums">{count}</span>
+      {' · missing '}
+      {images.missing.map((image) => image.short).join(', ')}
+    </span>
   );
 }
 

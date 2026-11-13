@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sidecar card for one image file</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 500px; height: 620px; box-sizing: border-box; background: #2a2b2f; color: #e9eaec; border: 1px solid rgba(255,255,255,0.28); border-radius: 3px; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; line-height: 20px; display: flex; flex-direction: column">
+
+<div style="padding: 16px 16px 14px 20px; display: flex; gap: 12px; align-items: flex-start; border-bottom: 1px solid rgba(255,255,255,0.08)">
+<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 20px; font-weight: 500; overflow-wrap: anywhere">sub-1006_task-recog_contrast-sameitem_stat-beta.nii.gz</h1>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; color: #a4a7ad">glm_recog/sub-1006/enc_rep/maps</span>
+</div>
+<button type="button" aria-label="Close" style="width: 26px; height: 26px; padding: 0; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid transparent; border-radius: 2px">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#bdbfc4" stroke-width="1.4"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg>
+</button>
+</div>
+
+<div style="flex-grow: 1; padding: 16px 20px; display: flex; flex-direction: column; gap: 16px; overflow: hidden">
+
+<section style="display: flex; flex-direction: column; gap: 8px">
+<h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; color: #a4a7ad">Image</h2>
+<div style="display: grid; grid-template-columns: 132px minmax(0, 1fr); row-gap: 4px; font-size: 12px; line-height: 18px">
+<span style="color: #a4a7ad">Grid</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px">97 × 115 × 97 · 2.00 mm</span>
+<span style="color: #a4a7ad">Data type</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px">float32</span>
+</div>
+<span style="font-size: 11px; line-height: 16px; color: #a4a7ad">Read from the image header.</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: baseline; justify-content: space-between">
+<h2 style="margin: 0; font-size: 11px; line-height: 16px; font-weight: 500; color: #a4a7ad">Sidecar metadata</h2>
+<span style="font-size: 11px; line-height: 16px; color: #a4a7ad">merged from 3 files</span>
+</div>
+
+<div style="border: 1px solid rgba(255,255,255,0.16); border-radius: 2px; display: flex; flex-direction: column; font-size: 12px; line-height: 18px">
+
+<div style="display: grid; grid-template-columns: 132px minmax(0, 1fr) 72px; column-gap: 10px; align-items: baseline; padding: 7px 12px; border-bottom: 1px solid rgba(255,255,255,0.08)">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #bdbfc4">ContrastName</span>
+<span>same_item</span>
+<span style="font-size: 11px; line-height: 16px; padding: 0 6px; border: 1px solid rgba(255,255,255,0.38); border-radius: 2px; justify-self: start">This file</span>
+</div>
+<div style="display: grid; grid-template-columns: 132px minmax(0, 1fr) 72px; column-gap: 10px; align-items: baseline; padding: 7px 12px; border-bottom: 1px solid rgba(255,255,255,0.08)">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #bdbfc4">StatisticType</span>
+<span>Beta estimate</span>
+<span style="font-size: 11px; line-height: 16px; padding: 0 6px; border: 1px solid rgba(255,255,255,0.38); border-radius: 2px; justify-self: start">This file</span>
+</div>
+<div style="display: grid; grid-template-columns: 132px minmax(0, 1fr) 72px; column-gap: 10px; align-items: baseline; padding: 7px 12px; border-bottom: 1px solid rgba(255,255,255,0.08)">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #bdbfc4">Sources</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; overflow-wrap: anywhere">bids:fmriprep:sub-1006/func/sub-1006_task-recog_desc-preproc_bold.nii.gz</span>
+<span style="font-size: 11px; line-height: 16px; padding: 0 6px; border: 1px solid rgba(255,255,255,0.38); border-radius: 2px; justify-self: start">This file</span>
+</div>
+<div style="display: grid; grid-template-columns: 132px minmax(0, 1fr) 72px; column-gap: 10px; align-items: baseline; padding: 7px 12px; border-bottom: 1px solid rgba(255,255,255,0.08)">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #bdbfc4">SkullStripped</span>
+<span>true</span>
+<span style="font-size: 11px; line-height: 16px; padding: 0 6px; border: 1px dashed rgba(255,255,255,0.38); border-radius: 2px; color: #bdbfc4; justify-self: start">Subject</span>
+</div>
+<div style="display: grid; grid-template-columns: 132px minmax(0, 1fr) 72px; column-gap: 10px; align-items: baseline; padding: 7px 12px; border-bottom: 1px solid rgba(255,255,255,0.08)">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #bdbfc4">TaskName</span>
+<span>recog</span>
+<span style="font-size: 11px; line-height: 16px; padding: 0 6px; border: 1px dotted rgba(255,255,255,0.38); border-radius: 2px; color: #bdbfc4; justify-self: start">Dataset</span>
+</div>
+<div style="display: grid; grid-template-columns: 132px minmax(0, 1fr) 72px; column-gap: 10px; align-items: baseline; padding: 7px 12px; border-bottom: 1px solid rgba(255,255,255,0.08)">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #bdbfc4">RepetitionTime</span>
+<span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px">1.5</span> s</span>
+<span style="font-size: 11px; line-height: 16px; padding: 0 6px; border: 1px dotted rgba(255,255,255,0.38); border-radius: 2px; color: #bdbfc4; justify-self: start">Dataset</span>
+</div>
+<div style="display: grid; grid-template-columns: 132px minmax(0, 1fr) 72px; column-gap: 10px; align-items: baseline; padding: 7px 12px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #bdbfc4">SpatialReference</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px">MNI152NLin2009cAsym</span>
+<span style="font-size: 11px; line-height: 16px; padding: 0 6px; border: 1px dotted rgba(255,255,255,0.38); border-radius: 2px; color: #bdbfc4; justify-self: start">Dataset</span>
+</div>
+
+</div>
+<span style="font-size: 11px; line-height: 16px; color: #a4a7ad">The tag shows which level a value comes from. A value set closer to the file replaces one set higher up.</span>
+</section>
+
+</div>
+
+<div style="padding: 12px 20px; display: flex; align-items: center; gap: 8px; border-top: 1px solid rgba(255,255,255,0.16); background: #222326; border-radius: 0 0 3px 3px">
+<span style="flex-grow: 1; font-size: 11px; line-height: 16px; color: #a4a7ad">Hover a tag to see the file it names</span>
+<button type="button" style="height: 28px; padding: 0 10px; background: #2a2b2f; color: #e9eaec; border: 1px solid rgba(255,255,255,0.28); border-radius: 2px; font: inherit; font-size: 12px">Show raw JSON</button>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":500,"height":620}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

@@ -56,6 +56,23 @@ describe('pinned cluster probe across a cluster recompute', () => {
     expect(issue).toHaveBeenCalledWith(expect.stringMatching(/cluster table changed/));
   });
 
+  it('returns the probe to a point before reporting, so the issue is keyed to the pin it leaves', () => {
+    const clear = vi.spyOn(populationProbeActions, 'clearRegion');
+    useClusterStore.setState({ result: result('v1', [cluster(1, [-39.5, -19.5, 50.5])]) });
+    pinCluster('v1', 1);
+    let pinnedAtIssue: unknown = 'unset';
+    const issue = vi.fn(() => {
+      pinnedAtIssue = useSetStudioStore.getState().population.pinnedProbe;
+    });
+    const stop = populationProbeActions.followClusterTable(issue);
+    useClusterStore.setState({ result: result('v3', [cluster(1, [42.5, -59.5, -9.5])]) });
+    stop();
+    expect(clear.mock.invocationCallOrder[0]).toBeLessThan(issue.mock.invocationCallOrder[0]);
+    // The issue sees the point probe that stays on screen, not the vanished cluster.
+    expect(pinnedAtIssue).toMatchObject({ region: null });
+    expect(pinnedAtIssue).toBe(useSetStudioStore.getState().population.pinnedProbe);
+  });
+
   it('a probe already stale when a panel starts listening is resolved at once', () => {
     const clear = vi.spyOn(populationProbeActions, 'clearRegion').mockImplementation(() => undefined);
     useClusterStore.setState({ result: result('v9', [cluster(1, [-39.5, -19.5, 50.5])]) });

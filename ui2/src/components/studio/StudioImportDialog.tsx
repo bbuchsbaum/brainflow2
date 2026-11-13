@@ -364,7 +364,7 @@ export function StudioImportDialog() {
                             checked={discoverySampleHeaders}
                             onChange={(event) => setDiscoverySampleHeaders(event.target.checked)}
                           />
-                          Sample headers
+                          Check image grids before opening
                         </label>
                         <DiscoveryRoleMappingControls
                           rolePatterns={discoveryRolePatterns}

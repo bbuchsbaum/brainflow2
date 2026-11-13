@@ -8,6 +8,8 @@ Default permissions for api-bridge plugin
 - `allow-dispose-module-workspace`
 - `allow-get-render-capabilities`
 - `allow-cancel-remote-file-load`
+- `allow-fetch-studio-sources`
+- `allow-cancel-studio-source-fetch`
 - `allow-load-file`
 - `allow-load-surface`
 - `allow-unload-surface`
@@ -22,6 +24,9 @@ Default permissions for api-bridge plugin
 - `allow-wait-for-layer-ready`
 - `allow-release-layer-gpu-resources`
 - `allow-fs-list-directory`
+- `allow-probe-dataset-markers`
+- `allow-get-dataset-card`
+- `allow-get-sidecar-card`
 - `allow-list-remote-mounts`
 - `allow-list-remote-directory`
 - `allow-init-render-loop`
@@ -407,6 +412,32 @@ Enables the cancel_set_studio_materialization command without any pre-configured
 <td>
 
 Denies the cancel_set_studio_materialization command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-cancel-studio-source-fetch`
+
+</td>
+<td>
+
+Enables the cancel_studio_source_fetch command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-cancel-studio-source-fetch`
+
+</td>
+<td>
+
+Denies the cancel_studio_source_fetch command without any pre-configured scope.
 
 </td>
 </tr>
@@ -804,6 +835,32 @@ Denies the export_population_summary command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-fetch-studio-sources`
+
+</td>
+<td>
+
+Enables the fetch_studio_sources command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-fetch-studio-sources`
+
+</td>
+<td>
+
+Denies the fetch_studio_sources command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-fit-population-relationship`
 
 </td>
@@ -1194,6 +1251,32 @@ Denies the get_bids_slice command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-get-dataset-card`
+
+</td>
+<td>
+
+Enables the get_dataset_card command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-dataset-card`
+
+</td>
+<td>
+
+Denies the get_dataset_card command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-get-favorite-atlases`
 
 </td>
@@ -1421,6 +1504,32 @@ Enables the get_set_studio_materialization_status command without any pre-config
 <td>
 
 Denies the get_set_studio_materialization_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-sidecar-card`
+
+</td>
+<td>
+
+Enables the get_sidecar_card command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-sidecar-card`
+
+</td>
+<td>
+
+Denies the get_sidecar_card command without any pre-configured scope.
 
 </td>
 </tr>
@@ -2383,6 +2492,32 @@ Enables the probe_bids_directory command without any pre-configured scope.
 <td>
 
 Denies the probe_bids_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-probe-dataset-markers`
+
+</td>
+<td>
+
+Enables the probe_dataset_markers command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-probe-dataset-markers`
+
+</td>
+<td>
+
+Denies the probe_dataset_markers command without any pre-configured scope.
 
 </td>
 </tr>

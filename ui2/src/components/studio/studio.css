@@ -1,0 +1,52 @@
+/* Set studio chrome that answers to its own width, not the window's.
+ *
+ * The Studio's centre column is narrow in a three-column layout while the
+ * window is wide, so viewport breakpoints (`lg:`) describe the wrong box.
+ * Each element below is its own size container (as file rows are,
+ * FileTreeRow.css): no observer per pane. */
+
+/* ── Compare pane ─────────────────────────────────────────────────────────
+ * The pane's subject (the member, the group, "Residual") keeps the header
+ * and is the last thing to truncate. Secondary text (what the pane computes,
+ * provenance chips) goes first. */
+.studio-compare-pane {
+  container: studio-pane / inline-size;
+}
+
+@container studio-pane (max-width: 340px) {
+  .studio-compare-pane .studio-pane-secondary {
+    display: none;
+  }
+}
+
+/* Narrower still: the status keeps its glyph and drops its word (the word
+ * stays in the accessible name and the tooltip). */
+@container studio-pane (max-width: 220px) {
+  .studio-compare-pane .studio-pane-status-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* ── Set header ───────────────────────────────────────────────────────────
+ * The set's name is read first. Where it lives and the audit facts are
+ * secondary and leave before the name is shortened. */
+.studio-set-header {
+  container: studio-header / inline-size;
+}
+
+@container studio-header (max-width: 720px) {
+  .studio-set-header .studio-header-secondary {
+    display: none;
+  }
+}
+
+@container studio-header (max-width: 520px) {
+  .studio-set-header .studio-header-tertiary {
+    display: none;
+  }
+}

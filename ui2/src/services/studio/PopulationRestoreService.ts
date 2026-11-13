@@ -1,3 +1,4 @@
+import { operandsKey } from './populationInference';
 import { populationPlotService } from './PopulationPlotService';
 import {
   populationRelationshipService,
@@ -14,6 +15,7 @@ import type {
 import { comparableGroups, validatePopulationPartition } from './populationGroups';
 import type { StudioCohortSummary, SpatialFieldSetSummary } from '@/types/studio';
 import type { PopulationSliceRequest } from './PopulationSliceService';
+import { templateSourcePath } from './studioBackground';
 import { invokeCancelable } from './PopulationExportService';
 import { getTransport } from '@/services/transport';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -436,6 +438,10 @@ export function preparePopulationRestore(
         }
       : null,
     inference: query.inference ? { ...query.inference, setId: id, featureId } : null,
+    // The restored test applies to the A and B it was saved with, and only to them.
+    inferenceOperands: query.inference
+      ? operandsKey(query.inference.method, query.workingMemberIds, query.reference?.memberIds ?? [])
+      : null,
     mask: query.mask ? { ...query.mask, setId: id } : null,
     referenceMode:
       selection.referenceMode === 'complement' &&
@@ -458,8 +464,13 @@ export function preparePopulationRestore(
       summaryLimit: positive(scale.summaryLimit),
     },
   };
+  // The anatomy saved with the calculation is the background again. A record
+  // without one leaves it to the set's space (which a saved grid never
+  // declares), so it reopens with none.
+  const background = templateSourcePath(query.underlay?.sourcePath);
   return {
     set,
+    ...(background ? { background } : {}),
     features: [
       {
         id: featureId,

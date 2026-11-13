@@ -43,6 +43,8 @@ import { PlotPanel } from '@/components/panels/PlotPanel';
 import { useDefaultPlotModeForActiveLayer } from '@/components/plots/plotMode.helpers';
 import { bottomDockOpenFor, useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
 
+const noSubscription = () => () => undefined;
+const noHeight = (): number | null => null;
 const DOCK_MAX_FRACTION = 0.7; // dock never exceeds 70% of the column
 const RESIZER_PX = 6;
 
@@ -58,6 +60,12 @@ export interface CenterWithBottomDockProps {
   /** A strip below the dock, across the whole column (`footerHeight` px tall). */
   footer?: React.ReactNode;
   footerHeight?: number;
+  /**
+   * The tab this tool's dock opens on (the Set studio: Values), whatever tab
+   * another tool's dock last showed. After that the tool follows the user's
+   * choice and any tab a command reveals. Other tools keep the shared default.
+   */
+  initialTab?: string;
 }
 
 export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
@@ -66,11 +74,13 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
   extraTabs,
   footer,
   footerHeight = 0,
+  initialTab,
 }) => {
   // Shown or hidden per tool, like the height (QA 2026-10-31 N24).
   const open = useLayoutSettingsStore((s) => bottomDockOpenFor(s, heightKey));
-  const storedHeight =
-    useLayoutSettingsStore((s) => s.bottomDockHeights[heightKey]) ?? DOCK_HEIGHT_DEFAULTS[heightKey];
+  // A height the user dragged (absent until then); it wins over a tab's own.
+  const userHeight = useLayoutSettingsStore((s) => s.bottomDockHeights[heightKey]);
+  const storedHeight = userHeight ?? DOCK_HEIGHT_DEFAULTS[heightKey];
   const setBottomDockHeight = useLayoutSettingsStore((s) => s.setBottomDockHeight);
   const minDockHeight = dockHeightMin(heightKey);
   const setBottomDockOpen = useLayoutSettingsStore((s) => s.setBottomDockOpen);
@@ -78,6 +88,23 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
   const setBottomDockMinimized = useLayoutSettingsStore((s) => s.setBottomDockMinimized);
   const activeTab = useLayoutSettingsStore((s) => s.bottomDockActiveTab);
   const setActiveTab = useLayoutSettingsStore((s) => s.setBottomDockActiveTab);
+  // This tool's own tab while it has one: it starts on `initialTab` and then
+  // follows the user and commands (openDockTab writes the shared tab).
+  const [toolTab, setToolTab] = React.useState<string | null>(initialTab ?? null);
+  const seenTab = React.useRef(activeTab);
+  React.useEffect(() => {
+    if (seenTab.current === activeTab) return;
+    seenTab.current = activeTab;
+    if (initialTab !== undefined) setToolTab(activeTab ?? null);
+  }, [activeTab, initialTab]);
+  const shownTab = initialTab !== undefined ? (toolTab ?? activeTab) : activeTab;
+  const chooseTab = React.useCallback(
+    (tab: string) => {
+      if (initialTab !== undefined) setToolTab(tab);
+      setActiveTab(tab);
+    },
+    [initialTab, setActiveTab],
+  );
   const defaultPlotMode = useDefaultPlotModeForActiveLayer();
 
   const rootRef = React.useRef<HTMLDivElement>(null);
@@ -99,11 +126,22 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
     return () => ro.disconnect();
   }, []);
 
+  // A tab that sizes to its content (the Set studio's Values) asks for its
+  // body height while it is shown; a dragged height wins until reset.
+  const autoTab = extraTabs?.find((tab) => tab.id === (shownTab ?? DEFAULT_DOCK_TAB) && tab.autoHeight);
+  const autoBody = React.useSyncExternalStore(
+    autoTab?.autoHeight?.subscribe ?? noSubscription,
+    autoTab?.autoHeight?.getSnapshot ?? noHeight,
+    autoTab?.autoHeight?.getSnapshot ?? noHeight,
+  );
+  const autoHeight =
+    userHeight === undefined && autoBody !== null && autoBody > 0 ? DOCK_TAB_BAR_HEIGHT + autoBody : null;
+
   const maxDockHeight =
     rootHeight > 0
       ? Math.min(DOCK_HEIGHT_MAX, Math.max(DOCK_HEIGHT_MIN, rootHeight * DOCK_MAX_FRACTION))
       : DOCK_HEIGHT_MAX;
-  const dockHeight = Math.min(dragHeight ?? storedHeight, maxDockHeight);
+  const dockHeight = Math.min(dragHeight ?? autoHeight ?? storedHeight, maxDockHeight);
 
   // When minimized, the dock collapses to just its tab bar and is not resizable.
   const effectiveDockHeight = minimized ? DOCK_TAB_BAR_HEIGHT : dockHeight;
@@ -125,17 +163,21 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
         Math.max(DOCK_HEIGHT_MIN, rootRect.height * DOCK_MAX_FRACTION),
       );
       let latest = dockHeight;
+      // A press without a drag (or the first click of a double-click that
+      // resets the height) never remembers a height.
+      let moved = false;
 
       const onMove = (ev: PointerEvent) => {
         // Dock occupies the bottom; its top edge follows the pointer.
         const fromBottom = rootRect.bottom - footerOffset - ev.clientY - RESIZER_PX / 2;
         latest = Math.round(Math.max(minDockHeight, Math.min(maxPx, fromBottom)));
+        moved = true;
         setDragHeight(latest);
       };
       const onUp = () => {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
-        setBottomDockHeight(latest, heightKey);
+        if (moved) setBottomDockHeight(latest, heightKey);
         setDragHeight(null);
       };
       window.addEventListener('pointermove', onMove);
@@ -143,6 +185,16 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
     },
     [dockHeight, footer, footerHeight, heightKey, minDockHeight, setBottomDockHeight],
   );
+  // Double-click the resizer: forget the dragged height (the tool's default,
+  // or the tab's own size, applies again).
+  const resetHeight = React.useCallback(() => {
+    useLayoutSettingsStore.setState((state) => {
+      if (state.bottomDockHeights[heightKey] === undefined) return state;
+      const next = { ...state.bottomDockHeights };
+      delete next[heightKey];
+      return { bottomDockHeights: next };
+    });
+  }, [heightKey]);
 
   return (
     <div
@@ -180,6 +232,8 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
               aria-label="Resize bottom dock"
               data-testid="bottom-dock-resizer"
               onPointerDown={handleResizeStart}
+              onDoubleClick={resetHeight}
+              title="Drag to resize; double-click to reset"
               style={{
                 position: 'absolute',
                 left: 0,
@@ -209,8 +263,8 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
               log={<LogPanel />}
               clusters={<ClusterPanel />}
               extraTabs={extraTabs}
-              activeTab={activeTab ?? DEFAULT_DOCK_TAB}
-              onActiveTabChange={setActiveTab}
+              activeTab={shownTab ?? DEFAULT_DOCK_TAB}
+              onActiveTabChange={chooseTab}
               onClose={() => setBottomDockOpen(false, heightKey)}
               minimized={minimized}
               onMinimize={() => setBottomDockMinimized(true)}

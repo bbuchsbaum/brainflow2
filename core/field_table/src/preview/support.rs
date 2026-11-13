@@ -1,12 +1,44 @@
 use crate::neurotabs::{FeatureSchema, NeuroTabsManifest, SupportSchema};
 use bridge_types::{StudioAlignmentClass, StudioJoinIssueDetail, StudioSupportKind};
-use nifti::{NiftiObject, ReaderOptions};
+use nifti_loader::HeaderSummary;
 use std::path::Path;
 
-#[derive(Clone, Debug, PartialEq)]
+/// The voxel grid of a 3D member: its shape, voxel size and placement in world
+/// space. Two members share a grid only when [`Self::difference_from`] finds
+/// none, so there is deliberately no `PartialEq`.
+#[derive(Clone, Debug)]
 pub(super) struct TableSupportSignature {
     dims: [usize; 3],
     voxel_sizes: [f32; 3],
+    /// Voxel→world affine, as a load of the file would report it.
+    affine: nifti_loader::VoxelToWorld,
+}
+
+/// How a member's grid departs from the reference grid of its set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum GridDifference {
+    /// Different matrix size or voxel size.
+    Shape,
+    /// Same matrix and voxel size, placed or oriented differently in space.
+    Placement,
+}
+
+impl TableSupportSignature {
+    /// `None` when `self` is on the grid of `reference`.
+    ///
+    /// Placement is judged by `nifti_loader::affines_match`, the comparison
+    /// Population sampling applies to loaded members
+    /// (`api_bridge::population_slice::sample_row`), so a set audited as one
+    /// grid here is not refused there for its grid.
+    pub(super) fn difference_from(&self, reference: &Self) -> Option<GridDifference> {
+        if self.dims != reference.dims || self.voxel_sizes != reference.voxel_sizes {
+            Some(GridDifference::Shape)
+        } else if !nifti_loader::affines_match(&self.affine, &reference.affine) {
+            Some(GridDifference::Placement)
+        } else {
+            None
+        }
+    }
 }
 
 pub(super) fn table_support_label(signature: &TableSupportSignature) -> String {
@@ -22,40 +54,57 @@ pub(super) fn table_support_label(signature: &TableSupportSignature) -> String {
 }
 
 pub(super) fn inspect_table_volume_support(path: &Path) -> Result<TableSupportSignature, String> {
-    let (signature, frames) = inspect_volume_support_and_frames(path)?;
+    let label = path.display().to_string();
+    table_volume_support(&label, &read_local_header(path)?)
+}
+
+/// The grid signature of a 3D member from its header facts. Local files and
+/// headers read over a remote mount both come through here, so a set audited
+/// either way is judged by the same rule. `label` names the file in messages.
+pub(super) fn table_volume_support(
+    label: &str,
+    header: &HeaderSummary,
+) -> Result<TableSupportSignature, String> {
+    let (signature, frames) = volume_support_and_frames(label, header)?;
     if frames > 1 {
         return Err(format!(
-            "{} is a 4D series; Studio table preview currently expects 3D members.",
-            path.display()
+            "{label} is a 4D series; Studio table preview currently expects 3D members."
         ));
     }
     Ok(signature)
+}
+
+/// Header facts of a local file. Only the header is read, through the parser a
+/// remote audit uses on a streamed prefix, so the same bytes are described the
+/// same way on disk and over a mount, and no image payload is decoded.
+fn read_local_header(path: &Path) -> Result<HeaderSummary, String> {
+    nifti_loader::read_header_summary(path)
+        .map_err(|error| format!("{}: {}", path.display(), error))
 }
 
 /// Spatial support plus the number of frames along the 4th axis (1 for 3D).
 fn inspect_volume_support_and_frames(
     path: &Path,
 ) -> Result<(TableSupportSignature, usize), String> {
-    let object = ReaderOptions::new()
-        .read_file(path)
-        .map_err(|error| format!("{}: {}", path.display(), error))?;
-    let header = object.header();
-    let ndim = header.dim[0] as usize;
-    if ndim < 3 {
-        return Err(format!("{} is not a 3D volume.", path.display()));
-    }
-    let frames = if ndim >= 4 {
-        (header.dim[4] as usize).max(1)
-    } else {
-        1
+    volume_support_and_frames(&path.display().to_string(), &read_local_header(path)?)
+}
+
+fn volume_support_and_frames(
+    label: &str,
+    header: &HeaderSummary,
+) -> Result<(TableSupportSignature, usize), String> {
+    // `dim` and `pixdim` hold the used dimensions only, so their length is the rank.
+    let (Some(dims), Some(voxel_sizes)) = (header.dim.get(..3), header.pixdim.get(..3)) else {
+        return Err(format!("{label} is not a 3D volume."));
     };
+    let frames = header
+        .dim
+        .get(3)
+        .map_or(1, |&frames| frames.max(1) as usize);
     let signature = TableSupportSignature {
-        dims: [
-            header.dim[1] as usize,
-            header.dim[2] as usize,
-            header.dim[3] as usize,
-        ],
-        voxel_sizes: [header.pixdim[1], header.pixdim[2], header.pixdim[3]],
+        dims: [dims[0] as usize, dims[1] as usize, dims[2] as usize],
+        voxel_sizes: [voxel_sizes[0], voxel_sizes[1], voxel_sizes[2]],
+        affine: header.affine,
     };
     Ok((signature, frames))
 }

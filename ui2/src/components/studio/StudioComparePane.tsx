@@ -6,6 +6,10 @@ import type {
   StudioComparePaneSpec,
 } from '@/types/studio';
 import { paneReasonText } from './paneReasonText';
+import { useStudioReadiness } from '@/hooks/useStudioReadiness';
+import type { StudioReadinessPhase } from '@/services/studio/studioReadiness';
+import { useStudioSourceFetchStore } from '@/stores/studioSourceFetchStore';
+import './studio.css';
 
 export type ComparePaneLetter = 'A' | 'B' | 'C' | 'D';
 export type ComparePaneAccent = 'sky' | 'emerald' | 'amber' | 'violet';
@@ -24,10 +28,21 @@ interface StudioComparePaneProps {
   cohortId: string | null;
   activeMemberId: string | null;
   activeSet: SpatialFieldSetSummary | null;
-  onInspect?: () => void;
   onRecompute?: () => void;
+  /** The pane was clicked (map, header or menu): it becomes the Inspector's artifact. */
+  onSelect?: () => void;
+  /** Open the pane's file in a new viewer tab. */
   onOpen?: () => void;
+  /** Why the pane's file cannot be opened; null when it can. */
+  openUnavailable?: string | null;
   onDrillToCohort?: () => void;
+  /**
+   * What the footer says of the pane's colour scale, when it is not the
+   * map's own ("A and B share ±0.0145").
+   */
+  scaleNote?: string | null;
+  /** Further entries of the pane's menu, after its own. */
+  extraActions?: Array<{ label: string; onClick: () => void }>;
   children?: React.ReactNode;
 }
 
@@ -68,34 +83,69 @@ export function StudioComparePane({
   cohortId,
   activeMemberId,
   activeSet,
-  onInspect,
   onRecompute,
+  onSelect,
   onOpen,
+  openUnavailable = null,
   onDrillToCohort,
+  scaleNote = null,
+  extraActions,
   children,
 }: StudioComparePaneProps) {
   const title = pane?.title ?? fallbackTitle;
   const subtitle = pane?.subtitle ?? fallbackSubtitle;
-  const status = paneStatus(pane, isRefreshing, isAnyLoading);
   const isDerived = pane?.binding?.kind === 'derived_field';
-  const memberCountText =
+  // A pane that was waiting on the grid check reads the set's state live,
+  // not from its spec: the spec is rebuilt only when the set becomes
+  // comparable, so a check that lands "different grids" would otherwise
+  // leave the badge on "Waiting" under text that says the set cannot be
+  // averaged. Badge and text come from the same reading.
+  const gridReadiness = useStudioReadiness('compare');
+  const setLevel = pane?.notReady?.kind === 'grid-check' && gridReadiness.phase !== 'ready';
+  // A remote set's images are fetched before anything is computed: until
+  // they are here, a pane that is being computed is waiting for them.
+  const fetching = useStudioSourceFetchStore(
+    (state) => state.phase === 'checking' || state.phase === 'fetching',
+  );
+  const waitingOnFetch =
+    fetching && letter !== 'A' && (isRefreshing || (isAnyLoading && !pane?.binding?.ready));
+  const status = waitingOnFetch
+    ? 'waiting'
+    : paneStatus(
+        pane,
+        isRefreshing,
+        // Pane A shows the member's own image: nothing is computed for it.
+        isAnyLoading && letter !== 'A',
+        setLevel ? gridReadiness.phase : null,
+      );
+  const waitingText = waitingOnFetch
+    ? WAITING_FOR_IMAGES_TEXT
+    : setLevel
+      ? gridReadiness.short
+      : (pane?.notReady?.message ?? null);
+  // Each fact once per pane. The header names the subject (the member, the
+  // group) and what the pane computes; the footer adds only what the header
+  // does not say: the member's place in the set, or the group's size.
+  const memberIndex =
+    letter === 'A' && activeMemberId ? (activeSet?.memberIds ?? []).indexOf(activeMemberId) : -1;
+  const sizeText =
     letter === 'A'
-      ? activeMemberId ?? '—'
+      ? memberIndex >= 0
+        ? `Member ${memberIndex + 1} of ${activeSet?.memberIds.length ?? 0}`
+        : null
       : cohortMemberCount != null
-        ? `n=${cohortMemberCount}`
-        : pane?.binding?.kind === 'member_source'
-          ? '1 member'
-          : '—';
-  const reducer = parseRecipeField(pane?.recipe ?? null, 'reducer') ?? defaultReducer(letter);
+        ? `${cohortMemberCount} ${cohortMemberCount === 1 ? 'member' : 'members'}`
+        : null;
   const normalization = parseRecipeField(pane?.recipe ?? null, 'norm');
   const threshold = parseRecipeField(pane?.recipe ?? null, 'threshold');
-  const supportLabel = activeSet?.supportLabel ?? null;
+  // The header and chips clip in a narrow pane: everything is here.
   const provenanceTitle = [
-    memberCountText,
-    reducer ? `Reducer ${reducer}` : null,
-    normalization ? `Norm ${normalization}` : null,
+    title,
+    subtitle || null,
+    sizeText,
+    normalization ? `Normalization ${normalization}` : null,
     threshold ? `Threshold ${threshold}` : null,
-    supportLabel ? `Support ${supportLabel}` : null,
+    scaleNote,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -103,23 +153,35 @@ export function StudioComparePane({
   return (
     <article
       aria-label={`${letter} ${title}`}
-      className={`flex min-h-0 min-w-0 flex-col overflow-hidden rounded-sm border bg-card transition-shadow ${
+      aria-current={selected || undefined}
+      onClickCapture={onSelect}
+      className={`studio-compare-pane flex min-h-0 min-w-0 flex-col overflow-hidden rounded-sm border bg-card transition-shadow ${
         selected ? ACCENT_BORDER[accent] : 'border-border'
       }`}
     >
       {/* Header */}
       {/* One line, so four panes fit a 1372×887 window (QA N13 c). */}
       <header className="flex items-center justify-between gap-2 border-b border-border bg-card/80 px-2 py-1">
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <span
             aria-hidden
-            className={`inline-flex h-5 w-5 items-center justify-center rounded-sm text-bf-xs font-semibold ${ACCENT_BADGE[accent]}`}
+            className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-bf-xs font-semibold ${ACCENT_BADGE[accent]}`}
           >
             {letter}
           </span>
-          <div className="flex min-w-0 items-baseline gap-2 overflow-hidden" title={`${title} · ${subtitle}`}>
-            <span className={`min-w-0 max-w-full truncate text-bf-md font-semibold ${ACCENT_TEXT[accent]}`}>{title}</span>
-            <span className="min-w-0 truncate text-bf-xs text-muted-foreground">{subtitle}</span>
+          {/* The title gives way last: the subtitle shrinks a thousand times
+              faster, and leaves altogether in a narrow pane (studio.css). */}
+          <div className="flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden" title={provenanceTitle}>
+            <span
+              className={`min-w-0 max-w-full truncate text-bf-md font-semibold [flex:0_1_auto] ${ACCENT_TEXT[accent]}`}
+            >
+              {title}
+            </span>
+            {subtitle ? (
+              <span className="studio-pane-secondary min-w-0 truncate text-bf-xs text-muted-foreground [flex:0_1000_auto]">
+                {subtitle}
+              </span>
+            ) : null}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -127,10 +189,12 @@ export function StudioComparePane({
           <PaneActionsMenu
             isDerived={isDerived}
             isRefreshing={isRefreshing}
-            canOpen={Boolean(pane?.binding?.ready) && !isRefreshing}
-            onInspect={onInspect}
+            openUnavailable={
+              openUnavailable ?? (isRefreshing ? 'The map is being recomputed.' : null)
+            }
             onRecompute={onRecompute}
             onOpen={onOpen}
+            extraActions={extraActions}
           />
         </div>
       </header>
@@ -139,74 +203,99 @@ export function StudioComparePane({
       <div className="relative min-h-0 flex-1 bg-bf-bg-canvas">
         {/* The live body draws its own colorbar (a static chip sat on the
             viewer's lock button and showed no real scale; QA F44). */}
-        {children ?? <PaneSkeleton status={status} reason={pane?.reason ?? null} />}
+        {children ?? (
+          <PaneSkeleton status={status} reason={pane?.reason ?? null} waiting={waitingText} />
+        )}
       </div>
 
-      {/* Footer provenance chips */}
+      {/* Footer: one line that never scrolls. Secondary chips leave first. */}
       <footer
-        className="flex flex-nowrap items-center gap-1.5 overflow-hidden border-t border-border bg-card/80 px-2 py-1 text-bf-xs text-muted-foreground"
-        // The chips clip in a narrow pane: the full provenance is here.
+        className="flex min-h-[1.75rem] flex-nowrap items-center gap-1.5 overflow-hidden border-t border-border bg-card/80 px-2 py-1 text-bf-xs text-muted-foreground"
         title={provenanceTitle}
       >
-        {letter !== 'A' && cohortId && onDrillToCohort ? (
+        {letter !== 'A' && cohortId && onDrillToCohort && sizeText ? (
           <Button
             variant="secondary"
             size="sm"
             onClick={onDrillToCohort}
-            aria-label={`Drill to ${cohortLabel ?? 'cohort'} members`}
+            aria-label={`Show the ${cohortMemberCount} members of ${cohortLabel ?? 'this group'}`}
             icon={<DrillIcon />}
             iconPosition="right"
-            className="font-mono tabular-nums"
+            className="min-w-0 shrink tabular-nums"
           >
-            {memberCountText}
+            <span className="truncate">{sizeText}</span>
           </Button>
-        ) : (
-          <Chip mono>{memberCountText}</Chip>
-        )}
-        {reducer ? <FactChip label="Reducer" value={reducer} /> : null}
-        {normalization ? <FactChip label="Norm" value={normalization} /> : null}
+        ) : sizeText ? (
+          <span className="min-w-0 truncate tabular-nums">{sizeText}</span>
+        ) : null}
+        {scaleNote ? (
+          <span data-testid="studio-pane-scale-note" className="min-w-0 truncate tabular-nums">
+            {scaleNote}
+          </span>
+        ) : null}
+        {normalization ? <FactChip label="Normalization" value={normalization} /> : null}
         {threshold ? <FactChip label="Threshold" value={threshold} /> : null}
-        {supportLabel ? <FactChip label="Support" value={supportLabel} shrink /> : null}
       </footer>
     </article>
   );
 }
 
-function FactChip({ label, value, shrink = false }: { label: string; value: string; shrink?: boolean }) {
-  // The last chip (Support) truncates rather than clip at the pane edge.
+function FactChip({ label, value }: { label: string; value: string }) {
   return (
-    <Chip title={`${label} ${value}`} className={shrink ? 'min-w-0 shrink truncate' : 'shrink-0'}>
+    <Chip title={`${label} ${value}`} className="studio-pane-secondary min-w-0 shrink truncate">
       <span className="text-muted-foreground">{label}</span>{' '}
       <span className="text-foreground">{value}</span>
     </Chip>
   );
 }
 
-type PaneStatus = 'ready' | 'recomputing' | 'computing' | 'stale' | 'failed' | 'pending';
+/** A pane whose computation is waiting for a remote set's images. */
+export const WAITING_FOR_IMAGES_TEXT = 'Waiting for images…';
+
+/**
+ * `waiting`: an input is not available yet (grids unchecked or being
+ * checked, images being fetched, no member, no group or comparison chosen).
+ * `unavailable`: the set cannot provide it (different grids). Neither is a
+ * failure; `failed` is a computation that was run and did not succeed.
+ * `computing` is a first result on its way, `recomputing` a new one for a
+ * pane that has one.
+ *
+ * There is no "out of date" here. A pane's inputs (member, group, comparison,
+ * readiness) are the key the panes are recomputed on, so a change replaces
+ * the result instead of leaving an old one on screen. The binding's
+ * `cacheStatus` is not a freshness reading: it says how the result on screen
+ * was obtained. `miss` is "computed now, nothing was cached" and `stale` is
+ * "computed again because the cached copy was out of date"; both are results
+ * of this request, as fresh as a cache `hit`.
+ */
+type PaneStatus =
+  | 'ready'
+  | 'recomputing'
+  | 'computing'
+  | 'failed'
+  | 'pending'
+  | 'waiting'
+  | 'unavailable';
 
 function paneStatus(
   pane: StudioComparePaneSpec | undefined,
   isRefreshing: boolean,
-  isAnyLoading: boolean
+  isAnyLoading: boolean,
+  /** The set's live readiness, for a pane that was waiting on its grid check. */
+  setPhase: StudioReadinessPhase | null = null,
 ): PaneStatus {
-  if (isRefreshing) return 'recomputing';
-  if (!pane) return 'pending';
+  if (isRefreshing) return pane?.binding?.ready ? 'recomputing' : 'computing';
+  if (!pane) return isAnyLoading ? 'computing' : 'pending';
+  if (pane.notReady && setPhase) return setPhase === 'unavailable' ? 'unavailable' : 'waiting';
+  if (pane.notReady)
+    return pane.notReady.kind === 'different-grids' ||
+      pane.notReady.kind === 'not-confirmed' ||
+      pane.notReady.kind === 'no-mean'
+      ? 'unavailable'
+      : 'waiting';
   if (pane.status === 'blocked') return 'failed';
-  if (pane.binding) {
-    switch (pane.binding.cacheStatus) {
-      case 'failed':
-        return 'failed';
-      case 'stale':
-      case 'miss':
-      case 'unavailable':
-        return 'stale';
-      case 'hit':
-      case 'source':
-      case 'forced':
-      case 'synthetic':
-        return 'ready';
-    }
-  }
+  if (pane.binding?.cacheStatus === 'failed') return 'failed';
+  if (pane.binding?.ready) return 'ready';
   if (isAnyLoading || pane.status === 'pending') return 'computing';
   return 'pending';
 }
@@ -215,16 +304,17 @@ const PANE_STATUS: Record<PaneStatus, { status: StatusKind; label: string }> = {
   ready: { status: 'success', label: 'Ready' },
   recomputing: { status: 'running', label: 'Recomputing' },
   computing: { status: 'running', label: 'Computing' },
-  stale: { status: 'warning', label: 'Stale' },
   failed: { status: 'failed', label: 'Failed' },
   pending: { status: 'queued', label: 'Pending' },
+  waiting: { status: 'queued', label: 'Waiting' },
+  unavailable: { status: 'neutral', label: 'Unavailable' },
 };
 
 function StatusBadge({ status }: { status: PaneStatus }) {
   const { status: kind, label } = PANE_STATUS[status] ?? PANE_STATUS.pending;
   return (
-    <StatusPill role="status" status={kind}>
-      {label}
+    <StatusPill role="status" status={kind} title={label} data-pane-status={status}>
+      <span className="studio-pane-status-word">{label}</span>
     </StatusPill>
   );
 }
@@ -232,17 +322,18 @@ function StatusBadge({ status }: { status: PaneStatus }) {
 function PaneActionsMenu({
   isDerived,
   isRefreshing,
-  canOpen,
-  onInspect,
+  openUnavailable,
   onRecompute,
   onOpen,
+  extraActions,
 }: {
   isDerived: boolean;
   isRefreshing: boolean;
-  canOpen: boolean;
-  onInspect?: () => void;
+  /** Why the file cannot be opened; null when it can. */
+  openUnavailable: string | null;
   onRecompute?: () => void;
   onOpen?: () => void;
+  extraActions?: Array<{ label: string; onClick: () => void }>;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -265,10 +356,8 @@ function PaneActionsMenu({
     };
   }, [open]);
 
-  const items: Array<{ label: string; onClick: () => void; disabled?: boolean }> = [];
-  if (onInspect) {
-    items.push({ label: 'Inspect', onClick: onInspect });
-  }
+  const items: Array<{ label: string; onClick: () => void; disabled?: boolean; title?: string }> =
+    [];
   if (isDerived && onRecompute) {
     items.push({
       label: isRefreshing ? 'Recomputing…' : 'Recompute',
@@ -278,11 +367,17 @@ function PaneActionsMenu({
   }
   if (onOpen) {
     items.push({
-      label: isDerived ? 'Open derived output' : 'Open source',
+      label: 'Open in viewer',
       onClick: onOpen,
-      disabled: !canOpen,
+      disabled: !!openUnavailable,
+      title:
+        openUnavailable ??
+        (isDerived
+          ? 'Open the derived map in a new viewer tab'
+          : 'Open the source file in a new viewer tab'),
     });
   }
+  if (extraActions) items.push(...extraActions);
   if (items.length === 0) return null;
 
   return (
@@ -308,6 +403,7 @@ function PaneActionsMenu({
               type="button"
               role="menuitem"
               disabled={item.disabled}
+              title={item.title}
               onClick={() => {
                 if (item.disabled) return;
                 setOpen(false);
@@ -344,41 +440,30 @@ function DrillIcon() {
 function PaneSkeleton({
   status,
   reason,
+  waiting,
 }: {
   status: PaneStatus;
   reason: string | null;
+  /** What the pane is waiting for, when an input is missing. */
+  waiting: string | null;
 }) {
   const message =
     status === 'recomputing'
       ? 'Recomputing…'
       : status === 'computing'
         ? 'Computing…'
-        : status === 'stale'
-          ? 'Stale — recompute to refresh.'
+        : status === 'waiting' || status === 'unavailable'
+          ? (waiting ?? 'Nothing to show yet.')
           : status === 'failed'
-            ? paneReasonText(reason) ?? 'Materialization failed.'
+            ? (paneReasonText(reason) ?? 'This map could not be computed.')
             : status === 'ready'
               ? 'Map ready.'
-              : paneReasonText(reason) ?? 'No binding yet.';
+              : (paneReasonText(reason) ?? 'Nothing to show yet.');
   return (
     <div className="flex h-full items-center justify-center px-4 text-center text-bf-xs text-muted-foreground">
       {message}
     </div>
   );
-}
-
-function defaultReducer(letter: ComparePaneLetter): string | null {
-  switch (letter) {
-    case 'B':
-      return 'Mean';
-    case 'C':
-      return 'Current − Mean';
-    case 'D':
-      return '(Current − Mean) / σ';
-    case 'A':
-    default:
-      return null;
-  }
 }
 
 function parseRecipeField(recipe: string | null, key: string): string | null {

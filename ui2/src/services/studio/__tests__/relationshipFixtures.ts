@@ -58,3 +58,43 @@ export function syntheticV2Fit(request: RelationshipRequest, unassigned: number[
     geometry,
   };
 }
+/**
+ * A grouping (v3) fit of the six demo members on a line: the request echoes
+ * `grouping`, and the geometry carries Ward linkage and scored cuts. The
+ * three-group cut leaves sub006 alone (an outlier).
+ */
+export function syntheticGroupingFit(
+  request: RelationshipRequest,
+  options: { bestGroups?: number | null; clearGrouping?: boolean } = {},
+): RelationshipFit {
+  const base = syntheticFit({ ...request, grouping: request.grouping ?? {} });
+  const assignments: Record<number, number[]> = {
+    2: [0, 0, 0, 1, 1, 1],
+    3: [0, 0, 1, 1, 1, 2],
+    4: [0, 0, 1, 1, 2, 3],
+    5: [0, 1, 2, 2, 3, 4],
+  };
+  return {
+    ...base,
+    request: { ...base.request, grouping: { linkage: 'ward' } },
+    geometry: {
+      ...base.geometry,
+      grouping: {
+        linkage: 'ward',
+        cuts: [2, 3, 4, 5].map((groups) => {
+          const assignment = assignments[groups];
+          const sizes = assignment.reduce<number[]>((n, g) => ((n[g] = (n[g] ?? 0) + 1), n), []);
+          return {
+            groups,
+            silhouette: groups === 3 ? 0.61 : 0.3,
+            assignment,
+            singletons: assignment.flatMap((g, i) => (sizes[g] === 1 ? [i] : [])),
+          };
+        }),
+        bestGroups: options.bestGroups === undefined ? 3 : options.bestGroups,
+        clearGrouping: options.clearGrouping ?? true,
+        silhouetteThreshold: 0.25,
+      },
+    },
+  };
+}

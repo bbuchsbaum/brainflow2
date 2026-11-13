@@ -55,11 +55,14 @@ fn updated_mean(mean: f64, value: f64, count: u64) -> f64 {
 
 /// Mean-only export accumulator. Avoids allocating spread/sign moments for an
 /// entire native grid when the exporter streams one source volume at a time.
+/// Compare now reduces through `CompactMoments`; this is its test reference.
+#[cfg(test)]
 pub(crate) struct MeanField {
     locations: Vec<(f64, u64)>,
     eligible_count: u64,
 }
 
+#[cfg(test)]
 impl MeanField {
     pub(crate) fn new(location_count: usize) -> Self {
         Self {
@@ -351,6 +354,89 @@ impl FieldMoments {
     /// Heap storage owned by the accumulator, excluding output materialization.
     pub fn allocated_bytes(&self) -> usize {
         self.locations.capacity() * std::mem::size_of::<Moments>()
+    }
+}
+
+/// Count, mean and centered second moment per location, updated in exactly
+/// the order and arithmetic of `FieldMoments` (so every summary is bit-equal),
+/// at 20 bytes per location instead of the full moment record. Compare caches
+/// this for a member set so paging the active member reuses it.
+#[derive(Debug, Clone)]
+pub(crate) struct CompactMoments {
+    count: Vec<u32>,
+    mean: Vec<f64>,
+    m2: Vec<f64>,
+}
+
+impl CompactMoments {
+    pub(crate) fn new(location_count: usize) -> Self {
+        Self {
+            count: vec![0; location_count],
+            mean: vec![0.0; location_count],
+            m2: vec![0.0; location_count],
+        }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.count.len()
+    }
+
+    pub(crate) fn push(&mut self, values: &[f32]) -> Result<(), PopulationError> {
+        if values.len() != self.count.len() {
+            return Err(PopulationError::Shape {
+                expected: self.count.len(),
+                actual: values.len(),
+            });
+        }
+        for (((&value, count), mean), m2) in values
+            .iter()
+            .zip(&mut self.count)
+            .zip(&mut self.mean)
+            .zip(&mut self.m2)
+        {
+            if value.is_finite() {
+                let value = f64::from(value);
+                *count = count.checked_add(1).ok_or(PopulationError::CountOverflow)?;
+                let delta = value - *mean;
+                *mean = updated_mean(*mean, value, u64::from(*count));
+                *m2 += delta * (value - *mean);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn mean(&self, index: usize) -> Option<f64> {
+        (self.count[index] > 0).then_some(self.mean[index])
+    }
+
+    /// The mean at `index` with one observation `left_out` removed: the exact
+    /// f64 downdate of the running mean, m' = m - (x - m) / (n - 1). Equal to
+    /// the mean of the remaining observations up to f64 rounding (absolute
+    /// error a few ulps of max(|m|, |x|)), not bit-equal to a fresh pass.
+    /// A non-finite `left_out` was never counted, so the mean is unchanged.
+    pub(crate) fn mean_without(&self, index: usize, left_out: f32) -> Option<f64> {
+        let mean = self.mean(index)?;
+        if !left_out.is_finite() {
+            return Some(mean);
+        }
+        let remaining = self.count[index].checked_sub(1).filter(|&n| n > 0)?;
+        Some(mean - (f64::from(left_out) - mean) / f64::from(remaining))
+    }
+
+    /// Denominator valid_count - 1; unavailable below 2.
+    pub(crate) fn sample_sd(&self, index: usize) -> Option<f64> {
+        let count = self.count[index];
+        (count > 1).then(|| (self.m2[index].max(0.0) / f64::from(count - 1)).sqrt())
+    }
+
+    /// Denominator valid_count.
+    pub(crate) fn population_sd(&self, index: usize) -> Option<f64> {
+        let count = self.count[index];
+        (count > 0).then(|| (self.m2[index].max(0.0) / f64::from(count)).sqrt())
+    }
+
+    pub(crate) fn allocated_bytes(&self) -> usize {
+        self.count.capacity() * 4 + (self.mean.capacity() + self.m2.capacity()) * 8
     }
 }
 

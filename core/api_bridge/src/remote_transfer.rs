@@ -283,23 +283,85 @@ async fn under_permit<T>(
         .map_err(|_| error(timed_out))?
 }
 
+/// Told each header as it arrives (the index is the path's), before the batch
+/// is complete: what a caller keeps of a read that is later dropped.
+pub(crate) type HeaderSink = Arc<dyn Fn(usize, &nifti_loader::HeaderSummary) + Send + Sync>;
+
 /// Read headers without downloading files.
 pub(crate) async fn read_headers(
     mount: &RemoteMountEntry,
     paths: &[String],
 ) -> Vec<BridgeResult<nifti_loader::HeaderSummary>> {
-    futures::stream::iter(paths)
-        .map(|path| {
-            under_permit(
+    read_headers_each(mount, paths, None).await
+}
+
+async fn read_headers_each(
+    mount: &RemoteMountEntry,
+    paths: &[String],
+    sink: Option<&HeaderSink>,
+) -> Vec<BridgeResult<nifti_loader::HeaderSummary>> {
+    futures::stream::iter(paths.iter().enumerate())
+        .map(|(index, path)| async move {
+            let header = under_permit(
                 mount,
                 crate::REMOTE_FS_OPERATION_TIMEOUT,
                 "Timed out reading the remote header",
                 stream_header(mount.client.fs(), path),
             )
+            .await;
+            if let (Ok(header), Some(sink)) = (&header, sink) {
+                sink(index, header);
+            }
+            header
         })
         .buffered(crate::REMOTE_MOUNT_MAX_CONCURRENT_OPS)
         .collect()
         .await
+}
+
+/// [`read_headers`] for callers that must be `Send` (Tauri commands). The reads
+/// run in an owned worker like the other adapters here; dropping the returned
+/// future stops the worker at its next await, which closes the open remote
+/// handles and returns the permits.
+#[cfg(test)]
+pub(crate) async fn read_headers_owned(
+    mount: RemoteMountEntry,
+    paths: Vec<String>,
+) -> Vec<BridgeResult<nifti_loader::HeaderSummary>> {
+    read_headers_owned_each(mount, paths, None).await
+}
+
+/// [`read_headers_owned`], telling `sink` each header as it arrives. A caller
+/// that is dropped before the batch completes has still been told of every
+/// header read until then.
+pub(crate) async fn read_headers_owned_each(
+    mount: RemoteMountEntry,
+    paths: Vec<String>,
+    sink: Option<HeaderSink>,
+) -> Vec<BridgeResult<nifti_loader::HeaderSummary>> {
+    let count = paths.len();
+    let (caller_alive, mut caller_gone) = tokio::sync::oneshot::channel::<()>();
+    let runtime = tokio::runtime::Handle::current();
+    let worker = tokio::task::spawn_blocking(move || {
+        runtime.block_on(async move {
+            tokio::select! {
+                biased;
+                _ = &mut caller_gone => None,
+                headers = read_headers_each(&mount, &paths, sink.as_ref()) => Some(headers),
+            }
+        })
+    })
+    .await;
+    drop(caller_alive);
+    match worker {
+        Ok(Some(headers)) => headers,
+        Ok(None) => (0..count)
+            .map(|_| Err(error("Remote header read cancelled")))
+            .collect(),
+        Err(e) => (0..count)
+            .map(|_| Err(error(&format!("Remote header worker failed: {e}"))))
+            .collect(),
+    }
 }
 
 /// A link's target, or `None` when it has none.
@@ -429,6 +491,132 @@ pub(crate) async fn read_files(
         .await
 }
 
+/// List directories as the server reports them, links not resolved: one
+/// result per path, in order. A probe that only needs names and kinds uses
+/// this, so a tree of annexed links costs no extra stat per file.
+pub(crate) async fn list_unresolved(
+    mount: &RemoteMountEntry,
+    paths: &[String],
+) -> Vec<BridgeResult<Vec<remotely::fs::DirEntry>>> {
+    futures::stream::iter(paths)
+        .map(|path| {
+            under_permit(
+                mount,
+                crate::REMOTE_FS_OPERATION_TIMEOUT,
+                "Timed out listing the remote directory",
+                async move {
+                    mount
+                        .client
+                        .fs()
+                        .list(Path::new(path))
+                        .await
+                        .map_err(|e| map_remotely_error(e, 8216))
+                },
+            )
+        })
+        .buffered(crate::REMOTE_MOUNT_MAX_CONCURRENT_OPS)
+        .collect()
+        .await
+}
+
+/// At most the first `max_bytes` of a file, and whether it is longer.
+async fn read_prefix(
+    fs: &remotely::RemoteFs,
+    path: &str,
+    max_bytes: u64,
+) -> BridgeResult<(Vec<u8>, bool)> {
+    let mut reader = fs
+        .open_reader(path)
+        .await
+        .map_err(|e| map_remotely_error(e, 8218))?;
+    let mut bytes = Vec::new();
+    (&mut reader)
+        .take(max_bytes + 1)
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|e| error(&format!("Unable to read remote file: {e}")))?;
+    let longer = bytes.len() as u64 > max_bytes;
+    bytes.truncate(max_bytes as usize);
+    Ok((bytes, longer))
+}
+
+/// The start of small text files, one result per path, in order: at most
+/// `max_bytes` each, with a flag for a file that is longer. Nothing is written
+/// to the cache.
+pub(crate) async fn read_file_prefixes(
+    mount: &RemoteMountEntry,
+    paths: &[String],
+    max_bytes: u64,
+) -> Vec<BridgeResult<(Vec<u8>, bool)>> {
+    futures::stream::iter(paths)
+        .map(|path| {
+            under_permit(
+                mount,
+                crate::REMOTE_FS_OPERATION_TIMEOUT,
+                "Timed out reading the remote file",
+                read_prefix(mount.client.fs(), path, max_bytes),
+            )
+        })
+        .buffered(crate::REMOTE_MOUNT_MAX_CONCURRENT_OPS)
+        .collect()
+        .await
+}
+
+/// [`read_file_prefixes`] for files that may not exist: `Ok(None)` is a file
+/// the server says is not there, so a caller can tell that apart from a read
+/// that failed.
+pub(crate) async fn read_optional_file_prefixes(
+    mount: &RemoteMountEntry,
+    paths: &[String],
+    max_bytes: u64,
+) -> Vec<BridgeResult<Option<(Vec<u8>, bool)>>> {
+    futures::stream::iter(paths)
+        .map(|path| {
+            under_permit(
+                mount,
+                crate::REMOTE_FS_OPERATION_TIMEOUT,
+                "Timed out reading the remote file",
+                async move {
+                    // "Not there" is the server's answer to the open (SFTP
+                    // `NoSuchFile`), not a guess from an error's text.
+                    let mut reader = match mount.client.fs().open_reader(path).await {
+                        Ok(reader) => reader,
+                        Err(remotely::Error::Fs(remotely::error::FsError::NotFound { .. })) => {
+                            return Ok(None)
+                        }
+                        Err(e) => return Err(map_remotely_error(e, 8218)),
+                    };
+                    let mut bytes = Vec::new();
+                    (&mut reader)
+                        .take(max_bytes + 1)
+                        .read_to_end(&mut bytes)
+                        .await
+                        .map_err(|e| error(&format!("Unable to read remote file: {e}")))?;
+                    let longer = bytes.len() as u64 > max_bytes;
+                    bytes.truncate(max_bytes as usize);
+                    Ok(Some((bytes, longer)))
+                },
+            )
+        })
+        .buffered(crate::REMOTE_MOUNT_MAX_CONCURRENT_OPS)
+        .collect()
+        .await
+}
+
+/// Resolves when `cancel` turns true; never if its sender is dropped first.
+pub(crate) async fn wait_cancelled(cancel: &mut watch::Receiver<bool>) {
+    if cancel.wait_for(|cancelled| *cancelled).await.is_err() {
+        std::future::pending::<()>().await;
+    }
+}
+
+pub(crate) fn download_cancelled() -> BridgeError {
+    error("Remote download cancelled")
+}
+
+/// A download nobody but the mount can stop. Production opens go through
+/// [`download_owned_for`]; this is the plain form the transfer tests drive.
+#[cfg(test)]
 pub(crate) async fn download_owned(
     mount: RemoteMountEntry,
     remote_path: String,
@@ -436,6 +624,24 @@ pub(crate) async fn download_owned(
     expected_size: u64,
     idle_timeout: Duration,
 ) -> BridgeResult<()> {
+    download_owned_for(mount, remote_path, path, expected_size, idle_timeout, None).await
+}
+
+/// [`download_owned`] that also stops when `owner` turns true. A caller that
+/// wants to stop the transfer it started passes its own signal here: the
+/// mount's per-path registration is shared with every other caller of the
+/// same file, so cancelling through it could stop someone else's download.
+pub(crate) async fn download_owned_for(
+    mount: RemoteMountEntry,
+    remote_path: String,
+    path: PathBuf,
+    expected_size: u64,
+    idle_timeout: Duration,
+    owner: Option<watch::Receiver<bool>>,
+) -> BridgeResult<()> {
+    if owner.as_ref().is_some_and(|owner| *owner.borrow()) {
+        return Err(download_cancelled());
+    }
     let (registration, cancel) = mount.transfers.begin(&path)?;
     let worker_mount = mount.clone();
     let worker_remote = remote_path.clone();
@@ -512,14 +718,24 @@ pub(crate) async fn download_owned(
                     })?;
                 Ok(())
             };
-            remote_transfer::supervised(
+            let supervised = remote_transfer::supervised(
                 operation,
                 cancel,
                 progress_rx,
                 idle_timeout,
                 Duration::from_secs(3600),
-            )
-            .await
+            );
+            match owner {
+                None => supervised.await,
+                // Dropping the supervised future here, inside the worker, is
+                // what its own cancellation does: the writer, its staging
+                // directory and its permit go with it.
+                Some(mut owner) => tokio::select! {
+                    biased;
+                    _ = wait_cancelled(&mut owner) => Err(download_cancelled()),
+                    result = supervised => result,
+                },
+            }
         })
     })
     .await

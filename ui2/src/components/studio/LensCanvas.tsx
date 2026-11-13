@@ -13,6 +13,10 @@ import type {
 import { CompareLens } from './CompareLens';
 import { DeckLens } from './DeckLens';
 import { PopulationLens } from './PopulationLens';
+import { useStudioReadiness } from '@/hooks/useStudioReadiness';
+import { StudioReadinessNotice } from './StudioReadinessNotice';
+import { StudioSourceFetchNotice } from './StudioSourceFetchNotice';
+import { usePopulationSourcesLocal } from '@/hooks/useStudioSourceFetch';
 
 interface LensCanvasProps {
   populationProbeController?: PopulationProbeController;
@@ -35,14 +39,30 @@ interface LensCanvasProps {
   onSelectMember: (memberId: string) => void;
   onSelectCohort: (cohortId: string | null) => void;
   onDrillToCohort: (cohortId: string | null) => void;
-  onOpenComparePane: (pane: StudioComparePaneSpec) => void;
-  onInspectComparePane: (pane: StudioComparePaneSpec) => void;
   onRecomputeComparePane: (pane: StudioComparePaneSpec) => void;
-  onInspectCurrentArtifact: () => void;
-  onOpenCurrentSource: () => void;
+  /** A Compare pane was clicked: it becomes the Inspector's artifact. */
+  onSelectComparePane?: (pane: StudioComparePaneSpec) => void;
   onOpenCompareView: () => void;
   onClearScope: () => void;
   visibleMemberIds?: string[];
+}
+
+/**
+ * Population once its images can be read. A set on a remote mount has only
+ * the images something has opened on this computer; the rest are fetched
+ * first, and the fetch is shown in place of the maps. A local set renders
+ * the lens at once.
+ */
+function PopulationWhenLocal({
+  probeController,
+}: {
+  probeController?: PopulationProbeController;
+}) {
+  return usePopulationSourcesLocal() ? (
+    <PopulationLens probeController={probeController} />
+  ) : (
+    <StudioSourceFetchNotice lens="population" variant="panel" />
+  );
 }
 
 /**
@@ -71,19 +91,24 @@ export function LensCanvas({
   onSelectMember,
   onSelectCohort,
   onDrillToCohort,
-  onOpenComparePane,
-  onInspectComparePane,
   onRecomputeComparePane,
-  onInspectCurrentArtifact,
-  onOpenCurrentSource,
+  onSelectComparePane,
   onOpenCompareView,
   onClearScope,
   visibleMemberIds,
 }: LensCanvasProps) {
+  // A set that cannot be read together yet (its grids unchecked or being
+  // checked, or on different grids) gets one calm state for the whole
+  // Population lens, not a pair of empty image wells under an error.
+  const populationReadiness = useStudioReadiness('population');
   return (
     <div className="flex h-full min-h-0 flex-col">
       {activeLens === 'population' ? (
-        <PopulationLens probeController={populationProbeController} />
+        populationReadiness.phase === 'ready' ? (
+          <PopulationWhenLocal probeController={populationProbeController} />
+        ) : (
+          <StudioReadinessNotice lens="population" variant="panel" />
+        )
       ) : activeLens === 'compare' ? (
         <CompareLens
           activeSet={activeSet}
@@ -103,11 +128,8 @@ export function LensCanvas({
           sortLabel={sortLabel}
           onSelectCohort={onSelectCohort}
           onDrillToCohort={onDrillToCohort}
-          onOpenPane={onOpenComparePane}
-          onInspectPane={onInspectComparePane}
           onRecomputePane={onRecomputeComparePane}
-          onInspectCurrent={onInspectCurrentArtifact}
-          onOpenCurrentSource={onOpenCurrentSource}
+          onSelectPane={onSelectComparePane}
           onOpenCompareView={onOpenCompareView}
         />
       ) : (
@@ -122,8 +144,6 @@ export function LensCanvas({
           sortLabel={sortLabel}
           onClearScope={onClearScope}
           onSelectMember={onSelectMember}
-          onInspectCurrent={onInspectCurrentArtifact}
-          onOpenCurrentSource={onOpenCurrentSource}
           visibleMemberIds={visibleMemberIds}
         />
       )}

@@ -36,6 +36,17 @@ export interface DockExtraTab {
   id: string;
   title: string;
   content: ReactNode;
+  /** Listed before the core tabs (the Set studio's Values). */
+  leading?: boolean;
+  /**
+   * The body height (px) the tab asks for while it is shown, as an external
+   * store: the dock sizes to it (plus its tab bar) unless the user dragged a
+   * height, which wins until reset. Null: no request.
+   */
+  autoHeight?: {
+    subscribe: (onChange: () => void) => () => void;
+    getSnapshot: () => number | null;
+  };
 }
 
 /** Default active tab — Plot is first-class (Design.md §1.5) and the user's focus. */
