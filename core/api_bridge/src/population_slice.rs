@@ -206,6 +206,9 @@ pub struct PopulationSliceResult {
     pub reference: Option<GroupResult>,
     pub focus_window: Vec<CutoutMember>,
     pub plane: Plane,
+    /// One voxel step along the plane's normal, in mm: the distance that moves
+    /// the sampled slice to the next voxel layer of the population grid.
+    pub normal_step_mm: f32,
     pub center_world: [f32; 3],
     pub context_range: Option<[f32; 2]>,
     /// The 98th percentile of |v| over every member's finite nonzero values
@@ -817,6 +820,30 @@ fn pixel_plan(
         cutouts,
     })
 }
+/// The distance along `plane`'s normal that moves one voxel layer through the
+/// grid of `affine` (voxel to world): `1 / max_a |(A⁻¹ n)_a|`, so an
+/// axis-aligned slice steps by that axis's voxel size and an oblique one by
+/// the smallest move that changes some voxel index by one. 1 mm when the
+/// plane or the grid is degenerate.
+fn normal_step_mm(plane: &Plane, affine: &Matrix4<f32>) -> f32 {
+    let u = nalgebra::Vector3::from(plane.u_mm);
+    let v = nalgebra::Vector3::from(plane.v_mm);
+    let normal = u.cross(&v);
+    let Some(normal) = normal.try_normalize(f32::EPSILON) else {
+        return 1.0;
+    };
+    let linear = affine.fixed_view::<3, 3>(0, 0).into_owned();
+    let Some(inverse) = linear.try_inverse() else {
+        return 1.0;
+    };
+    let per_mm = (inverse * normal).amax();
+    if per_mm.is_finite() && per_mm > 0.0 {
+        1.0 / per_mm
+    } else {
+        1.0
+    }
+}
+
 /// The edge a request's cutouts are sampled at: what it asks for, or (zero)
 /// the image's own resolution, lowered only as far as the value budget
 /// requires for the request's members.
@@ -1435,6 +1462,7 @@ fn reduce_plane(
         context_range: range,
         context_magnitude: cached.magnitude,
         plane: cached.plan.plane.clone(),
+        normal_step_mm: normal_step_mm(&cached.plan.plane, &cached.plan.affine),
         center_world: cached.plan.center_world,
         summary,
         focused,
@@ -1513,6 +1541,51 @@ mod tests {
     }
     fn finite(result: &[f32]) -> Vec<f32> {
         result.iter().copied().filter(|v| v.is_finite()).collect()
+    }
+
+    #[test]
+    fn normal_step_is_one_voxel_layer_along_the_slice_normal() {
+        // Voxels of 2 × 3 × 4 mm with an origin offset (the translation is ignored).
+        let affine = Matrix4::new(
+            2.0, 0.0, 0.0, -90.0, //
+            0.0, 3.0, 0.0, -126.0, //
+            0.0, 0.0, 4.0, -72.0, //
+            0.0, 0.0, 0.0, 1.0,
+        );
+        let plane = |u: [f32; 3], v: [f32; 3]| Plane {
+            origin_mm: [0.0; 3],
+            u_mm: u,
+            v_mm: v,
+            dim_px: [8, 8],
+        };
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-5;
+        // Axial (normal z), coronal (normal y), sagittal (normal x); in-plane
+        // pixel size and sign do not matter.
+        assert!(close(
+            normal_step_mm(&plane([0.5, 0.0, 0.0], [0.0, -0.5, 0.0]), &affine),
+            4.0
+        ));
+        assert!(close(
+            normal_step_mm(&plane([1.0, 0.0, 0.0], [0.0, 0.0, -1.0]), &affine),
+            3.0
+        ));
+        assert!(close(
+            normal_step_mm(&plane([0.0, 1.0, 0.0], [0.0, 0.0, 1.0]), &affine),
+            2.0
+        ));
+        // Oblique (normal (0, 1, 1)/√2): the smallest move that changes an
+        // index by one is along y, 3·√2 mm.
+        let oblique = plane([1.0, 0.0, 0.0], [0.0, -1.0, 1.0]);
+        assert!(close(normal_step_mm(&oblique, &affine), 3.0 * 2f32.sqrt()));
+        // Degenerate plane or grid: 1 mm.
+        assert_eq!(
+            normal_step_mm(&plane([1.0, 0.0, 0.0], [2.0, 0.0, 0.0]), &affine),
+            1.0
+        );
+        assert_eq!(
+            normal_step_mm(&plane([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]), &Matrix4::zeros()),
+            1.0
+        );
     }
 
     #[test]

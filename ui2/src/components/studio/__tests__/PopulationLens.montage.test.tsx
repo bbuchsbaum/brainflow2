@@ -36,7 +36,7 @@ vi.mock('../montageTileSupport', async (importOriginal) => {
 
 const IDS = ['sub001', 'sub002', 'sub003', 'sub004', 'sub005', 'sub006'];
 /** The image's own in-plane resolution the sampler reports (undefined: an older sampler). */
-const native: { dim: number | undefined } = { dim: undefined };
+const native: { dim: number | undefined; stepMm?: number } = { dim: undefined };
 
 beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
@@ -51,6 +51,7 @@ beforeEach(() => {
   useSetStudioStore.getState().loadDemoSession();
   populationLensMemory.reset();
   native.dim = undefined;
+  native.stepMm = undefined;
   const state = useSetStudioStore.getState();
   const set = state.sets[state.selection.activeSetId!];
   useSetStudioStore.setState({
@@ -91,6 +92,7 @@ function setup(probeController?: PopulationProbeController) {
       v_mm: [0, 1, 0] as [number, number, number],
       dim_px: [2, 1] as [number, number],
     },
+    ...(native.stepMm === undefined ? {} : { normalStepMm: native.stepMm }),
     centerWorld: [10, 20, 30] as [number, number, number],
     contextRange: [-2, 4] as [number, number],
     summary: [1, 2],
@@ -308,6 +310,19 @@ it('the slice controls drive the lens plane and step the crosshair along its axi
     target: { value: 'coronal' },
   });
   await waitFor(() => expect(evaluate.mock.calls.at(-1)?.[0].orientation).toBe('coronal'));
+});
+
+it('steps one voxel layer of the population grid per slice, not 1 mm', async () => {
+  native.stepMm = 2;
+  setup();
+  await waitFor(() => expect(tiles()).toEqual(IDS));
+  const before = [...useViewStateStore.getState().viewState.crosshair.world_mm];
+  fireEvent.click(screen.getByRole('button', { name: 'Next slice' }));
+  const after = useViewStateStore.getState().viewState.crosshair.world_mm;
+  expect(after[2] - before[2]).toBe(2);
+  fireEvent.click(screen.getByRole('button', { name: 'Previous slice' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Previous slice' }));
+  expect(useViewStateStore.getState().viewState.crosshair.world_mm[2] - before[2]).toBe(-2);
 });
 
 const sentTiles = (evaluate: ReturnType<typeof setup>['evaluate']) =>

@@ -7,6 +7,7 @@ import {
 } from '../PopulationPeekService';
 import {
   PopulationSliceService,
+  populationSliceStepMm,
   populationSliceStepPoint,
   type PopulationPeekRaster,
   type PopulationSliceData,
@@ -228,6 +229,14 @@ describe('PopulationPeekService', () => {
 });
 
 describe('peek helpers', () => {
+  it('a slice step is the voxel layer the backend reports, else 1 mm', () => {
+    expect(populationSliceStepMm({ normalStepMm: 2 })).toBe(2);
+    expect(populationSliceStepMm({})).toBe(1);
+    expect(populationSliceStepMm({ normalStepMm: 0 })).toBe(1);
+    expect(populationSliceStepMm({ normalStepMm: Number.NaN })).toBe(1);
+    expect(populationSliceStepMm(null)).toBe(1);
+  });
+
   it('reads the raster value nearest a world point', () => {
     const r = raster(target('a'));
     expect(peekValueAt(r, [0, 0, 0])).toBe(1);
