@@ -106,6 +106,20 @@ function sceneHemisphereLabel(
   return surface.metadata.hemisphere;
 }
 
+/**
+ * The orientation glyph alone subscribes to the camera basis, which changes
+ * every frame of a rotation; the rest of the frame stays put.
+ */
+function SurfaceOrientationGlyph({ surfaceViewId }: { surfaceViewId?: string }) {
+  const cameraBasis = useSurfaceCameraStore((s) => (surfaceViewId ? s.bases.get(surfaceViewId) : undefined));
+  if (!cameraBasis) return null;
+  return (
+    <div className="pointer-events-none absolute bottom-2 left-2 z-10">
+      <OrientationGizmo basis={cameraBasis} size={64} />
+    </div>
+  );
+}
+
 export function SurfaceFrame({
   surface,
   width,
@@ -114,7 +128,6 @@ export function SurfaceFrame({
   surfaceViewId,
   renderSurfaces,
 }: SurfaceFrameProps) {
-  const cameraBasis = useSurfaceCameraStore((s) => (surfaceViewId ? s.bases.get(surfaceViewId) : undefined));
   const viewpoint = useSurfaceStore((s) =>
     getSurfaceViewpointForId(s.surfaceViewViewpoints, surfaceViewId),
   );
@@ -249,11 +262,7 @@ export function SurfaceFrame({
 
       {/* Orientation glyph (D5): bottom-left, clear of the header, presets
           and colorbar. */}
-      {cameraBasis ? (
-        <div className="pointer-events-none absolute bottom-2 left-2 z-10">
-          <OrientationGizmo basis={cameraBasis} size={64} />
-        </div>
-      ) : null}
+      <SurfaceOrientationGlyph surfaceViewId={surfaceViewId} />
 
       {/* Camera presets: the slice frame's top-right corner slot. */}
       <div
