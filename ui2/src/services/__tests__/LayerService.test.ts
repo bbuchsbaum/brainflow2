@@ -300,7 +300,7 @@ describe('LayerService', () => {
 
     it('with a residency report, asks the backend for a show past the binding capacity', () => {
       useResidencyStore.setState({
-        report: { seq: 1, owner: 'backend', budget_bytes: null, used_bytes: 0, binding_capacity: 13, undemanded_bytes: 0, layers: [] } as unknown as ResidencyReport,
+        report: { seq: 1, budget_bytes: null, used_bytes: 0, binding_capacity: 13, undemanded_bytes: 0, layers: [] } satisfies ResidencyReport,
       });
       seed(16);
       layerService.toggleVisibility('extra', true);

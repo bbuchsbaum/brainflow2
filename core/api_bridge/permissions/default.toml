@@ -70,7 +70,6 @@ permissions = [
     "allow-get-atlas-palette",
     "allow-register-categorical-colormap",
     "allow-get-atlas-stats",
-    "allow-reclaim-cached-image-slots",
     "allow-set-residency-demand",
     "allow-clear-residency-demand",
     "allow-get-residency-state",

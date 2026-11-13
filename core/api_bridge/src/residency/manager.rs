@@ -3,8 +3,7 @@
 //! the residency report with its `residency-changed` event.
 //!
 //! The backend owns admission and eviction (R5c; unconditional since R6): the
-//! ledger's demand drives [`super::admit`], and the report's `owner` is
-//! always `backend`.
+//! ledger's demand drives [`super::admit`].
 //!
 //! Locking: `BridgeState::residency` sits after the `RenderLoopService` and
 //! nothing else is acquired while it is held, so it can be taken under the
@@ -86,15 +85,6 @@ pub struct ResidencyDemandResult {
     pub applied: bool,
 }
 
-/// Who decides admission and eviction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(export)]
-pub enum ResidencyOwner {
-    Ui,
-    Backend,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
@@ -154,7 +144,6 @@ pub struct ResidencyLayerReport {
 pub struct ResidencyReport {
     #[ts(type = "number")]
     pub seq: u64,
-    pub owner: ResidencyOwner,
     /// `None` in the fixed-slot fallback.
     #[ts(type = "number | null")]
     pub budget_bytes: Option<u64>,
@@ -226,12 +215,6 @@ impl Residency {
             .lock()
             .map(|known| known.clone())
             .unwrap_or_default()
-    }
-
-    /// Who owns eviction, for the report: always the backend. The field
-    /// stays on the wire until the UI stops reading it (R6c).
-    pub(crate) fn owner(&self) -> ResidencyOwner {
-        ResidencyOwner::Backend
     }
 
     /// Ask for an admission on the next residency tick (R5c).
@@ -487,7 +470,6 @@ pub(crate) async fn snapshot(
 /// typed refusals per layer (cleared when the layer is admitted).
 pub(crate) fn build_report(
     seq: u64,
-    owner: ResidencyOwner,
     snapshot: &Snapshot,
     ledger: &DemandLedger,
     refusals: &HashMap<String, Refusal>,
@@ -580,7 +562,6 @@ pub(crate) fn build_report(
 
     ResidencyReport {
         seq,
-        owner,
         budget_bytes: snapshot.budget_bytes,
         used_bytes: snapshot.used_bytes,
         binding_capacity: facts.binding_capacity as u32,
@@ -682,13 +663,7 @@ async fn report(state: &BridgeState, wait: bool, only_if_changed: bool) -> Optio
     // gets the higher `seq`.
     let mut residency = state.residency.state.lock().await;
     residency.reported = Some(key);
-    let mut report = build_report(
-        0,
-        state.residency.owner(),
-        &snap,
-        &residency.ledger,
-        &residency.refusals,
-    );
+    let mut report = build_report(0, &snap, &residency.ledger, &residency.refusals);
     if only_if_changed && residency.last_body.as_ref() == Some(&report) {
         return None;
     }
@@ -701,8 +676,7 @@ async fn report(state: &BridgeState, wait: bool, only_if_changed: bool) -> Optio
 }
 
 /// The report for `get_residency_state`.
-/// Before the renderer starts there is nothing resident, but the owner is
-/// known: the UI must learn it before it would evict (R5c), so it gets an
+/// Before the renderer starts there is nothing resident, so the UI gets an
 /// empty report numbered with the last `seq` (any real report supersedes it).
 pub(crate) async fn residency_state_report(state: &BridgeState) -> BridgeResult<ResidencyReport> {
     if let Some(report) = report(state, true, false).await {
@@ -711,7 +685,6 @@ pub(crate) async fn residency_state_report(state: &BridgeState) -> BridgeResult<
     let seq = state.residency.state.lock().await.seq;
     Ok(ResidencyReport {
         seq,
-        owner: state.residency.owner(),
         budget_bytes: None,
         used_bytes: 0,
         binding_capacity: 0,
@@ -880,7 +853,7 @@ mod tests {
         let snap = snapshot_of(&[("a", 10), ("stray", 7)], 13);
         let mut refusals = HashMap::new();
         refusals.insert("gone".to_string(), Refusal::FrontExceedsBudget);
-        let report = build_report(4, ResidencyOwner::Ui, &snap, &ledger, &refusals);
+        let report = build_report(4, &snap, &ledger, &refusals);
         let json = serde_json::to_value(&report).unwrap();
 
         fn keys(value: &serde_json::Value, out: &mut Vec<String>) {
@@ -902,7 +875,8 @@ mod tests {
                 assert!(!key.contains(banned), "report field {key} names a texture");
             }
         }
-        assert_eq!(json["owner"], "ui");
+        // Ownership is not on the wire: the backend is the only owner (R6c).
+        assert!(json.get("owner").is_none());
         assert_eq!(json["seq"], 4);
         assert_eq!(report.undemanded_bytes, 7);
         assert_eq!(state_of(&report, "a"), ResidencyLayerState::Resident);
@@ -931,7 +905,7 @@ mod tests {
         );
         // Two bindings: `c` is resident but over the cap.
         let snap = snapshot_of(&[("a", 1), ("b", 1), ("c", 1)], 2);
-        let report = build_report(1, ResidencyOwner::Ui, &snap, &ledger, &HashMap::new());
+        let report = build_report(1, &snap, &ledger, &HashMap::new());
         assert_eq!(state_of(&report, "a"), ResidencyLayerState::Resident);
         let c = report.layers.iter().find(|l| l.layer_id == "c").unwrap();
         assert_eq!(c.state, ResidencyLayerState::Refused);

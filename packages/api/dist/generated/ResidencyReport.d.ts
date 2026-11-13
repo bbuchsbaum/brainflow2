@@ -1,12 +1,10 @@
 import type { ResidencyLayerReport } from "./ResidencyLayerReport";
-import type { ResidencyOwner } from "./ResidencyOwner";
 /**
  * The backend's view of residency, sent as `residency-changed` and returned
  * by `get_residency_state`. Every report takes the next `seq`.
  */
 export type ResidencyReport = {
     seq: number;
-    owner: ResidencyOwner;
     /**
      * `None` in the fixed-slot fallback.
      */

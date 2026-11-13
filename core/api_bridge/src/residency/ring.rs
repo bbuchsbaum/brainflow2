@@ -78,38 +78,6 @@ pub(crate) fn cached_image_member_count(
         .sum()
 }
 
-pub(crate) async fn reclaim_cached_image_slots_internal(
-    count: u32,
-    bridge_state: &BridgeState,
-) -> BridgeResult<ReclaimCachedSlotsResult> {
-    let _operation = bridge_state.volume_operations.lock().await;
-    let service_arc = {
-        let guard = bridge_state.render_loop_service.lock().await;
-        guard
-            .as_ref()
-            .ok_or_else(|| BridgeError::ServiceNotInitialized {
-                code: 5006,
-                details: "GPU rendering service is not initialized. Cannot reclaim texture slots."
-                    .to_string(),
-            })?
-            .clone()
-    };
-    let mut service = service_arc.lock().await;
-    let reclaimed = {
-        let mut sets = bridge_state.resident_image_sets.lock().await;
-        reclaim_cached_image_members(&mut sets, &mut service, count as usize)
-    };
-    let free_texture_slots = service.free_volume_slot_count() as u32;
-    drop(service);
-    // The UI reclaims only to make room for an upload it requests next: the
-    // starved layers' skip marks are cleared when that upload completes, so
-    // a frame cannot hand the freed slot to one of them first.
-    Ok(ReclaimCachedSlotsResult {
-        reclaimed: reclaimed as u32,
-        free_texture_slots,
-    })
-}
-
 /// Drop a layer's resident image-set ring (if any) and free every texture slot it
 /// still holds. Safe to call for layers that never had a ring. Errors from freeing
 /// an already-free slot are swallowed — teardown is best-effort.

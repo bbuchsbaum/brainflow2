@@ -46,7 +46,6 @@ let reportSeq = 0;
 function residencyReport(usedBytes: number, resident: number): ResidencyReport {
   return {
     seq: ++reportSeq,
-    owner: 'backend',
     budget_bytes: 1024,
     used_bytes: usedBytes,
     binding_capacity: 13,

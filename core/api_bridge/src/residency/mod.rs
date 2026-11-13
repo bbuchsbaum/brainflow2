@@ -55,18 +55,13 @@ pub(crate) use manager::{
 };
 pub use manager::{
     ResidencyDemandResult, ResidencyDemandedLayer, ResidencyFrameDemand, ResidencyLayerReport,
-    ResidencyLayerState, ResidencyOwner, ResidencyPin, ResidencyPriority, ResidencyRefusal,
-    ResidencyReport,
+    ResidencyLayerState, ResidencyPin, ResidencyPriority, ResidencyRefusal, ResidencyReport,
 };
-pub(crate) use release::{
-    release_layer_gpu_resources_held, release_layer_gpu_resources_internal,
-    release_layer_gpu_resources_with,
-};
+pub(crate) use release::{release_layer_gpu_resources_held, release_layer_gpu_resources_internal};
 pub(crate) use ring::{
     cached_image_member_count, reclaim_cached_image_members, reclaim_cached_image_slot,
-    reclaim_cached_image_slots_internal, release_resident_image_set,
-    release_resident_image_set_allocations, resident_image_set_enabled, RESIDENT_RING_BUDGET_BYTES,
-    RESIDENT_RING_MAX_SLOTS, RESIDENT_RING_PREFETCH_RADIUS,
+    release_resident_image_set, release_resident_image_set_allocations, resident_image_set_enabled,
+    RESIDENT_RING_BUDGET_BYTES, RESIDENT_RING_MAX_SLOTS, RESIDENT_RING_PREFETCH_RADIUS,
 };
 pub(crate) use ring_pool::{pool_demand, ring_growth, trim_front_rings, RingGrowth};
 pub(crate) use skips::{clear_allocation_failed_skips, note_render_skip, RenderSkip};

@@ -131,8 +131,7 @@ pub use residency::LayerSlotMap;
 use residency::*;
 pub use residency::{
     ResidencyDemandResult, ResidencyDemandedLayer, ResidencyFrameDemand, ResidencyLayerReport,
-    ResidencyLayerState, ResidencyOwner, ResidencyPin, ResidencyPriority, ResidencyRefusal,
-    ResidencyReport,
+    ResidencyLayerState, ResidencyPin, ResidencyPriority, ResidencyRefusal, ResidencyReport,
 };
 // Phase 3 command modules (export, clusters, voxel queries), re-exported so
 // `command_list.rs` and the TS exporter see them at the crate root.
@@ -317,7 +316,7 @@ pub struct AtlasStats {
     /// Volume texture slots holding data, including 4D resident-ring members.
     pub resident_texture_slots: u32,
     /// Resident slots held by cached (not displayed) 4D ring members, which
-    /// `reclaim_cached_image_slots` can free without evicting a layer.
+    /// admission can free without evicting a layer.
     pub cached_image_slots: u32,
     /// Cumulative successful declarative GPU submissions for this renderer.
     #[serde(default)]
@@ -3995,10 +3994,9 @@ async fn request_layer_gpu_resources(
 #[tracing::instrument(skip_all, err, name = "api.release_gpu")]
 async fn release_layer_gpu_resources(
     layer_id: String,
-    for_upload: Option<bool>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<ReleaseResult> {
-    release_layer_gpu_resources_with(layer_id, state.inner(), for_upload.unwrap_or(false)).await
+    release_layer_gpu_resources_internal(layer_id, state.inner()).await
 }
 
 /// Declare what one frame (a view tab, a Studio pane, a segmentation view)
@@ -6945,29 +6943,6 @@ struct Vec3 {
     x: f32,
     y: f32,
     z: f32,
-}
-
-/// Result of [`reclaim_cached_image_slots`].
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct ReclaimCachedSlotsResult {
-    /// Texture slots freed by dropping cached 4D members.
-    pub reclaimed: u32,
-    /// Free volume texture slots after the reclaim.
-    pub free_texture_slots: u32,
-}
-
-/// Free up to `count` texture slots held by cached (prefetched, not
-/// displayed) 4D members. The UI calls this first when it needs room, before
-/// evicting any layer: a cached ring member costs only a re-upload on the
-/// next member change. The displayed member of every ring is kept.
-#[command]
-#[tracing::instrument(skip_all, err, name = "api.reclaim_cached_image_slots")]
-async fn reclaim_cached_image_slots(
-    count: u32,
-    state: State<'_, BridgeState>,
-) -> BridgeResult<ReclaimCachedSlotsResult> {
-    reclaim_cached_image_slots_internal(count, state.inner()).await
 }
 
 fn volume_sendable_uses_timepoint(volume_data: &VolumeSendable) -> bool {
@@ -13269,118 +13244,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reclaim_cached_image_slots_frees_only_cached_ring_members() {
-        let (state, _) =
-            gpu_state_with_residency(render_loop::RendererResidencyConfig::FixedSlots).await;
-        for id in ["ring-a", "ring-b"] {
-            state.volume_registry.lock().await.insert(
-                id.into(),
-                make_4d_volume_sendable_with_timeseries(),
-                volume_metadata_for(id, "f32", bridge_types::VolumeType::TimeSeries4D),
-            );
-        }
-        let mut initial = Vec::new();
-        for id in ["ring-a", "ring-b"] {
-            let info = request_layer_gpu_resources_for_testing(
-                LayerSpec::Volume(VolumeLayerSpec {
-                    id: id.to_string(),
-                    source_resource_id: id.to_string(),
-                    colormap: "gray".into(),
-                    slice_axis: None,
-                    slice_index: None,
-                }),
-                None,
-                &state,
-            )
-            .await
-            .expect("initial upload");
-            let shown = mapped_handle(&state, id).await.expect("mapped");
-            assert_eq!(shown.index(), info.atlas_layer_index);
-            initial.push(shown);
-        }
-        let service = state
-            .render_loop_service
-            .lock()
-            .await
-            .as_ref()
-            .unwrap()
-            .clone();
-        let displayed = {
-            let mut renderer = service.lock().await;
-            let mut displayed = Vec::new();
-            for (id, slot) in ["ring-a", "ring-b"].iter().zip(&initial) {
-                displayed.push(
-                    try_resident_swap(id, id, *slot, Some(0), 1, &state, &mut renderer)
-                        .await
-                        .unwrap()
-                        .expect("swap"),
-                );
-            }
-            displayed
-        };
-        let cached = cached_image_member_count(&*state.resident_image_sets.lock().await);
-        assert!(cached >= 2, "prefetch must leave cached members: {cached}");
-        let (free_before, resident_before) = {
-            let renderer = service.lock().await;
-            (
-                renderer.free_volume_slot_count(),
-                renderer.resident_volume_slot_count(),
-            )
-        };
-        state
-            .render_skipped_layers
-            .lock()
-            .await
-            .insert("starved".into(), RenderSkip::AllocationFailed);
-
-        let one = reclaim_cached_image_slots_internal(1, &state)
-            .await
-            .expect("reclaim one");
-        assert_eq!(one.reclaimed, 1);
-        assert_eq!(one.free_texture_slots as usize, free_before + 1);
-        // The UI reclaims to make room for its next upload: starved layers
-        // wait for that upload to complete, not take the slot first.
-        assert_eq!(
-            state.render_skipped_layers.lock().await.get("starved"),
-            Some(&RenderSkip::AllocationFailed)
-        );
-
-        let rest = reclaim_cached_image_slots_internal(100, &state)
-            .await
-            .expect("reclaim the rest");
-        assert_eq!(rest.reclaimed as usize, cached - 1);
-        assert_eq!(
-            cached_image_member_count(&*state.resident_image_sets.lock().await),
-            0
-        );
-        let none = reclaim_cached_image_slots_internal(4, &state)
-            .await
-            .expect("nothing left");
-        assert_eq!(none.reclaimed, 0);
-
-        let renderer = service.lock().await;
-        assert_eq!(
-            renderer.resident_volume_slot_count(),
-            resident_before - cached
-        );
-        for slot in &displayed {
-            assert!(
-                renderer.get_volume_data_range(slot.index()).is_some(),
-                "the displayed member of every ring stays resident"
-            );
-        }
-        let sets = state.resident_image_sets.lock().await;
-        assert_eq!(
-            sets.get("ring-a").unwrap().ring.slot_of(1),
-            Some(displayed[0].index())
-        );
-        assert_eq!(
-            sets.get("ring-b").unwrap().ring.slot_of(1),
-            Some(displayed[1].index())
-        );
-    }
-
-    #[tokio::test]
     async fn watchdog_spares_drawn_and_editable_layers_and_reports_releases() {
         let state = BridgeState::default().expect("bridge state");
         state
@@ -13543,7 +13406,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_freeing_release_clears_allocation_failed_skips_unless_for_upload() {
+    async fn a_freeing_release_clears_allocation_failed_skips() {
         let state = BridgeState::default().expect("bridge state");
         state
             .ensure_render_loop()
@@ -13563,19 +13426,33 @@ mod tests {
             assert!(!skipped.contains_key("starved"));
             assert_eq!(skipped.get("over-cap"), Some(&RenderSkip::OverCap));
         }
+    }
 
-        // An eviction for an upload keeps them waiting, so a frame cannot
-        // hand the freed slot to a starved layer before the upload takes it...
-        mark_starved_for_test(&state).await;
-        let result = release_layer_gpu_resources_with("evicted".into(), &state, true)
+    #[tokio::test]
+    async fn an_admission_eviction_keeps_starved_layers_waiting_until_the_upload_ends() {
+        let state = BridgeState::default().expect("bridge state");
+        state
+            .ensure_render_loop()
             .await
-            .expect("evict for upload");
+            .expect("GPU adapter required");
+        upload_3d_for_test(&state, "evicted").await;
+
+        // Admission makes room for an upload with the held release, which
+        // leaves starved layers waiting, so a frame cannot hand the freed slot
+        // to one of them before the upload takes it...
+        mark_starved_for_test(&state).await;
+        let result = {
+            let _operation = state.volume_operations.lock().await;
+            release_layer_gpu_resources_held("evicted".into(), &state)
+                .await
+                .expect("evict for upload")
+        };
         assert!(result.freed);
         assert_eq!(
             state.render_skipped_layers.lock().await.get("starved"),
             Some(&RenderSkip::AllocationFailed)
         );
-        // ...and the upload's completion lets them retry.
+        // ...and the upload's completion lets them retry (gpu_upload.rs).
         upload_3d_for_test(&state, "incoming").await;
         assert!(!state
             .render_skipped_layers
@@ -15852,7 +15729,6 @@ mod tests {
             .unwrap();
         let uploaded = residency_tick(&state).await.expect("an upload reports");
         assert!(uploaded.seq > first.seq);
-        assert_eq!(uploaded.owner, ResidencyOwner::Backend);
         let a = reported(&uploaded, "a").expect("a is reported");
         assert_eq!(a.state, ResidencyLayerState::Undemanded);
         assert!(a.bytes > 0);
@@ -15917,7 +15793,6 @@ mod tests {
         )
         .await;
         let report = residency_state_report(&state).await.unwrap();
-        assert_eq!(report.owner, ResidencyOwner::Backend);
         assert_eq!(state_of(&report, "a"), Some(ResidencyLayerState::Resident));
         assert_eq!(state_of(&report, "b"), Some(ResidencyLayerState::Resident));
 
@@ -16165,10 +16040,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_owner_is_reported_before_the_renderer_starts() {
+    async fn an_empty_report_precedes_the_renderer() {
         let state = BridgeState::default().expect("bridge state");
         let report = residency_state_report(&state).await.unwrap();
-        assert_eq!(report.owner, ResidencyOwner::Backend);
         assert!(report.layers.is_empty());
         assert_eq!(report.seq, 0, "any real report supersedes it");
     }
