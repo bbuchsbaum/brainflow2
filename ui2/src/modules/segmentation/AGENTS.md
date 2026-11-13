@@ -18,7 +18,11 @@ Label tracing on a fixed reference grid. The native domain is
   teardown revokes it even while disabled. A late accepted edit is reconciled
   through `get_session`, never blindly replayed. Published CPU labels are
   retained independently of display/GPU leases. Native quit drains module
-  admission before asking about unsaved documents.
+  admission before asking about unsaved documents. ⌘Q and the app-menu Quit
+  are a custom `app_quit` item routed through that guard
+  (`request_document_exit`). Known gap: Dock Quit and logout/shutdown still
+  send `terminate:` directly and exit without the prompt, because tao's app
+  delegate has no `applicationShouldTerminate:`.
 - **Manual tracing:** `SegmentationMode`, `SegmentViewport`, `ContextViews` and
   `SegmentationInspector` use actual loaded grids and native commands. Production
   overlays reuse the shared H geometry/colour rules through the shared viewport

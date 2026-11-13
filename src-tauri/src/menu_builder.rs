@@ -1156,6 +1156,8 @@ mod tests {
             ("CmdOrCtrl+W", "workspace_close_tab"),
             ("CmdOrCtrl+Shift+W", "close_window"),
             ("CmdOrCtrl+,", "app_settings"),
+            // Custom Quit so ⌘Q reaches the unsaved-session guard.
+            ("CmdOrCtrl+Q", "app_quit"),
         ];
         // The predefined Close Window would bind ⌘W again.
         assert!(
@@ -1192,7 +1194,7 @@ mod tests {
             .expect("app menu");
         let app_menu_end = app_menu_start
             + main_rs[app_menu_start..]
-                .find("PredefinedMenuItem::quit")
+                .find(".item(&app_quit)")
                 .expect("app menu ends with Quit");
         assert!(
             main_rs[app_menu_start..app_menu_end].contains(".id(\"app_settings\")"),
