@@ -7,6 +7,7 @@ import { NeuroSurfaceViewer, SurfaceGeometry, MultiLayerNeuroSurface, LaplacianS
 import { buildRenderableLayerSpecs, isSurfaceGeometryChanged, isSurfaceVariantSwitch, planSurfaceReconciliation, } from './surfaceReconciler.js';
 import { DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, } from './types.js';
 import { buildLayerInstance, applyLayerUpdate, applySurfaceRenderSettings, applySceneRenderSettings, } from './surfaceRuntime.js';
+import { attachTurntable } from './turntableControls.js';
 /** Fraction of the pane kept clear around the mesh by the on-screen fit. */
 const VIEW_FIT_PADDING = 0.08;
 /**
@@ -917,7 +918,9 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         const tick = () => {
             const basis = cameraBasis(viewerRef.current?.camera);
             if (basis) {
-                const key = [...basis.right, ...basis.up].map((v) => v.toFixed(3)).join(',');
+                // Two decimals is as fine as a 64 px glyph can show and keeps
+                // sub-pixel camera jitter from re-rendering it.
+                const key = [...basis.right, ...basis.up].map((v) => v.toFixed(2)).join(',');
                 if (key !== last) {
                     last = key;
                     onCameraChange?.(basis);
@@ -1120,6 +1123,32 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             }
         };
     }, []);
+    // SUMA-style rotation: 1:1 with the pointer, no inertia, no roll; arrow
+    // keys turn the brain in 15 degree steps while the pane has focus. The
+    // trackball keeps pan and zoom.
+    useEffect(() => {
+        const viewer = viewerRef.current;
+        const container = containerRef.current;
+        const canvas = viewer?.renderer?.domElement;
+        if (!isInitialized || !viewer || !container || !canvas)
+            return;
+        const detach = attachTurntable({
+            camera: viewer.camera,
+            controls: viewer.cameraControls ?? viewer.controls,
+            requestRender: () => viewer.requestRender(),
+            renderer: viewer.renderer,
+        }, container);
+        // A press on the canvas gives the pane focus, so the arrow keys reach it.
+        const focusPane = () => {
+            if (container.ownerDocument.activeElement !== container)
+                container.focus({ preventScroll: true });
+        };
+        canvas.addEventListener('pointerdown', focusPane);
+        return () => {
+            canvas.removeEventListener('pointerdown', focusPane);
+            detach();
+        };
+    }, [isInitialized]);
     // Reverse linked cursor: a left-click (not a drag/rotate) on a rendered
     // surface raycasts to the picked point and reports it in the surface vertex
     // frame, so a consumer can drive the volume crosshair from a surface click.
@@ -1192,7 +1221,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             canvas.removeEventListener('mouseup', onUp);
         };
     }, [isInitialized, onSurfacePick, cursorAnatomy]);
-    return (_jsx("div", { ref: containerRef, className: className, onPointerDown: onActivate, onMouseEnter: onActivate, onContextMenu: onContextMenu, style: {
+    return (_jsx("div", { ref: containerRef, className: className, tabIndex: 0, "aria-label": "Surface view: drag to rotate, arrow keys turn in steps", onPointerDown: onActivate, onMouseEnter: onActivate, onContextMenu: onContextMenu, style: {
             width: '100%',
             height: '100%',
             minWidth: 0,
