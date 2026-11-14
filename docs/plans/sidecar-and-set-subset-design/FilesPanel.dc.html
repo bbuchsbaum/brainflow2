@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Files panel with sidecar marker and selected file summary</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 320px; height: 860px; box-sizing: border-box; background: #222326; color: #e9eaec; border-right: 1px solid rgba(255,255,255,0.16); font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 12px; line-height: 18px; display: flex; flex-direction: column">
+
+<div style="height: 34px; padding: 0 8px 0 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.16); flex-shrink: 0">
+<span style="flex-grow: 1; font-size: 13px; line-height: 20px; font-weight: 600; letter-spacing: 0.01em">Files</span>
+<button type="button" aria-label="Files actions" style="width: 24px; height: 24px; padding: 0; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid transparent; border-radius: 2px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="#bdbfc4"><circle cx="3" cy="7" r="1.1"/><circle cx="7" cy="7" r="1.1"/><circle cx="11" cy="7" r="1.1"/></svg></button>
+</div>
+
+<div style="padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid rgba(255,255,255,0.08)">
+<label style="display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; background: #1b1c1f; border: 1px solid rgba(255,255,255,0.38); border-radius: 2px">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#bdbfc4" stroke-width="1.3"><circle cx="5" cy="5" r="3.5"/><path d="M7.8 7.8l2.7 2.7"/></svg>
+<input type="text" aria-label="Search files" value="tfce" style="flex-grow: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: #e9eaec; font: inherit; padding: 0">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #a4a7ad">9 of 54</span>
+</label>
+<div style="display: flex; align-items: center; gap: 8px">
+<span style="flex-grow: 1; min-width: 0; font-size: 11px; line-height: 16px; color: #a4a7ad">9 images in obs match</span>
+<button type="button" style="height: 24px; padding: 0 8px; background: #1b1c1f; color: #e9eaec; border: 1px solid rgba(255,255,255,0.28); border-radius: 2px; font: inherit">Open these as a set</button>
+</div>
+</div>
+
+<div style="flex-grow: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 4px 0">
+<div style="height: 24px; padding: 0 12px; display: flex; align-items: center; gap: 6px">
+<svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#bdbfc4" stroke-width="1.4"><path d="M2 3.5L5 6.5l3-3"/></svg>
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><path d="M1.5 3.5h4l1.2 1.5h5.8v6.5h-11z"/></svg>
+<span style="flex-grow: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">group</span>
+</div>
+<div style="height: 24px; padding: 0 12px 0 26px; display: flex; align-items: center; gap: 6px">
+<svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#bdbfc4" stroke-width="1.4"><path d="M2 3.5L5 6.5l3-3"/></svg>
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdbfc4" stroke-width="1.2"><path d="M1.5 3.5h4l1.2 1.5h5.8v6.5h-11z"/></svg>
+<span style="flex-grow: 1; min-width: 0">obs</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #a4a7ad">54</span>
+</div>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="9">
+<div style="{{r.style}}">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#9fb7d8" stroke-width="1.2" style="flex-shrink: 0"><path d="M7 1.5l5 2.75v5.5L7 12.5 2 9.75v-5.5z"/><path d="M2 4.25l5 2.75 5-2.75M7 7v5.5"/></svg>
+<span style="flex-grow: 1; min-width: 0; font-family: 'IBM Plex Mono', monospace; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</span>
+<sc-if value="{{r.note}}" hint-placeholder-val="{{ true }}">
+<svg role="img" aria-label="Has a sidecar file" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#bdbfc4" stroke-width="1.2" style="flex-shrink: 0"><path d="M2.5 1.5h5l2 2v7h-7z"/><path d="M4.5 5.5h3M4.5 7.5h3"/></svg>
+</sc-if>
+</div>
+</sc-for>
+</div>
+
+<div style="border-top: 1px solid rgba(255,255,255,0.16); padding: 10px 12px 12px 12px; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; color: #bdbfc4; overflow-wrap: anywhere">contrast-mod_cue_old_tfce.nii.gz</span>
+<span style="font-size: 13px; line-height: 20px; font-weight: 500">Cue activity scaled by memory strength</span>
+<p style="margin: 0; color: #e9eaec; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden">Parametric modulation of cue-period activity by later recognition confidence, old items only. One-sample group test across subjects; values are threshold-free cluster enhancement scores of the group <i>t</i> map.</p>
+<div style="display: grid; grid-template-columns: 72px minmax(0, 1fr); row-gap: 3px; column-gap: 10px">
+<span style="color: #bdbfc4; font-size: 11px; line-height: 18px">Statistic</span><span>TFCE of <i>t</i>(23)</span>
+<span style="color: #bdbfc4; font-size: 11px; line-height: 18px">Subjects</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 18px">24</span>
+<span style="color: #bdbfc4; font-size: 11px; line-height: 18px">Grid</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 18px">97 × 115 × 97 · 2.00 mm</span>
+<span style="color: #bdbfc4; font-size: 11px; line-height: 18px">Size</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 18px">1.8 MB · not downloaded</span>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; margin-top: 2px">
+<button type="button" style="height: 24px; padding: 0 10px; background: #d8dade; color: #151619; border: 1px solid #d8dade; border-radius: 2px; font: inherit; font-weight: 500">Load</button>
+<button type="button" style="height: 24px; padding: 0 8px; background: #1b1c1f; color: #e9eaec; border: 1px solid rgba(255,255,255,0.28); border-radius: 2px; font: inherit">Add layer</button>
+<span style="flex-grow: 1"></span>
+<button type="button" style="height: 24px; padding: 0 8px; background: #1b1c1f; color: #e9eaec; border: 1px solid rgba(255,255,255,0.28); border-radius: 2px; font: inherit">All fields</button>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":320,"height":860}}'>
+class Component extends DCLogic {
+renderVals() {
+const base = 'height: 24px; padding: 0 12px 0 40px; display: flex; align-items: center; gap: 6px; ';
+const names = ['mod_cue_new', 'mod_cue_old', 'mod_probe_new', 'mod_probe_old', 'xnew_cue_new', 'xold_cue_old', 'xold_probe_old', 'old_gt_new_cue', 'old_gt_new_probe'];
+return {
+rows: names.map((n, i) => ({
+name: 'contrast-' + n + '_tfce.nii.gz',
+note: i !== 4 && i !== 8,
+style: base + (i === 1 ? 'background: #36383d; box-shadow: inset 2px 0 0 #d4a556' : 'background: transparent')
+}))
+};
+}
+}
+</script>
+</body>
+</html>

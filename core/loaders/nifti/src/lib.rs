@@ -825,9 +825,9 @@ pub fn load_nifti_4d_auto(path: &Path) -> Result<VolumeSendable, NiftiError> {
         return Ok(result);
     }
 
-    Err(NiftiError::ScalingError(format!(
-        "Could not load 4D file with any supported data type: {f32_error}"
-    )))
+    // Every type failed: report the first failure as what it is (a header or
+    // I/O error is not a scaling error, and no other type would have read it).
+    Err(f32_error)
 }
 
 /// Attempt a native-dtype 3D load for truly-integer, unscaled files.
@@ -922,9 +922,9 @@ pub fn load_nifti_volume_auto(path: &Path) -> Result<(VolumeSendable, Affine3<f3
         return Ok(result);
     }
 
-    Err(NiftiError::ScalingError(format!(
-        "Could not load file with any supported data type: {f32_error}"
-    )))
+    // Every type failed: report the first failure as what it is (a header or
+    // I/O error is not a scaling error, and no other type would have read it).
+    Err(f32_error)
 }
 
 // --- Loader Implementation ---
@@ -1082,6 +1082,53 @@ mod tests {
         match load_nifti_volume_auto(&path) {
             Err(NiftiError::MultipleFrames(6)) => {}
             other => panic!("expected MultipleFrames(6), got {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// The FIR fixture, uncompressed, with one `pixdim` entry overwritten.
+    fn fir4d_with_pixdim(index: usize, value: f32) -> PathBuf {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        flate2::read::GzDecoder::new(std::fs::File::open(fir4d_fixture()).unwrap())
+            .read_to_end(&mut bytes)
+            .unwrap();
+        let at = 76 + 4 * index;
+        bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        let path = std::env::temp_dir().join(format!("bf-pixdim-{}.nii", uuid::Uuid::new_v4()));
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    /// A fourth axis with no step (channels of a probability atlas, or a
+    /// series whose TR was never written) loads, and reports no TR.
+    #[test]
+    fn four_d_file_without_a_fourth_axis_step_loads_with_no_tr() {
+        let path = fir4d_with_pixdim(4, 0.0);
+        let loaded = load_nifti_auto_dimension(&path);
+        let temporal = read_temporal_metadata(&path);
+        std::fs::remove_file(&path).unwrap();
+
+        let VolumeSendable::Vec4DF32(vec) = loaded.unwrap() else {
+            panic!("expected Vec4DF32");
+        };
+        assert_eq!(vec.space().dim, vec![41, 49, 40, 6]);
+        assert_relative_eq!(vec.data[[7, 23, 30, 2]], 1.1, epsilon = 1e-6);
+        assert_eq!(temporal, TemporalMetadata::default());
+    }
+
+    /// A file no data type can read reports its own error, not a scaling one.
+    #[test]
+    fn four_d_load_failure_reports_the_underlying_error() {
+        let path = fir4d_with_pixdim(1, 0.0);
+        let loaded = load_nifti_4d_auto(&path);
+        std::fs::remove_file(&path).unwrap();
+        match loaded {
+            Err(NiftiError::NeuroIM(error)) => {
+                assert!(error
+                    .to_string()
+                    .contains("Spacing values must be positive"));
+            }
+            other => panic!("expected the neuroim error, got {:?}", other.map(|_| ())),
         }
     }
 

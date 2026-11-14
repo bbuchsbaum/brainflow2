@@ -19,15 +19,33 @@ import { useLayerStore } from '@/stores/layerStore';
 import { setTransport } from '@/services/transport';
 import '@/index.css';
 
-const folder = '/fixture/one_sample_all';
-const names = [
-  'beta_intercept',
-  'df_res',
-  'p_intercept',
-  'se_intercept',
-  'sigma2',
-  'z_intercept',
-].map((suffix) => `one_sample_all_${suffix}.nii.gz`);
+// `?fixture=crossed` swaps in a 9 contrasts × 6 kinds folder (kind chips, long list).
+const crossed = new URLSearchParams(window.location.search).get('fixture') === 'crossed';
+const folder = crossed ? '/fixture/group/obs' : '/fixture/one_sample_all';
+const names = crossed
+  ? [
+      'mod_cue_new',
+      'mod_cue_old',
+      'mod_probe_new',
+      'mod_probe_old',
+      'xnew_cue_new',
+      'xold_cue_old',
+      'xold_probe_old',
+      'old_gt_new_cue',
+      'old_gt_new_probe',
+    ].flatMap((contrast) =>
+      ['t_g', 'tfce', 'fwer', 'perm', 'beta_g', 'se_g'].map(
+        (kind) => `contrast-${contrast}_${kind}.nii.gz`,
+      ),
+    )
+  : [
+      'beta_intercept',
+      'df_res',
+      'p_intercept',
+      'se_intercept',
+      'sigma2',
+      'z_intercept',
+    ].map((suffix) => `one_sample_all_${suffix}.nii.gz`);
 const nodes = names.map((name) => ({
   id: `${folder}/${name}`,
   name,
@@ -64,7 +82,7 @@ useFileBrowserStore.setState({
     {
       id: folder,
       path: folder,
-      name: 'one_sample_all',
+      name: folder.split('/').pop()!,
       type: 'directory',
       depth: 0,
       expanded: true,

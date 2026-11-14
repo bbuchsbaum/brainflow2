@@ -60,7 +60,7 @@ neuroatlas = { git = "https://github.com/bbuchsbaum/neuroatlas-rs", rev = "45e6c
 # --- Surface and GIFTI support ---
 neurosurf-rs = { git = "https://github.com/bbuchsbaum/neurosurf-rs", rev = "522bb53af161e49aac94dbedd8798b2d02aaf733", features = ["gifti-support"] }
 gifti = { git = "https://github.com/bbuchsbaum/gifti-rs", rev = "979924515fd55ea3a35927c51d18b8ed0781eac8" }
-neuroim = { git = "https://github.com/bbuchsbaum/neuroim-rs", rev = "43157797699c76b9cb81fb9036de74901673905c" }
+neuroim = { git = "https://github.com/bbuchsbaum/neuroim-rs", rev = "d62331cbdbf69f6c56c0db1651ea3b3ba05d5223" }
 
 # --- BIDS support ---
 bids-rs = { git = "https://github.com/bbuchsbaum/bids-rs", rev = "c7021c55da04bb1a6a2b3e6642266381174a0faa" }

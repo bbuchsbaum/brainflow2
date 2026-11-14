@@ -27,4 +27,8 @@ export interface ImageSetPreview {
   opening: boolean;
   error: string | null;
   setId?: string;
+  /** Members to start checked (default: all), e.g. the Files search matches. */
+  initialSelected?: string[];
+  /** Filter text to start with, used only if it shows exactly `initialSelected`. */
+  initialQuery?: string;
 }

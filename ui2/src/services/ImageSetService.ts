@@ -68,12 +68,29 @@ export class ImageSetService {
     });
   }
 
-  async openFolder(folder: string): Promise<void> {
+  /**
+   * Opens the checklist for a folder. `initial` pre-checks a subset (the Files
+   * search matches); members outside the folder's direct images are ignored.
+   */
+  async openFolder(
+    folder: string,
+    initial?: { selectedPaths: string[]; query?: string },
+  ): Promise<void> {
     this.closePreview();
     const id = crypto.randomUUID();
     const workspaceId = useViewStateStore.getState().activeWorkspaceKey;
     useImageSetStore.setState({
-      preview: { id, folder, workspaceId, members: [], loading: true, opening: false, error: null },
+      preview: {
+        id,
+        folder,
+        workspaceId,
+        members: [],
+        loading: true,
+        opening: false,
+        error: null,
+        initialSelected: initial?.selectedPaths,
+        initialQuery: initial?.query,
+      },
     });
     try {
       const members = folderImageMembers(folder, await getApiService().listDirectory(folder, 1));

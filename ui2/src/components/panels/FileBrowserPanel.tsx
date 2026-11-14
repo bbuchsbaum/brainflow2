@@ -34,6 +34,7 @@ import { handleTreeTabCapture } from "./files/treeTabEscape";
 import { FilesStartPanel } from "./files/FilesStartPanel";
 import { SourceHeader } from "./files/SourceHeader";
 import { FilterBar } from "./files/FilterBar";
+import { imageSetOfferFromMatches } from "./files/searchSetOffer";
 import { SelectedFileSummary } from "./files/SelectedFileSummary";
 import { FilesFooterStatus } from "./files/FilesFooterStatus";
 import { ViewModeTabs, filesViewPanelProps } from "./files/ViewModeTabs";
@@ -551,6 +552,11 @@ const FileBrowserPanelContent: React.FC = () => {
   const hasMountedDirectory = rootPath.trim().length > 0 || entries.length > 0;
   const isSearchActive = searchQuery.trim().length > 0 && hasMountedDirectory;
   const isSearchEmptyState = isSearchActive && searchResults.length === 0;
+  // When every matching image sits in one folder, offer them as an image set.
+  const searchSetOffer = useMemo(
+    () => (isSearchActive ? imageSetOfferFromMatches(searchResults) : null),
+    [isSearchActive, searchResults],
+  );
   const refreshTargetPath = currentPath || rootPath;
   const canRefresh = refreshTargetPath.trim().length > 0;
   const shortcutLabel = useMemo(
@@ -696,6 +702,26 @@ const FileBrowserPanelContent: React.FC = () => {
             fileBrowserStore.setSortOrder(sortOrder === "asc" ? "desc" : "asc")
           }
         />
+      )}
+
+      {viewMode === "tree" && searchSetOffer && (
+        <div className="flex items-center gap-2 px-2 pb-1.5" data-testid="files-search-set-offer">
+          <span className="min-w-0 flex-1 truncate text-bf-xs text-bf-text-muted">
+            {searchSetOffer.paths.length} images in {searchSetOffer.folderName} match
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() =>
+              void getImageSetService().openFolder(searchSetOffer.folder, {
+                selectedPaths: searchSetOffer.paths,
+                query: searchQuery,
+              })
+            }
+          >
+            Open these as a set
+          </Button>
+        </div>
       )}
 
       {/*
