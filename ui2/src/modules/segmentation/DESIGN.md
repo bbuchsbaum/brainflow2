@@ -74,6 +74,14 @@ and neighbour departures came out as fragments. It now draws:
   apply here). It clears three brush radii around the brush only while the
   pointer is over the image with a paint tool; it no longer stays out of
   the labelled structure's extent.
+- **Wording** (2026-11-09): the strip reads "Label 1 · brush ⌀ 4.0 mm ·
+  paints over unlocked labels" (plus "stroke N vx" and "N pieces" when they
+  apply; the strip row has a fixed height and clips, so it never resizes the
+  view mid-stroke), without the always-default 2D and range
+  items. "Paint over" offers Empty space only / Unlocked labels (the old
+  "All unlocked labels" behaved the same). The slice chart's key sits under
+  its heading, the ruler keeps the current slice in view, and the Inspector
+  gives the workflow in one line.
 - **Contour**: a click or a drag of fewer than three points is not sent; a
   brief note at the pointer says "Drag to draw a closed outline." Stroke
   notes like this never become session errors (no Retry session).

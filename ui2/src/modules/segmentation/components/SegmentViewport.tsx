@@ -17,6 +17,9 @@ import { numericEntryHandlers } from '@/modules/segmentation/components/shared/n
 
 const viewPlane = (slice: SegmentationSlice): ViewPlane => ({ ...slice.plane, dim_px: [slice.plane.width_px, slice.plane.height_px] });
 const text = formatModuleError;
+/** Trackpad scroll (px) per native slice; a wheel notch of at least this much is one slice. */
+export const WHEEL_STEP_PX = 30;
+
 export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const session = useSegmentationSession(workspaceId);
   const isFront = useActiveWorkspaceId() === workspaceId;
@@ -27,7 +30,15 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const container = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const [size, setSize] = useState<[number, number]>([512, 512]);
-  const [slice, setSlice] = useState<SegmentationSlice | null>(null);
+  // The last fetched slice and the native index it belongs to. It is kept
+  // while the next one loads, so stepping never blanks the view.
+  const [sliceState, setSliceState] = useState<{ index: number; data: SegmentationSlice } | null>(null);
+  const slice = sliceState?.data ?? null;
+  const sliceSeq = useRef(0), sliceApplied = useRef(0);
+  // The frame on screen: the plane it was drawn for and the slice whose labels go with it.
+  const [shown, setShown] = useState<{ key: string; plane: ViewPlane; index: number; slice: SegmentationSlice } | null>(null);
+  const renderSeq = useRef(0), shownSeq = useRef(0);
+  const planeSlice = useRef<{ index: number; data: SegmentationSlice } | null>(null);
   const [preview, setPreview] = useState<SegmentationPreview | null>(null);
   const [cursorWorld, setCursorWorld] = useState<[number, number, number] | null>(null);
   // The pointer over the image, in canvas px (null when it is elsewhere).
@@ -46,6 +57,16 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   // `base` is the store radius the draft belongs to; a change from elsewhere drops the draft.
   const [radiusDraft, setRadiusDraft] = useState<{ text: string; base: number } | null>(null);
   const ready = useRef(false);
+  // Wheel stepping: the index a step builds on until the store catches up (several
+  // wheel events can land before a render), and the unspent trackpad scroll.
+  const stepBase = useRef<number | null>(null), wheelRest = useRef(0);
+  if (stepBase.current !== null && stepBase.current === session?.sliceIndex) stepBase.current = null;
+  const mounted = useRef(true);
+  // One slice fetch and one render in flight; while one runs, only the latest request waits.
+  const fetcher = useRef<{ busy: boolean; want: { index: number; size: [number, number]; record: NonNullable<ReturnType<typeof getSegmentationSession>> } | null }>({ busy: false, want: null });
+  const renderer = useRef<{ busy: boolean; want: (() => Promise<void>) | null }>({ busy: false, want: null });
+  // Bumped when the tab is left: a render started before then is abandoned.
+  const renderGen = useRef(0);
   const placement = useRef<SliceViewportPlacement | null>(null);
   const state = useRef(session); state.current = session;
   const active = session?.info?.snapshot;
@@ -63,14 +84,17 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const panKey = useRef(false);
   const pan = useRef<{ x: number; y: number; plane: ViewPlane } | null>(null);
   const candidatePlane = useMemo(() => {
-    if (!slice || !active) return null;
+    // Until the current index's slice arrives, hold the plane (undefined).
+    if (!sliceState || !active) return null;
+    if (sliceState.index !== session?.sliceIndex) return undefined;
+    const slice = sliceState.data;
     if (!framing) return viewPlane(slice);
     const resized = resizeZoomedPlane(framing.plane, size);
     const offset = session.sliceIndex - framing.index;
     return { ...resized, origin_mm: resized.origin_mm.map((v, axis) => v + active.voxelToWorld[4 * active.normalAxis + axis] * offset) as [number, number, number] };
-  }, [slice, active, framing, size, session?.sliceIndex]);
+  }, [sliceState, active, framing, size, session?.sliceIndex]);
   const stablePlane = useRef<ViewPlane | null>(null);
-  if (JSON.stringify(stablePlane.current) !== JSON.stringify(candidatePlane)) stablePlane.current = candidatePlane;
+  if (candidatePlane !== undefined && JSON.stringify(stablePlane.current) !== JSON.stringify(candidatePlane)) { stablePlane.current = candidatePlane; planeSlice.current = sliceState; }
   const plane = stablePlane.current;
   const sourceId = contrast === 'secondary' && active?.registration?.status === 'aligned' ? secondaryDisplayId ?? referenceDisplayId : referenceDisplayId;
   const frameKey = JSON.stringify([plane, sourceId]);
@@ -82,8 +106,14 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   // (the viewport's unmount drops it): never trace on an empty canvas.
   const hasImage = useHasRenderedImage(contextId);
   const [redraw, setRedraw] = useState(0);
-  ready.current = Boolean(isFront && session && slice && slice.revision === active?.revision && layerReady && renderedFrame === frameKey && hasImage && !displayError && !session.info?.renderError);
+  // A drawn frame stays on screen while the next one renders; tracing waits
+  // until the frame on screen is the current slice at the current revision.
+  const visible = Boolean(isFront && session && shown && layerReady && hasImage && !displayError && !session.info?.renderError);
+  ready.current = Boolean(visible && shown?.key === frameKey && renderedFrame === frameKey && sliceState?.index === session?.sliceIndex && slice && slice.revision === active?.revision);
   const context = useMemo<RenderContext>(() => ({ id: contextId, type: 'slice', dimensions: { width: size[0], height: size[1] }, metadata: { workspaceId }, viewPlane: plane ?? undefined }), [contextId, workspaceId, size, plane]);
+  const displayContext = useMemo<RenderContext>(() => ({ ...context, viewPlane: shown?.plane ?? context.viewPlane }), [context, shown?.plane]);
+  // The labels drawn over the frame: the freshest fetch for the shown slice.
+  const overlaySlice = shown ? (sliceState && sliceState.index === shown.index ? sliceState.data : shown.slice) : null;
   const report = useCallback((error: unknown) => setSegmentationPresentation(workspaceId, { error: text(error) }), [workspaceId]);
   useEffect(() => { if (!hint) return; const timer = setTimeout(() => setHintState(null), 2500); return () => clearTimeout(timer); }, [hint]);
 
@@ -98,11 +128,12 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   // Leaving the tab unmounts the viewport, which drops its image from the
   // render store; the frame key must go with it, or on return the viewport
   // is declared ready on an empty (black) canvas before any frame is drawn.
-  useEffect(() => { if (!isFront) setRenderedFrame(''); }, [isFront]);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { if (!isFront) { renderGen.current++; renderer.current.want = null; setRenderedFrame(''); setShown(null); } }, [isFront]);
   // A frame believed drawn whose image is gone (its viewport unmounted after
   // the image landed) is drawn again, without user action.
   useEffect(() => {
-    if (isFront && renderedFrame && renderedFrame === frameKey && !hasImage) { setRenderedFrame(''); setRedraw((n) => n + 1); }
+    if (isFront && renderedFrame && renderedFrame === frameKey && !hasImage) { setRenderedFrame(''); setShown(null); setRedraw((n) => n + 1); }
   }, [isFront, renderedFrame, frameKey, hasImage]);
   useEffect(() => {
     let disposed = false;
@@ -126,18 +157,48 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   useEffect(() => {
     const record = getSegmentationSession(workspaceId);
     if (!isFront || !record || !active?.sessionId) return;
-    let disposed = false;
-    setSlice(null); setPreview(null);
-    void record.controller.slice(session?.sliceIndex ?? 0, size).then((result) => { if (!disposed && result) setSlice(result); }).catch((error) => { if (!disposed) report(error); });
-    return () => { disposed = true; record.controller.cancelPreview(); };
+    setPreview(null);
+    const f = fetcher.current;
+    // The request carries its session: a fetch still running for an old one pumps the new one.
+    f.want = { index: session?.sliceIndex ?? 0, size, record };
+    const pump = () => {
+      if (f.busy || !f.want || !mounted.current) return;
+      const { index, size: dims, record: owner } = f.want; f.want = null; f.busy = true;
+      const seq = ++sliceSeq.current;
+      void owner.controller.slice(index, dims)
+        .then((result) => { if (mounted.current && result && seq > sliceApplied.current) { sliceApplied.current = seq; setSliceState({ index, data: result }); } })
+        .catch((error) => { if (mounted.current && !f.want) report(error); })
+        .finally(() => { f.busy = false; pump(); });
+    };
+    pump();
+    return () => { record.controller.cancelPreview(); };
   }, [workspaceId, active?.sessionId, active?.revision, session?.sliceIndex, size, report, isFront]);
   useEffect(() => {
-    if (!isFront || !plane || !sourceId || !layerReady) return;
-    let disposed = false;
-    const lease = captureActiveWorkspace();
-    const current = () => !disposed && lease?.workspaceId === workspaceId && lease.isCurrent();
-    void renderModulePlane({ workspaceId, context, plane, volumeIds: [sourceId], isCurrent: current }).then(() => { if (current()) setRenderedFrame(frameKey); }).catch((error) => { if (current()) setDisplayError(text(error)); });
-    return () => { disposed = true; };
+    if (!isFront || !plane || !sourceId || !layerReady) { renderer.current.want = null; return; }
+    const r = renderer.current, at = planeSlice.current;
+    // A newer request replaces a waiting one; the one in flight finishes and may
+    // still be shown (it is newer than what is on screen), so a gesture shows frames.
+    r.want = () => {
+      const lease = captureActiveWorkspace(), seq = ++renderSeq.current, gen = renderGen.current, sliceAt = sliceApplied.current;
+      const current = () => mounted.current && gen === renderGen.current && lease?.workspaceId === workspaceId && lease.isCurrent() && seq > shownSeq.current;
+      return renderModulePlane({ workspaceId, context, plane, volumeIds: [sourceId], isCurrent: current }).then(() => {
+        if (!current() || !at) return;
+        shownSeq.current = seq; setShown({ key: frameKey, plane, index: at.index, slice: at.data }); setRenderedFrame(frameKey);
+      }).catch((error) => {
+        if (!current()) return;
+        // Superseded (a newer render or slice is on its way): draw again rather than
+        // stop on an error for a frame nobody is waiting for.
+        const f = fetcher.current;
+        if (r.want || f.busy || f.want || sliceApplied.current !== sliceAt) { setRedraw((k) => k + 1); return; }
+        setDisplayError(text(error));
+      });
+    };
+    const pump = () => {
+      if (r.busy || !r.want || !mounted.current) return;
+      const run = r.want; r.want = null; r.busy = true;
+      void run().finally(() => { r.busy = false; pump(); });
+    };
+    pump();
   }, [workspaceId, plane, context, sourceId, frameKey, workspaceView?.layers, layerReady, attempt, isFront, sourceResidency, redraw]);
 
   const queuePreview = useCallback(() => {
@@ -196,9 +257,10 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const overlay = useCallback((ctx: CanvasRenderingContext2D, at: SliceViewportPlacement) => {
     const live = state.current;
     const tool = session?.tool ?? live?.tool;
-    const brush = hover && !stroke.current && (tool === 'brush' || tool === 'eraser') && plane ? { ...hover, radiusPx: brushRadiusPx(session?.radiusMm ?? live?.radiusMm ?? 0, plane, at) } : null;
-    if (ready.current && live?.info && slice && plane) drawTracingOverlay(ctx, at, { snapshot: live.info.snapshot, sliceIndex: live.sliceIndex, plane, slice, activeLabelId: session?.activeLabelId ?? live.activeLabelId, hiddenLabelIds: session?.hiddenLabelIds ?? live.hiddenLabelIds, preview, fill: session?.fill ?? live.fill, hover: brush });
-  }, [slice, plane, preview, session?.activeLabelId, session?.hiddenLabelIds, session?.fill, session?.tool, session?.radiusMm, hover]);
+    if (!live?.info || !shown || !overlaySlice) return;
+    const brush = ready.current && hover && !stroke.current && (tool === 'brush' || tool === 'eraser') ? { ...hover, radiusPx: brushRadiusPx(session?.radiusMm ?? live?.radiusMm ?? 0, shown.plane, at) } : null;
+    drawTracingOverlay(ctx, at, { snapshot: live.info.snapshot, sliceIndex: shown.index, plane: shown.plane, slice: overlaySlice, activeLabelId: session?.activeLabelId ?? live.activeLabelId, hiddenLabelIds: session?.hiddenLabelIds ?? live.hiddenLabelIds, preview: ready.current ? preview : null, fill: session?.fill ?? live.fill, hover: brush });
+  }, [shown, overlaySlice, preview, session?.activeLabelId, session?.hiddenLabelIds, session?.fill, session?.tool, session?.radiusMm, hover]);
   // Pieces of the active label on this slice (islands beyond the first), for the strip.
   const normalAxis = active?.normalAxis, activeLabelId = session?.activeLabelId;
   const pieces = useMemo(() => slice && normalAxis != null && activeLabelId != null ? labelIslands(labelSliceVoxels(slice.labels, normalAxis), activeLabelId).length + 1 : 1, [slice, normalAxis, activeLabelId]);
@@ -206,9 +268,21 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
   const label = active.labels.find((row) => row.definition.id === session.activeLabelId);
   const count = active.dimensions[active.normalAxis];
   const patch = (value: Parameters<typeof setSegmentationPresentation>[1]) => setSegmentationPresentation(workspaceId, value);
-  const step = (delta: number) => patch({ sliceIndex: Math.min(count - 1, Math.max(0, session.sliceIndex + delta)) });
+  const step = (delta: number) => {
+    const next = Math.min(count - 1, Math.max(0, (stepBase.current ?? session.sliceIndex) + delta));
+    stepBase.current = next; patch({ sliceIndex: next });
+  };
+  // A mouse notch (a large delta) is one slice; trackpad deltas add up, one slice per WHEEL_STEP_PX.
+  const wheelStep = (dy: number) => {
+    if (Math.abs(dy) >= WHEEL_STEP_PX) { wheelRest.current = 0; step(Math.sign(dy)); return; }
+    if (Math.sign(wheelRest.current) === -Math.sign(dy)) wheelRest.current = 0;
+    wheelRest.current += dy;
+    const n = Math.trunc(wheelRest.current / WHEEL_STEP_PX);
+    if (n) { wheelRest.current -= n * WHEEL_STEP_PX; step(n); }
+  };
   const zoom = (factor: number, anchor: { canvasX: number; canvasY: number }, move?: { dx: number; dy: number }, from = plane) => {
-    if (!from || !placement.current) return;
+    // Not while a step is pending: the plane on screen belongs to the previous slice.
+    if (!from || !placement.current || sliceState?.index !== session.sliceIndex) return;
     const fitPixelMm = slice ? Math.hypot(...slice.plane.u_mm) : Math.hypot(...from.u_mm);
     const result = zoomPanPlane({ plane: from, placement: placement.current, canvas: size, anchor, factor, pan: move, limits: { min: fitPixelMm / 40, max: fitPixelMm * 4 } });
     if (result) { pointer.cancel('tool-changed'); setFraming({ plane: result, index: session.sliceIndex }); }
@@ -237,17 +311,17 @@ export function SegmentViewport({ workspaceId }: { workspaceId: string }) {
       <IconButton aria-label="Previous native slice" icon={<ChevronLeft />} disabled={session.sliceIndex === 0 || session.busy} onClick={() => step(-1)} />
       <IconButton aria-label="Next native slice" icon={<ChevronRight />} disabled={session.sliceIndex + 1 === count || session.busy} onClick={() => step(1)} />
       <label>Radius <input className="w-14 bg-bf-bg-input font-mono" type="number" inputMode="decimal" min="0.1" max="30" step="0.1" value={radiusDraft && radiusDraft.base === session.radiusMm ? radiusDraft.text : session.radiusMm} {...numericEntryHandlers} onBlur={(event) => { numericEntryHandlers.onBlur?.(event); setRadiusDraft(null); }} onChange={(event) => { const raw = event.target.value, n = Number(raw), valid = raw.trim() !== '' && n >= .1 && n <= 30; setRadiusDraft({ text: raw, base: valid ? n : session.radiusMm }); if (valid) patch({ radiusMm: n }); }} /> mm</label>
-      <label>Paint <select className="bg-bf-bg-input" value={session.paintOver} onChange={(event) => patch({ paintOver: event.target.value as typeof session.paintOver })}><option value="background">Background only</option><option value="unlocked">Unlocked labels</option><option value="all">All unlocked labels</option></select></label>
+      <label>Paint over <select className="bg-bf-bg-input" value={session.paintOver === 'all' ? 'unlocked' : session.paintOver} onChange={(event) => patch({ paintOver: event.target.value as typeof session.paintOver })}><option value="background">Empty space only</option><option value="unlocked">Unlocked labels</option></select></label>
       {active.secondaryVolumeId && active.registration?.status === 'aligned' ? <Button size="sm" onClick={() => setContrast(contrast === 'reference' ? 'secondary' : 'reference')}>{contrast === 'reference' ? 'Show secondary' : 'Show reference'}</Button> : null}
       <Button size="sm" onClick={() => patch({ fill: !session.fill })}>{session.fill ? 'Outline only' : 'Show fills'}</Button>
       <IconButton aria-label="Fit native slice" title="Fit native slice" icon={<Maximize2 />} onClick={() => setFraming(null)} />
     </header>
     <div className="flex min-h-0 flex-1"><TracingTools active={session.tool} disabled={session.busy || !ready.current} onSelect={(tool) => { pointer.cancel('tool-changed'); patch({ tool }); }} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="min-h-6 overflow-auto border-b border-bf-border-subtle px-2 py-1"><ConstraintStripView label={session.activeLabelId} definition={label ? { name: label.definition.name, color: `rgb(${label.definition.color.join(' ')})` } : undefined} paintOver={session.paintOver === 'background' ? 'background only' : 'over unlocked'} diameterMm={session.radiusMm * 2} readout={`${preview ? `${preview.written.length} vx · ` : ''}one native slice${pieces > 1 ? ` · ${pieces} pieces` : ''}`} blocked={blocked} /></div>
+        {/* Fixed height, clipped: the strip's text changes during a stroke and must never resize the view (a resize re-frames it and cancels the stroke). */}<div className="h-6 shrink-0 overflow-hidden border-b border-bf-border-subtle px-2 py-1" data-testid="segment-strip-row"><ConstraintStripView label={session.activeLabelId} definition={label ? { name: label.definition.name, color: `rgb(${label.definition.color.join(' ')})` } : undefined} plain paintOver={session.paintOver === 'background' ? 'paints empty space only' : 'paints over unlocked labels'} diameterMm={session.radiusMm * 2} readout={[preview ? `stroke ${preview.written.length} vx` : '', pieces > 1 ? `${pieces} pieces` : ''].filter(Boolean).join(' · ') || undefined} blocked={blocked} /></div>
         <div ref={container} className="relative min-h-0 flex-1 bg-bf-bg-canvas">
-          {ready.current && plane && slice ? <SliceViewport width={size[0]} height={size[1]} context={context} viewPlane={plane} tool={session.tool === 'navigate' ? null : getModuleViewportTool(`segmentation.${session.tool}`)} customRender={overlay} crosshair={crosshairPosition ? { visible: workspaceView?.crosshair.visible ?? true, world_mm: crosshairPosition } : null} crosshairStyle={{ ...crosshairStyle, lineDash: undefined, lineWidth: 1 }} getCrosshairKnockouts={getKnockouts} onWorldClick={(world) => setModuleCrosshair(workspaceId, world)} enableDragDrop={false} onCanvasReady={(element) => { canvas.current = element; }} onPlacementChange={(next) => { placement.current = next; setDisplayPlacement((old) => JSON.stringify(old) === JSON.stringify(next) ? old : next); }}
-            onWheel={(event) => { event.preventDefault(); if (event.ctrlKey || event.altKey) { const rect = event.currentTarget.getBoundingClientRect(); zoom(Math.exp(-event.deltaY * .005), { canvasX: event.clientX - rect.left, canvasY: event.clientY - rect.top }); } else if (!session.busy) step(event.deltaY > 0 ? 1 : -1); }}
+          {visible && shown ? <SliceViewport width={size[0]} height={size[1]} context={displayContext} viewPlane={shown.plane} tool={session.tool === 'navigate' ? null : getModuleViewportTool(`segmentation.${session.tool}`)} customRender={overlay} crosshair={crosshairPosition ? { visible: workspaceView?.crosshair.visible ?? true, world_mm: crosshairPosition } : null} crosshairStyle={{ ...crosshairStyle, lineDash: undefined, lineWidth: 1 }} getCrosshairKnockouts={getKnockouts} onWorldClick={(world) => setModuleCrosshair(workspaceId, world)} enableDragDrop={false} onCanvasReady={(element) => { canvas.current = element; }} onPlacementChange={(next) => { placement.current = next; setDisplayPlacement((old) => JSON.stringify(old) === JSON.stringify(next) ? old : next); }}
+            onWheel={(event) => { event.preventDefault(); if (event.ctrlKey || event.altKey) { const rect = event.currentTarget.getBoundingClientRect(); zoom(Math.exp(-event.deltaY * .005), { canvasX: event.clientX - rect.left, canvasY: event.clientY - rect.top }); } else if (!session.busy) wheelStep(event.deltaY); }}
             onMouseDown={(event) => { if ((event.button === 1 || panKey.current) && plane) { event.preventDefault(); pan.current = { x: event.clientX, y: event.clientY, plane }; } }}
             onMouseMove={(event) => { const box = event.currentTarget.getBoundingClientRect(), image = placement.current; const x = box.width ? (event.clientX - box.left) * size[0] / box.width : NaN, y = box.height ? (event.clientY - box.top) * size[1] / box.height : NaN; setHover(image && x >= image.x && x <= image.x + image.width && y >= image.y && y <= image.y + image.height ? { x, y } : null); if (pan.current) { const rect = event.currentTarget.getBoundingClientRect(); zoom(1, { canvasX: pan.current.x - rect.left, canvasY: pan.current.y - rect.top }, { dx: event.clientX - pan.current.x, dy: event.clientY - pan.current.y }, pan.current.plane); } }} onMouseUp={() => { pan.current = null; }} onMouseLeave={() => { pan.current = null; setHover(null); }} /> : <div role="status" className="p-3 text-bf-xs text-bf-text-muted">Preparing the reference plane…</div>}
           {ready.current && tipAt && (blocked || lockedRefusal || hint) ? <div role="status" className="pointer-events-none absolute max-w-[240px] border border-bf-border-subtle bg-bf-bg-panel px-2 py-1 text-bf-xs shadow-sm" style={{ left: Math.max(4, Math.min(size[0] - 244, tipAt.canvasX + 14)), top: Math.max(4, Math.min(size[1] - 64, tipAt.canvasY + 14)) }}>{hint?.text ?? lockedRefusal ?? `${preview!.blocked.length} voxels protected: ${preview!.blockedLabels.map((id) => active.labels.find((row) => row.definition.id === id)?.definition.name ?? 'constraint').join(', ')}`}</div> : null}

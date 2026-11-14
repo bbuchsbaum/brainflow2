@@ -12,7 +12,7 @@ export function SegmentationInspector() {
   const session = useSegmentationSession(workspaceId ?? '');
   const loaded = useLoadedVolumeLayers();
   const [filter, setFilter] = useState(''), [page, setPage] = useState(1);
-  if (!workspaceId || !session?.info) return <EmptyPane title="Segment" hint="Create a segmentation session in Segment mode." />;
+  if (!workspaceId || !session?.info) return <EmptyPane title="No segmentation session yet" hint={<>Fill in the New segmentation form in the view and choose Create segmentation. If the view shows something else, open the form with <span className="font-mono">⌘K › Open segmentation</span>.</>} />;
   const snapshot = session.info.snapshot;
   const labels = snapshot.labels.map((label) => ({ id: label.definition.id, name: label.definition.name, long: label.definition.name, color: `rgb(${label.definition.color.join(' ')})`, voxels: label.voxels, mm3: label.mm3, locked: label.locked, visible: !session.hiddenLabelIds.includes(label.definition.id), status: label.complete ? 'complete' as const : label.voxels > 0 ? 'in-progress' as const : 'not-started' as const }));
   const filtered = labels.filter((label) => `${label.id} ${label.name}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase()));
@@ -25,6 +25,7 @@ export function SegmentationInspector() {
     <Section title="Session"><p className="text-bf-text-secondary">{snapshot.identity.subject} · {snapshot.identity.hemisphere}</p><p className="font-mono text-bf-2xs text-bf-text-muted">{snapshot.identity.rater} · revision {snapshot.revision} · <span data-testid="segmentation-save-state">{saveState}</span></p>
       {frames ? <p className="font-mono text-bf-2xs text-bf-text-muted" data-testid="segmentation-frames">{frames} (recorded in the saved header)</p> : null}
       <p className="mt-2 text-bf-2xs text-bf-text-muted">Free tracing. No anatomical protocol is attached.</p>
+      <p className="mt-1 text-bf-2xs text-bf-text-secondary" data-testid="segmentation-workflow">Pick the brush (B) and drag to paint · scroll to step slices · mark each label complete · save as NIfTI.</p>
       <Button size="sm" className="mt-2" disabled={session.busy} onClick={() => void saveSegmentationLabels(workspaceId)}>Save labels as NIfTI…</Button>
       {saved ? <p role="status" className="mt-2 text-bf-2xs text-bf-text-muted">Saved revision {saved.revision} to <span className="font-mono">{fileName(saved.labelPath)}</span> with its label table <span className="font-mono">{fileName(saved.tablePath)}</span>.</p> : null}
     </Section>

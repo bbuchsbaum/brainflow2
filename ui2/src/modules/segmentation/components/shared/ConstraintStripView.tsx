@@ -31,6 +31,11 @@ export interface ConstraintStripProps {
   dense?: boolean;
   /** What the brush writes on the native grid ("7 vx in-plane · 1 slice"), shown after the size. */
   readout?: string;
+  /**
+   * Plain language for the live view: "brush ⌀ 4.0 mm · paints over unlocked
+   * labels · readout", without the always-default shape and range items.
+   */
+  plain?: boolean;
   className?: string;
 }
 
@@ -50,6 +55,7 @@ export function ConstraintStripView({
   hideLabel = false,
   dense = false,
   readout,
+  plain = false,
   className,
 }: ConstraintStripProps) {
   const def = definition;
@@ -101,6 +107,20 @@ export function ConstraintStripView({
         </span>
       ) : null}
       {!hideLabel ? <Sep /> : null}
+      {plain ? (
+        <>
+          <span>brush ⌀ {diameterMm.toFixed(1)} mm</span>
+          <Sep />
+          <span>{paintOver}</span>
+          {readout ? (
+            <>
+              <Sep />
+              <span className="text-bf-text-muted">{readout}</span>
+            </>
+          ) : null}
+        </>
+      ) : (
+        <>
       <span>{paintOver}</span>
       <Sep />
       <span>{shape}</span>
@@ -111,6 +131,8 @@ export function ConstraintStripView({
         <Sep />
         <span>{range ? `range ${range}` : 'range off'}</span>
       </span>
+        </>
+      )}
       {lens ? (
         <>
           <Sep />
